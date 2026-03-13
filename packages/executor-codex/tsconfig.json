@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "paths": {
+      "@autoaide/task-system": ["../../packages/task-system/src/index.ts"],
+      "@autoaide/worker-orchestrator": ["../../packages/worker-orchestrator/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../../packages/task-system" },
+    { "path": "../../packages/worker-orchestrator" }
+  ],
+  "include": ["src/**/*.ts"]
+}

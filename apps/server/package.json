@@ -1,0 +1,12 @@
+{
+  "name": "@autoaide/server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@autoaide/core-config": "file:../../packages/core-config",
+    "@autoaide/core-logger": "file:../../packages/core-logger"
+  }
+}

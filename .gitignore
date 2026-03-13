@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.tgz
+.DS_Store
+.npmrc
+.pnpm-debug.log*

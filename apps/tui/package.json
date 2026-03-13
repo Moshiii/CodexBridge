@@ -1,0 +1,15 @@
+{
+  "name": "@autoaide/tui",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@autoaide/executor-codex": "file:../../packages/executor-codex",
+    "@autoaide/memory-system": "file:../../packages/memory-system",
+    "@autoaide/task-system": "file:../../packages/task-system",
+    "@autoaide/terminal-ui": "file:../../packages/terminal-ui",
+    "@autoaide/worker-orchestrator": "file:../../packages/worker-orchestrator"
+  }
+}

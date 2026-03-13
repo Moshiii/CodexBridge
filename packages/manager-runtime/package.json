@@ -1,0 +1,14 @@
+{
+  "name": "@autoaide/manager-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@autoaide/executor-codex": "file:../executor-codex",
+    "@autoaide/manager-core": "file:../manager-core",
+    "@autoaide/memory-system": "file:../memory-system",
+    "@autoaide/task-system": "file:../task-system"
+  }
+}

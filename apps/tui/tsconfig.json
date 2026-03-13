@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "paths": {
+      "@autoaide/executor-codex": ["../../packages/executor-codex/src/index.ts"],
+      "@autoaide/memory-system": ["../../packages/memory-system/src/index.ts"],
+      "@autoaide/task-system": ["../../packages/task-system/src/index.ts"],
+      "@autoaide/terminal-ui": ["../../packages/terminal-ui/src/index.ts"],
+      "@autoaide/worker-orchestrator": ["../../packages/worker-orchestrator/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../../packages/task-system" },
+    { "path": "../../packages/memory-system" },
+    { "path": "../../packages/executor-codex" },
+    { "path": "../../packages/worker-orchestrator" },
+    { "path": "../../packages/terminal-ui" }
+  ],
+  "include": ["src/**/*.ts"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "@autoaide/owner-interface",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "dependencies": {
+    "@autoaide/manager-runtime": "file:../manager-runtime",
+    "@autoaide/supervision-core": "file:../supervision-core",
+    "@autoaide/task-system": "file:../task-system"
+  }
+}

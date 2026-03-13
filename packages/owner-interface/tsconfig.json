@@ -1,0 +1,27 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "composite": true,
+    "declaration": true,
+    "declarationMap": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "paths": {
+      "@autoaide/manager-runtime": ["../../packages/manager-runtime/src/index.ts"],
+      "@autoaide/supervision-core": ["../../packages/supervision-core/src/index.ts"],
+      "@autoaide/task-system": ["../../packages/task-system/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../../packages/task-system" },
+    { "path": "../../packages/manager-runtime" },
+    { "path": "../../packages/supervision-core" }
+  ],
+  "include": ["src/**/*.ts"]
+}

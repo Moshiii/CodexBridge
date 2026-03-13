@@ -1,0 +1,36 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@autoaide/core-config": ["./packages/core-config/src/index.ts"],
+      "@autoaide/core-logger": ["./packages/core-logger/src/index.ts"],
+      "@autoaide/task-system": ["./packages/task-system/src/index.ts"],
+      "@autoaide/memory-system": ["./packages/memory-system/src/index.ts"],
+      "@autoaide/manager-core": ["./packages/manager-core/src/index.ts"],
+      "@autoaide/manager-runtime": ["./packages/manager-runtime/src/index.ts"],
+      "@autoaide/worker-orchestrator": ["./packages/worker-orchestrator/src/index.ts"],
+      "@autoaide/executor-codex": ["./packages/executor-codex/src/index.ts"],
+      "@autoaide/owner-interface": ["./packages/owner-interface/src/index.ts"],
+      "@autoaide/supervision-core": ["./packages/supervision-core/src/index.ts"],
+      "@autoaide/terminal-ui": ["./packages/terminal-ui/src/index.ts"],
+      "@autoaide/tui": ["./apps/tui/src/index.ts"]
+    }
+  },
+  "files": [],
+  "references": [
+    { "path": "./packages/core-config" },
+    { "path": "./packages/core-logger" },
+    { "path": "./packages/task-system" },
+    { "path": "./packages/memory-system" },
+    { "path": "./packages/manager-core" },
+    { "path": "./packages/manager-runtime" },
+    { "path": "./packages/worker-orchestrator" },
+    { "path": "./packages/executor-codex" },
+    { "path": "./packages/owner-interface" },
+    { "path": "./packages/supervision-core" },
+    { "path": "./packages/terminal-ui" },
+    { "path": "./apps/server" },
+    { "path": "./apps/tui" },
+    { "path": "./apps/cli" }
+  ]
+}
