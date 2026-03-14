@@ -1,7 +1,8 @@
 #!/usr/bin/env -S node --import tsx
+import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildOperatorDashboard, runCodexConnectivityCheck, runInteractiveTui } from "@autoaide/tui";
+import { buildOperatorDashboard, runCodexConnectivityCheck } from "@autoaide/tui";
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -11,6 +12,12 @@ type CommandDefinition = {
   usage: string;
   handler: CommandHandler;
 };
+
+let spawnProcess: typeof spawn = spawn;
+
+export function setSpawnProcessForTest(nextSpawn: typeof spawn): void {
+  spawnProcess = nextSpawn;
+}
 
 function printTopLevelHelp(): void {
   console.log(
@@ -27,7 +34,7 @@ function printTopLevelHelp(): void {
       "  workers    Print the current worker view",
       "  cron       Show cron/supervision status placeholder",
       "  memory     Show memory status placeholder",
-      "  codex      Run Codex connectivity checks",
+      "  codex      Diagnose Codex availability and connectivity",
       "  help       Show help",
       "",
       "Examples:",
@@ -47,14 +54,38 @@ function extractSection(text: string, heading: string, nextHeading: string): str
   return text.slice(start, end >= 0 ? end : text.length).trimEnd();
 }
 
+async function runRustTui(): Promise<number> {
+  const manifestPath = fileURLToPath(new URL("../../tui-rs/Cargo.toml", import.meta.url));
+  const child = spawnProcess("cargo", ["run", "--quiet", "--manifest-path", manifestPath], {
+    stdio: "inherit",
+    env: process.env
+  });
+
+  return await new Promise<number>((resolve, reject) => {
+    child.on("error", (error) => {
+      reject(
+        new Error(
+          `Failed to launch Rust TUI via cargo. Ensure Rust is installed and cargo is on PATH. Original error: ${error.message}`
+        )
+      );
+    });
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        resolve(1);
+        return;
+      }
+      resolve(code ?? 0);
+    });
+  });
+}
+
 const commands: Record<string, CommandDefinition> = {
   tui: {
     name: "tui",
     summary: "Open the interactive terminal UI",
     usage: "autoaide tui",
     handler: async () => {
-      await runInteractiveTui();
-      return 0;
+      return await runRustTui();
     }
   },
   status: {
@@ -104,7 +135,7 @@ const commands: Record<string, CommandDefinition> = {
   },
   codex: {
     name: "codex",
-    summary: "Run Codex connectivity checks",
+    summary: "Diagnose Codex availability and connectivity",
     usage: "autoaide codex check",
     handler: async (args) => {
       const [subcommand] = args;

@@ -1,10 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import * as tuiModule from "@autoaide/tui";
-import { runCli } from "./index.js";
+import { runCli, setSpawnProcessForTest } from "./index.js";
 
 describe("autoaide cli", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    setSpawnProcessForTest((() => {
+      throw new Error("spawnProcess test double was not configured");
+    }) as never);
   });
 
   it("renders top-level help", async () => {
@@ -36,5 +39,25 @@ describe("autoaide cli", () => {
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining("workers 2"));
     log.mockRestore();
+  });
+
+  it("launches the Rust TUI for the tui command", async () => {
+    const spawnMock = vi.fn().mockReturnValue({
+      on(event: string, listener: (...args: unknown[]) => void) {
+        if (event === "exit") {
+          queueMicrotask(() => listener(0, null));
+        }
+        return this as never;
+      }
+    });
+    setSpawnProcessForTest(spawnMock as never);
+
+    await expect(runCli(["tui"])).resolves.toBe(0);
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "cargo",
+      expect.arrayContaining(["run", "--quiet"]),
+      expect.objectContaining({ stdio: "inherit" })
+    );
   });
 });
