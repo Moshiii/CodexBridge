@@ -1,7 +1,6 @@
-import { buildManagerOverview } from "@autoaide/manager-core";
-import type { InMemoryManagerMemory } from "@autoaide/memory-system";
+import { buildManagerOverview, runManagerSupervisionCycle } from "@autoaide/manager-runtime";
+import { type InMemoryManagerMemory } from "@autoaide/memory-system";
 import type { InMemoryTaskStore, Task } from "@autoaide/task-system";
-import { runSupervisionCycle } from "@autoaide/supervision-core";
 import type { InMemoryWorkerRegistry } from "@autoaide/worker-orchestrator";
 
 export type OperatorTaskView = {
@@ -128,7 +127,7 @@ export function buildOperatorSnapshot(input: {
     memory: input.memory,
     now: input.now
   });
-  const supervision = runSupervisionCycle({
+  const supervision = runManagerSupervisionCycle({
     store: input.store,
     memory: input.memory,
     now: input.now

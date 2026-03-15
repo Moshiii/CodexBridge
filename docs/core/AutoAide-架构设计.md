@@ -62,6 +62,8 @@
 - 追问与汇报
 - 基于结构化状态做管理判断
 
+`manager` 的智能来自 `LLM`，但它的动作必须来自 `tool calls`。
+
 #### 使命
 
 `manager` 的使命只有一句话：
@@ -124,6 +126,8 @@
 - `DeterministicManagerRuntime` 只用于测试和显式 fallback
 - owner 在 TUI 中面对的默认就是这个 manager
 - manager 的回复必须尽量建立在结构化 memory grounding 和 tool contract 上，而不是自由发挥
+- manager 不应把“自然语言回复”当成真正的状态改变手段
+- 任何会改变系统状态的管理动作，都应通过结构化 tool call 落地
 
 ### 3. Worker
 
@@ -192,6 +196,28 @@ worker 不直接面对 owner。
 
 manager 只拥有调度权和监督权，不拥有执行权。
 
+### 原则 8：manager 必须是 tool-first，而不是 prompt-first 自动化
+
+`manager` 当然可以自由理解 owner 的意图，但它不应该靠“自由文本”直接驱动系统行为。
+
+正确分工应该是：
+
+- `LLM` 负责理解、判断、组织语言
+- `tool calls` 负责改变状态、触发编排、写入记录
+
+也就是说：
+
+- manager 的智能来自模型
+- manager 的行动来自工具
+
+这条原则的价值在于：
+
+- 可控
+- 可审计
+- 可恢复
+- 可测试
+- 可在 TUI 中清楚展示
+
 ### 原则 7：owner 面对的是一个持续在线的管家角色
 
 在产品体验上，owner 不应该感知到底下有多少 worker、多少状态机或多少模块。
@@ -216,6 +242,7 @@ owner 面对的应该始终是：
 - `scheduling`
 - `progress supervision`
 - `channel communication`
+- `manager tool execution layer`
 
 ### AutoAide 不应该具备
 
@@ -237,6 +264,10 @@ owner 面对的应该始终是：
 - manager 对 worker 的控制通过 orchestration API，而不是通过共享 shell
 
 建议默认规则：
+
+- manager 只拿到结构化 read tools 和 orchestration tools
+- shell、文件修改、工程执行这类工具默认只给 worker
+- owner-facing 的关键动作默认都应可映射到某个 tool call
 
 - `manager`：无 shell、无 patch、无 workspace 写权限
 - `worker`：拥有执行工具，但权限受 executor policy 和 sandbox policy 限制

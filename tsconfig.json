@@ -12,7 +12,6 @@
       "@autoaide/executor-codex": ["./packages/executor-codex/src/index.ts"],
       "@autoaide/owner-interface": ["./packages/owner-interface/src/index.ts"],
       "@autoaide/supervision-core": ["./packages/supervision-core/src/index.ts"],
-      "@autoaide/terminal-ui": ["./packages/terminal-ui/src/index.ts"],
       "@autoaide/tui": ["./apps/tui/src/index.ts"]
     }
   },
@@ -28,7 +27,6 @@
     { "path": "./packages/executor-codex" },
     { "path": "./packages/owner-interface" },
     { "path": "./packages/supervision-core" },
-    { "path": "./packages/terminal-ui" },
     { "path": "./apps/server" },
     { "path": "./apps/tui" },
     { "path": "./apps/cli" }

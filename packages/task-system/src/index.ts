@@ -10,6 +10,13 @@ export type TaskStatus =
   | "done"
   | "cancelled";
 export type TaskPriority = "low" | "medium" | "high" | "critical";
+export type WorkstreamStatus =
+  | "active"
+  | "waiting_owner"
+  | "blocked"
+  | "reviewing"
+  | "done"
+  | "archived";
 export type ExecutorType = "codex";
 export type AssignmentStatus =
   | "queued"
@@ -79,6 +86,25 @@ export type Task = {
   tags?: string[];
 };
 
+export type Workstream = {
+  id: string;
+  ownerId: string;
+  rootTaskId: string;
+  title: string;
+  goal: string;
+  status: WorkstreamStatus;
+  priority: TaskPriority;
+  activeTaskId?: string;
+  activeWorkerId?: string;
+  nextFollowupAt?: number;
+  lastManagerJudgment?: string;
+  lastManagerReply?: string;
+  lastCheckpointAt?: number;
+  createdAt: number;
+  updatedAt: number;
+  tags?: string[];
+};
+
 export type Assignment = {
   id: string;
   taskId: string;
@@ -86,6 +112,8 @@ export type Assignment = {
   executorType: ExecutorType;
   status: AssignmentStatus;
   objective: string;
+  deliverable?: string;
+  completionSignal?: string;
   inputs: Record<string, unknown>;
   createdAt: number;
   updatedAt: number;
@@ -126,6 +154,13 @@ export type WorkerProfile = {
   status: WorkerStatus;
   currentAssignmentId?: string;
   strengths?: string[];
+  preferredTaskTypes?: string[];
+  recentTaskTypes?: string[];
+  lastTaskId?: string;
+  lastAssignmentAt?: number;
+  lastHeartbeatAt?: number;
+  lastOutcome?: "succeeded" | "failed" | "timed_out" | "cancelled";
+  lastOutcomeAt?: number;
   recentFailures?: string[];
   createdAt: number;
   updatedAt: number;
@@ -136,6 +171,13 @@ export type TaskQuery = {
   projectId?: string;
   workerId?: string;
   status?: TaskStatus;
+};
+
+export type WorkstreamQuery = {
+  ownerId?: string;
+  rootTaskId?: string;
+  activeWorkerId?: string;
+  status?: WorkstreamStatus;
 };
 
 export type AssignmentQuery = {
@@ -151,13 +193,14 @@ export type CommitmentQuery = {
   status?: CommitmentStatus;
 };
 
-export const TASK_SYSTEM_SCHEMA_VERSION = 1;
+export const TASK_SYSTEM_SCHEMA_VERSION = 2;
 
 export type TaskSystemSnapshot = {
   schemaVersion: number;
   createdAt: number;
   updatedAt: number;
   data: {
+    workstreams: Workstream[];
     tasks: Task[];
     assignments: Assignment[];
     commitments: Commitment[];
@@ -167,10 +210,23 @@ export type TaskSystemSnapshot = {
 
 export type LegacyTaskSystemSnapshotV0 = {
   schemaVersion?: 0;
+  workstreams?: Workstream[];
   tasks?: Task[];
   assignments?: Assignment[];
   commitments?: Commitment[];
   progressEvents?: ProgressEvent[];
+};
+
+export type LegacyTaskSystemSnapshotV1 = {
+  schemaVersion: 1;
+  createdAt: number;
+  updatedAt: number;
+  data: {
+    tasks?: Task[];
+    assignments?: Assignment[];
+    commitments?: Commitment[];
+    progressEvents?: ProgressEvent[];
+  };
 };
 
 function isNonEmptyString(value: string, field: string): string {
@@ -220,11 +276,44 @@ export function createTask(input: {
   };
 }
 
+export function createWorkstream(input: {
+  id: string;
+  ownerId: string;
+  rootTaskId: string;
+  title: string;
+  goal: string;
+  now?: number;
+  priority?: TaskPriority;
+  activeTaskId?: string;
+  activeWorkerId?: string;
+  nextFollowupAt?: number;
+  tags?: string[];
+}): Workstream {
+  const now = input.now ?? Date.now();
+  return {
+    id: isNonEmptyString(input.id, "workstream.id"),
+    ownerId: isNonEmptyString(input.ownerId, "workstream.ownerId"),
+    rootTaskId: isNonEmptyString(input.rootTaskId, "workstream.rootTaskId"),
+    title: isNonEmptyString(input.title, "workstream.title"),
+    goal: isNonEmptyString(input.goal, "workstream.goal"),
+    status: "active",
+    priority: input.priority ?? "medium",
+    activeTaskId: input.activeTaskId,
+    activeWorkerId: input.activeWorkerId,
+    nextFollowupAt: normalizeDueAt(input.nextFollowupAt, "workstream.nextFollowupAt"),
+    createdAt: now,
+    updatedAt: now,
+    tags: input.tags
+  };
+}
+
 export function createAssignment(input: {
   id: string;
   taskId: string;
   workerId: string;
   objective: string;
+  deliverable?: string;
+  completionSignal?: string;
   now?: number;
   inputs?: Record<string, unknown>;
   executorType?: ExecutorType;
@@ -237,6 +326,8 @@ export function createAssignment(input: {
     executorType: input.executorType ?? "codex",
     status: "queued",
     objective: isNonEmptyString(input.objective, "assignment.objective"),
+    deliverable: input.deliverable?.trim() ? input.deliverable.trim() : undefined,
+    completionSignal: input.completionSignal?.trim() ? input.completionSignal.trim() : undefined,
     inputs: input.inputs ?? {},
     createdAt: now,
     updatedAt: now
@@ -364,11 +455,27 @@ function asArray<T>(value: T[] | undefined): T[] {
 }
 
 export function migrateSnapshot(
-  snapshot: TaskSystemSnapshot | LegacyTaskSystemSnapshotV0,
+  snapshot: TaskSystemSnapshot | LegacyTaskSystemSnapshotV0 | LegacyTaskSystemSnapshotV1,
   now: number = Date.now()
 ): TaskSystemSnapshot {
   if ("data" in snapshot && snapshot.schemaVersion === TASK_SYSTEM_SCHEMA_VERSION) {
     return snapshot;
+  }
+
+  if ("data" in snapshot && snapshot.schemaVersion === 1) {
+    const legacy = snapshot as LegacyTaskSystemSnapshotV1;
+    return {
+      schemaVersion: TASK_SYSTEM_SCHEMA_VERSION,
+      createdAt: legacy.createdAt,
+      updatedAt: legacy.updatedAt,
+      data: {
+        workstreams: [],
+        tasks: asArray(legacy.data.tasks),
+        assignments: asArray(legacy.data.assignments),
+        commitments: asArray(legacy.data.commitments),
+        progressEvents: asArray(legacy.data.progressEvents)
+      }
+    };
   }
 
   const legacy = snapshot as LegacyTaskSystemSnapshotV0;
@@ -377,6 +484,7 @@ export function migrateSnapshot(
     createdAt: now,
     updatedAt: now,
     data: {
+      workstreams: asArray(legacy.workstreams),
       tasks: asArray(legacy.tasks),
       assignments: asArray(legacy.assignments),
       commitments: asArray(legacy.commitments),
@@ -394,6 +502,9 @@ export function validateSnapshot(snapshot: TaskSystemSnapshot): string[] {
   if (!Array.isArray(snapshot.data.tasks)) {
     issues.push("snapshot.data.tasks must be an array");
   }
+  if (!Array.isArray(snapshot.data.workstreams)) {
+    issues.push("snapshot.data.workstreams must be an array");
+  }
   if (!Array.isArray(snapshot.data.assignments)) {
     issues.push("snapshot.data.assignments must be an array");
   }
@@ -408,7 +519,7 @@ export function validateSnapshot(snapshot: TaskSystemSnapshot): string[] {
 }
 
 export function repairSnapshot(
-  snapshot: TaskSystemSnapshot | LegacyTaskSystemSnapshotV0,
+  snapshot: TaskSystemSnapshot | LegacyTaskSystemSnapshotV0 | LegacyTaskSystemSnapshotV1,
   now: number = Date.now()
 ): TaskSystemSnapshot {
   const migrated = migrateSnapshot(snapshot, now);
@@ -416,6 +527,7 @@ export function repairSnapshot(
   return {
     ...migrated,
     data: {
+      workstreams: asArray(migrated.data.workstreams),
       tasks: asArray(migrated.data.tasks),
       assignments: asArray(migrated.data.assignments),
       commitments: asArray(migrated.data.commitments),
@@ -430,6 +542,7 @@ export interface TaskSnapshotRepository {
 }
 
 export class InMemoryTaskStore {
+  private readonly workstreams = new Map<string, Workstream>();
   private readonly tasks = new Map<string, Task>();
   private readonly assignments = new Map<string, Assignment>();
   private readonly commitments = new Map<string, Commitment>();
@@ -450,6 +563,36 @@ export class InMemoryTaskStore {
     this.tasks.set(task.id, task);
     this.touch(task.updatedAt);
     return task;
+  }
+
+  upsertWorkstream(workstream: Workstream): Workstream {
+    this.workstreams.set(workstream.id, workstream);
+    this.touch(workstream.updatedAt);
+    return workstream;
+  }
+
+  getWorkstream(id: string): Workstream | undefined {
+    return this.workstreams.get(id);
+  }
+
+  listWorkstreams(query: WorkstreamQuery = {}): Workstream[] {
+    return [...this.workstreams.values()]
+      .filter((workstream) => {
+        if (query.ownerId && workstream.ownerId !== query.ownerId) {
+          return false;
+        }
+        if (query.rootTaskId && workstream.rootTaskId !== query.rootTaskId) {
+          return false;
+        }
+        if (query.activeWorkerId && workstream.activeWorkerId !== query.activeWorkerId) {
+          return false;
+        }
+        if (query.status && workstream.status !== query.status) {
+          return false;
+        }
+        return true;
+      })
+      .sort(byUpdatedAtDesc);
   }
 
   getTask(id: string): Task | undefined {
@@ -588,6 +731,7 @@ export class InMemoryTaskStore {
       createdAt: this.createdAt,
       updatedAt: this.updatedAt,
       data: {
+        workstreams: this.listWorkstreams().reverse(),
         tasks: this.listTasks().reverse(),
         assignments: this.listAssignments().reverse(),
         commitments: this.listCommitments().reverse(),
@@ -621,6 +765,9 @@ export class InMemoryTaskStore {
     const store = new InMemoryTaskStore(repaired.createdAt);
     store.updatedAt = repaired.updatedAt;
 
+    for (const workstream of repaired.data.workstreams) {
+      store.workstreams.set(workstream.id, workstream);
+    }
     for (const task of repaired.data.tasks) {
       store.tasks.set(task.id, task);
     }

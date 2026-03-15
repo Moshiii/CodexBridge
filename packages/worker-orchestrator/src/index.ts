@@ -14,6 +14,7 @@ export type WorkerSpawnRequest = {
   workerId: string;
   executorType?: ExecutorType;
   strengths?: string[];
+  preferredTaskTypes?: string[];
   now?: number;
 };
 
@@ -29,6 +30,8 @@ export type AssignTaskInput = {
   workerId: string;
   assignmentId: string;
   objective: string;
+  deliverable?: string;
+  completionSignal?: string;
   now?: number;
   inputs?: Record<string, unknown>;
 };
@@ -122,6 +125,7 @@ export class InMemoryWorkerRegistry {
       executorType: request.executorType ?? "codex",
       status: "idle",
       strengths: request.strengths,
+      preferredTaskTypes: request.preferredTaskTypes,
       createdAt: now,
       updatedAt: now
     };
@@ -229,6 +233,8 @@ export function assignTaskToWorker(input: AssignTaskInput): Assignment {
     taskId: input.taskId,
     workerId: input.workerId,
     objective: input.objective,
+    deliverable: input.deliverable,
+    completionSignal: input.completionSignal,
     now,
     inputs: input.inputs,
     executorType: worker.executorType
@@ -249,6 +255,15 @@ export function assignTaskToWorker(input: AssignTaskInput): Assignment {
     lastProgressAt: now
   });
   input.registry.assignCurrentAssignment(input.workerId, input.assignmentId, now);
+  input.registry.upsertWorker({
+    ...requireWorker(input.registry, input.workerId),
+    lastTaskId: task.id,
+    lastAssignmentAt: now,
+    recentTaskTypes: [task.title, ...(worker.recentTaskTypes ?? [])].filter(
+      (value, index, values) => values.indexOf(value) === index
+    ).slice(0, 5),
+    updatedAt: now
+  });
 
   return requireAssignment(input.store, input.assignmentId);
 }
@@ -264,6 +279,12 @@ export function recordWorkerHeartbeat(input: WorkerHeartbeatInput): Assignment {
   const nextAssignment = updateAssignmentForHeartbeat(assignment, now);
   input.store.upsertAssignment(nextAssignment);
   input.registry.recordHeartbeat(input.workerId, now);
+  const worker = requireWorker(input.registry, input.workerId);
+  input.registry.upsertWorker({
+    ...worker,
+    lastHeartbeatAt: now,
+    updatedAt: now
+  });
 
   const task = requireTask(input.store, assignment.taskId);
   input.store.upsertTask({
@@ -284,6 +305,17 @@ export function recordWorkerResult(input: WorkerResultInput): Assignment {
 
   const nextWorkerStatus = input.outcome === "succeeded" ? "idle" : "error";
   input.registry.clearCurrentAssignment(assignment.workerId, now, nextWorkerStatus);
+  const worker = requireWorker(input.registry, assignment.workerId);
+  input.registry.upsertWorker({
+    ...worker,
+    lastOutcome: input.outcome,
+    lastOutcomeAt: now,
+    recentFailures:
+      input.outcome === "succeeded"
+        ? worker.recentFailures
+        : [input.summary ?? "Worker execution failed", ...(worker.recentFailures ?? [])].slice(0, 5),
+    updatedAt: now
+  });
 
   const task = requireTask(input.store, assignment.taskId);
   input.store.upsertTask({

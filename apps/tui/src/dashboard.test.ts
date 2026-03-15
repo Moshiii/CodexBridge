@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { InMemoryMemoryStore, InMemoryManagerMemory } from "@autoaide/memory-system";
 import { createCommitment, createTask, InMemoryTaskStore } from "@autoaide/task-system";
 import { InMemoryWorkerRegistry, assignTaskToWorker, spawnWorker } from "@autoaide/worker-orchestrator";
-import { buildOperatorSnapshot, renderOperatorDashboard } from "./index.js";
+import { buildOperatorSnapshot, renderOperatorDashboard } from "./dashboard.js";
 
-describe("terminal-ui", () => {
+describe("tui dashboard", () => {
   it("builds an operator snapshot with tasks, workers, alerts, and reminders", () => {
     const store = new InMemoryTaskStore();
     const registry = new InMemoryWorkerRegistry();
@@ -124,3 +124,4 @@ describe("terminal-ui", () => {
     expect(output).not.toContain("\u001b[");
   });
 });
+

@@ -1,8 +1,11 @@
 use anyhow::Result;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+};
 
 use crate::bridge::{
-    BridgeHandle, BridgeRequest, BridgeResponse, BridgeThreadSummary, AUTOAIDE_TUI_PROTOCOL_VERSION,
+    BridgeCell, BridgeHandle, BridgeRequest, BridgeResponse, BridgeThreadSummary,
+    AUTOAIDE_TUI_PROTOCOL_VERSION,
 };
 use crate::composer::{Composer, ComposerAction, FooterMode};
 use crate::history::HistoryState;
@@ -15,6 +18,12 @@ pub struct App {
     pub current_thread_id: String,
     pub known_threads: Vec<BridgeThreadSummary>,
     pub should_quit: bool,
+    pub transcript_width: u16,
+    pub transcript_height: u16,
+    pub transcript_x: u16,
+    pub transcript_y: u16,
+    pub transcript_scrollbar_x: u16,
+    pending_thread_list_render: bool,
     bridge: BridgeHandle,
 }
 
@@ -27,8 +36,29 @@ impl App {
             current_thread_id: "terminal-owner-local".to_string(),
             known_threads: Vec::new(),
             should_quit: false,
+            transcript_width: 0,
+            transcript_height: 0,
+            transcript_x: 0,
+            transcript_y: 0,
+            transcript_scrollbar_x: 0,
+            pending_thread_list_render: false,
             bridge,
         }
+    }
+
+    pub fn set_transcript_viewport(
+        &mut self,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        scrollbar_x: u16,
+    ) {
+        self.transcript_x = x;
+        self.transcript_y = y;
+        self.transcript_width = width;
+        self.transcript_height = height;
+        self.transcript_scrollbar_x = scrollbar_x;
     }
 
     pub fn initialize(&mut self) -> Result<()> {
@@ -53,6 +83,7 @@ impl App {
     pub fn handle_event(&mut self, event: Event) -> Result<()> {
         match event {
             Event::Key(key) if key.kind != KeyEventKind::Release => self.handle_key(key)?,
+            Event::Mouse(mouse) => self.handle_mouse(mouse),
             Event::Paste(text) => self.composer.insert_text(&text),
             _ => {}
         }
@@ -71,11 +102,16 @@ impl App {
                 }
             }
             KeyCode::PageUp => {
-                self.history.scroll_up(8);
+                self.history
+                    .scroll_up(8, self.transcript_height as usize, self.transcript_width as usize);
                 self.status.message = "Scrolled transcript up".to_string();
             }
             KeyCode::PageDown => {
-                self.history.scroll_down(8);
+                self.history.scroll_down(
+                    8,
+                    self.transcript_height as usize,
+                    self.transcript_width as usize,
+                );
                 self.status.message = if self.history.follow_tail {
                     "Following transcript tail".to_string()
                 } else {
@@ -83,7 +119,8 @@ impl App {
                 };
             }
             KeyCode::Home => {
-                self.history.jump_top();
+                self.history
+                    .jump_top(self.transcript_height as usize, self.transcript_width as usize);
                 self.status.message = "Showing oldest transcript lines".to_string();
             }
             KeyCode::End => {
@@ -102,6 +139,48 @@ impl App {
         Ok(())
     }
 
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        let inside_transcript_rows = mouse.row >= self.transcript_y
+            && mouse.row < self.transcript_y.saturating_add(self.transcript_height);
+        match mouse.kind {
+            MouseEventKind::ScrollUp if inside_transcript_rows => {
+                self.history
+                    .scroll_up(3, self.transcript_height as usize, self.transcript_width as usize);
+                self.status.message = "Scrolled transcript up".to_string();
+            }
+            MouseEventKind::ScrollDown if inside_transcript_rows => {
+                self.history.scroll_down(
+                    3,
+                    self.transcript_height as usize,
+                    self.transcript_width as usize,
+                );
+                self.status.message = if self.history.follow_tail {
+                    "Following transcript tail".to_string()
+                } else {
+                    "Scrolled transcript down".to_string()
+                };
+            }
+            MouseEventKind::Down(MouseButton::Left)
+                if inside_transcript_rows && mouse.column == self.transcript_scrollbar_x =>
+            {
+                let relative_row = mouse.row.saturating_sub(self.transcript_y) as f32;
+                let max_row = self.transcript_height.saturating_sub(1).max(1) as f32;
+                let ratio = relative_row / max_row;
+                self.history.jump_to_ratio(
+                    ratio,
+                    self.transcript_height as usize,
+                    self.transcript_width as usize,
+                );
+                self.status.message = if self.history.follow_tail {
+                    "Following transcript tail".to_string()
+                } else {
+                    "Moved transcript viewport".to_string()
+                };
+            }
+            _ => {}
+        }
+    }
+
     fn submit(&mut self, text: String) -> Result<()> {
         let value = text.trim().to_string();
         if value.is_empty() {
@@ -113,6 +192,14 @@ impl App {
         if value.starts_with('/') {
             self.handle_command(&value)?;
         } else {
+            self.history.set_active_cell(Some(BridgeCell {
+                id: format!("working-{}", self.current_thread_id),
+                kind: "assistant".to_string(),
+                label: Some("working".to_string()),
+                body: "Working...".to_string(),
+                status: Some("streaming".to_string()),
+            }));
+            self.status.message = "Working...".to_string();
             self.bridge.send(&BridgeRequest::SubmitInput {
                 protocol_version: AUTOAIDE_TUI_PROTOCOL_VERSION,
                 text: value,
@@ -136,15 +223,18 @@ impl App {
                 self.status.message = "Showing help".to_string();
             }
             "/threads" => {
+                self.pending_thread_list_render = true;
                 self.bridge.send(&BridgeRequest::RequestThreads {
                     protocol_version: AUTOAIDE_TUI_PROTOCOL_VERSION,
                 })?;
+                self.status.message = "Loading saved threads".to_string();
             }
             "/new" => {
                 self.bridge.send(&BridgeRequest::NewThread {
                     protocol_version: AUTOAIDE_TUI_PROTOCOL_VERSION,
                     thread_id: None,
                 })?;
+                self.status.message = "Creating new thread".to_string();
             }
             "/resume" => {
                 if args.is_empty() {
@@ -154,6 +244,7 @@ impl App {
                         protocol_version: AUTOAIDE_TUI_PROTOCOL_VERSION,
                         thread_id: args.to_string(),
                     })?;
+                    self.status.message = format!("Resuming thread {args}");
                 }
             }
             "/tail" => {
@@ -228,10 +319,13 @@ impl App {
                     .cloned()
                     .map(BridgeThreadSummary::from)
                     .collect();
-                self.history.push_thread_list(
-                    current_thread_id,
-                    threads.into_iter().map(BridgeThreadSummary::from).collect(),
-                );
+                if self.pending_thread_list_render {
+                    self.history.push_thread_list(
+                        current_thread_id,
+                        threads.into_iter().map(BridgeThreadSummary::from).collect(),
+                    );
+                    self.pending_thread_list_render = false;
+                }
             }
             BridgeResponse::CommandResult { level, message, .. } => {
                 if level == "error" {

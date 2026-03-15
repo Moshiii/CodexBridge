@@ -1,8 +1,15 @@
 #!/usr/bin/env -S node --import tsx
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { buildOperatorDashboard, runCodexConnectivityCheck } from "@autoaide/tui";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+import {
+  buildOperatorDashboard,
+  runCodexConnectivityCheck,
+  runManagerExec,
+  type AutoAideExecEvent,
+  type AutoAideExecItem
+} from "@autoaide/tui";
 
 type CommandHandler = (args: string[]) => Promise<number>;
 
@@ -28,30 +35,78 @@ function printTopLevelHelp(): void {
       "  autoaide <command> [options]",
       "",
       "Commands:",
-      "  tui        Open the interactive terminal UI",
-      "  status     Print the current operator dashboard",
-      "  tasks      Print the current task view",
-      "  workers    Print the current worker view",
-      "  cron       Show cron/supervision status placeholder",
-      "  memory     Show memory status placeholder",
-      "  codex      Diagnose Codex availability and connectivity",
-      "  help       Show help",
+      "  tui         Open the interactive terminal UI",
+      "  exec        Run one manager turn and stream results",
+      "  status      Print the current operator dashboard",
+      "  models      List mounted agent kernels",
+      "  dashboard   Reserved entrypoint for a future GUI/dashboard",
+      "  stop        Stop the local AutoAide supervisor process",
+      "  doctor      Diagnose local runtime and Codex connectivity",
+      "  help        Show help",
       "",
       "Examples:",
       "  autoaide tui",
-      "  autoaide status",
-      "  autoaide codex check"
+      "  autoaide exec \"Explain this codebase\"",
+      "  autoaide exec --json \"Investigate the failing test\"",
+      "  autoaide doctor"
     ].join("\n")
   );
 }
 
-function extractSection(text: string, heading: string, nextHeading: string): string {
-  const start = text.indexOf(heading);
-  if (start < 0) {
-    return text;
+function parseExecArgs(args: string[]): { json: boolean; text?: string } {
+  let json = false;
+  const textParts: string[] = [];
+  for (const arg of args) {
+    if (arg === "--json") {
+      json = true;
+      continue;
+    }
+    textParts.push(arg);
   }
-  const end = text.indexOf(nextHeading, start + heading.length);
-  return text.slice(start, end >= 0 ? end : text.length).trimEnd();
+  return {
+    json,
+    text: textParts.join(" ").trim() || undefined
+  };
+}
+
+function formatExecItem(item: AutoAideExecItem): string {
+  switch (item.type) {
+    case "reasoning":
+      return item.text;
+    case "plan":
+      return `Plan: ${item.text}`;
+    case "tool_call":
+      return `Tool ${item.label}: ${item.text}`;
+    case "subagent_run":
+      return `Run ${item.label}: ${item.text}`;
+    case "assistant_message":
+      return item.text;
+    case "warning":
+      return `Warning: ${item.text}`;
+    case "status":
+      return `Status: ${item.text}`;
+  }
+}
+
+function printHumanExecEvent(event: AutoAideExecEvent): void {
+  switch (event.type) {
+    case "thread.started":
+      process.stdout.write(`Thread ${event.threadId}\n`);
+      return;
+    case "turn.started":
+      process.stdout.write(`Owner: ${event.text}\n`);
+      return;
+    case "item.started":
+    case "item.completed":
+      process.stdout.write(`${formatExecItem(event.item)}\n`);
+      return;
+    case "turn.completed":
+      process.stdout.write(`Completed thread ${event.threadId}\n`);
+      return;
+    case "turn.failed":
+      process.stderr.write(`Exec failed for ${event.threadId}: ${event.error}\n`);
+      return;
+  }
 }
 
 async function runRustTui(): Promise<number> {
@@ -79,6 +134,42 @@ async function runRustTui(): Promise<number> {
   });
 }
 
+async function runExec(args: string[]): Promise<number> {
+  const parsed = parseExecArgs(args);
+  if (!parsed.text) {
+    console.log("Usage: autoaide exec [--json] <goal>");
+    return 1;
+  }
+
+  let failed = false;
+  try {
+    await runManagerExec({
+      text: parsed.text,
+      onEvent: async (event) => {
+        if (parsed.json) {
+          process.stdout.write(`${JSON.stringify(event)}\n`);
+          return;
+        }
+        printHumanExecEvent(event);
+        if (event.type === "turn.failed") {
+          failed = true;
+        }
+      }
+    });
+  } catch (error) {
+    failed = true;
+    if (parsed.json) {
+      process.stdout.write(
+        `${JSON.stringify({
+          type: "turn.failed",
+          error: error instanceof Error ? error.message : String(error)
+        })}\n`
+      );
+    }
+  }
+  return failed ? 1 : 0;
+}
+
 const commands: Record<string, CommandDefinition> = {
   tui: {
     name: "tui",
@@ -86,6 +177,14 @@ const commands: Record<string, CommandDefinition> = {
     usage: "autoaide tui",
     handler: async () => {
       return await runRustTui();
+    }
+  },
+  exec: {
+    name: "exec",
+    summary: "Run one manager turn and stream results",
+    usage: "autoaide exec [--json] <goal>",
+    handler: async (args) => {
+      return await runExec(args);
     }
   },
   status: {
@@ -97,54 +196,40 @@ const commands: Record<string, CommandDefinition> = {
       return 0;
     }
   },
-  tasks: {
-    name: "tasks",
-    summary: "Print the task section from the operator dashboard",
-    usage: "autoaide tasks",
+  models: {
+    name: "models",
+    summary: "List mounted agent kernels",
+    usage: "autoaide models",
     handler: async () => {
-      console.log(extractSection(buildOperatorDashboard(), "Tasks", "Workers"));
+      console.log(["Mounted models", "", "- codex  default kernel adapter  available"].join("\n"));
       return 0;
     }
   },
-  workers: {
-    name: "workers",
-    summary: "Print the worker section from the operator dashboard",
-    usage: "autoaide workers",
+  dashboard: {
+    name: "dashboard",
+    summary: "Reserved entrypoint for a future GUI/dashboard",
+    usage: "autoaide dashboard",
     handler: async () => {
-      console.log(extractSection(buildOperatorDashboard(), "Workers", "Alerts"));
+      console.log("AutoAide dashboard is reserved for a future GUI entrypoint.");
       return 0;
     }
   },
-  cron: {
-    name: "cron",
-    summary: "Show supervision status placeholder",
-    usage: "autoaide cron",
+  stop: {
+    name: "stop",
+    summary: "Stop the local AutoAide supervisor process",
+    usage: "autoaide stop",
     handler: async () => {
-      console.log("AutoAide cron: supervision-core is wired, formal CLI subcommands are pending.");
+      console.log("AutoAide stop: no long-running supervisor process is active yet.");
       return 0;
     }
   },
-  memory: {
-    name: "memory",
-    summary: "Show memory status placeholder",
-    usage: "autoaide memory",
+  doctor: {
+    name: "doctor",
+    summary: "Diagnose local runtime and Codex connectivity",
+    usage: "autoaide doctor",
     handler: async () => {
-      console.log("AutoAide memory: manager memory is implemented, formal memory CLI is pending.");
-      return 0;
-    }
-  },
-  codex: {
-    name: "codex",
-    summary: "Diagnose Codex availability and connectivity",
-    usage: "autoaide codex check",
-    handler: async (args) => {
-      const [subcommand] = args;
-      if (subcommand !== "check") {
-        console.log("Usage: autoaide codex check");
-        return 1;
-      }
       const result = await runCodexConnectivityCheck();
-      console.log(result.dashboard);
+      console.log(["AutoAide doctor", "", result.dashboard].join("\n"));
       return 0;
     }
   },

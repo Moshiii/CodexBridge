@@ -10,12 +10,15 @@ autoaide tui
 
 也就是说，日常入口应该是：
 
+- `autoaide tui`
 - `autoaide help`
 - `autoaide status`
 - `autoaide tasks`
 - `autoaide workers`
+
+如果第一次真实对话失败，再用：
+
 - `autoaide codex check`
-- `autoaide tui`
 
 ## 当前两种使用方式
 
@@ -40,9 +43,9 @@ rehash
 安装完成后，直接输入：
 
 ```bash
+autoaide tui
 autoaide help
 autoaide status
-autoaide tui
 ```
 
 本地代码更新后刷新：
@@ -72,8 +75,8 @@ pnpm exec autoaide tui
 
 当前 CLI 顶层命令包括：
 
-- `autoaide help`
 - `autoaide tui`
+- `autoaide help`
 - `autoaide status`
 - `autoaide tasks`
 - `autoaide workers`
@@ -125,7 +128,9 @@ autoaide workers
 
 ### `autoaide codex check`
 
-检查 `Codex` 执行链路：
+检查 `Codex` 执行链路。
+
+这个命令现在属于诊断入口，不是默认首个入口：
 
 ```bash
 autoaide codex check
@@ -145,6 +150,7 @@ autoaide tui
 - 一行 compact status
 - 底部状态栏
 - 命令输入区
+- 首屏会直接提示你输入第一个真实需求
 
 ## TUI 当前支持的命令
 
@@ -234,16 +240,14 @@ codex login status
 
 建议按这个顺序使用：
 
-1. `autoaide help`
-2. `autoaide status`
-3. `autoaide codex check`
-4. `autoaide tui`
+1. `autoaide tui`
+2. 直接输入一个真实需求
+3. 如果真实执行失败，再运行 `autoaide codex check`
+4. 需要查看更多命令时再用 `autoaide help`
 
 如果你还在仓库里开发，就用：
 
 1. `pnpm build`
 2. `pnpm test`
-3. `pnpm exec autoaide help`
-4. `pnpm exec autoaide status`
-5. `pnpm exec autoaide codex check`
-6. `pnpm exec autoaide tui`
+3. `pnpm exec autoaide tui`
+4. 如果真实执行失败，再用 `pnpm exec autoaide codex check`

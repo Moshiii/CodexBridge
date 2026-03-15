@@ -154,7 +154,13 @@ pub struct BridgeHandle {
 impl BridgeHandle {
     pub fn spawn() -> Result<Self> {
         let mut child = Command::new("pnpm")
-            .args(["exec", "tsx", "apps/tui/src/bridge.ts"])
+            .args([
+                "exec",
+                "node",
+                "--import",
+                "tsx",
+                "apps/tui/src/bridge.ts",
+            ])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())

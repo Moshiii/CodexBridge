@@ -28,16 +28,49 @@ describe("autoaide cli", () => {
     log.mockRestore();
   });
 
-  it("runs the codex connectivity check through the cli path", async () => {
+  it("runs the doctor command through the cli path", async () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(tuiModule, "runCodexConnectivityCheck").mockResolvedValue({
       dashboard: "manager  tasks 2  workers 2",
       receipts: []
     });
 
-    await expect(runCli(["codex", "check"])).resolves.toBe(0);
+    await expect(runCli(["doctor"])).resolves.toBe(0);
 
     expect(log).toHaveBeenCalledWith(expect.stringContaining("workers 2"));
+    log.mockRestore();
+  });
+
+  it("streams exec events through the exec command", async () => {
+    const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    vi.spyOn(tuiModule, "runManagerExec").mockImplementation(async ({ onEvent }) => {
+      await onEvent?.({ type: "thread.started", threadId: "thread-1" });
+      await onEvent?.({ type: "turn.started", text: "Explain this codebase" });
+      await onEvent?.({
+        type: "item.started",
+        item: { id: "reasoning-1", type: "reasoning", text: "Working...", status: "in_progress" }
+      });
+      await onEvent?.({
+        type: "item.completed",
+        item: { id: "assistant-1", type: "assistant_message", text: "Done.", status: "completed" }
+      });
+      await onEvent?.({ type: "turn.completed", threadId: "thread-1", text: "Done." });
+      return { threadId: "thread-1", finalText: "Done." };
+    });
+
+    await expect(runCli(["exec", "Explain this codebase"])).resolves.toBe(0);
+
+    expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining("Working..."));
+    expect(writeSpy).toHaveBeenCalledWith(expect.stringContaining("Done."));
+    writeSpy.mockRestore();
+  });
+
+  it("prints mounted kernels for models", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(runCli(["models"])).resolves.toBe(0);
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("codex"));
     log.mockRestore();
   });
 

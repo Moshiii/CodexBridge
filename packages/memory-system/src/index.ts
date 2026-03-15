@@ -5,10 +5,20 @@ import type {
   ProgressEvent,
   Project,
   Task,
+  Workstream,
   WorkerProfile
 } from "@autoaide/task-system";
 
-export const MEMORY_SYSTEM_SCHEMA_VERSION = 1;
+export const MEMORY_SYSTEM_SCHEMA_VERSION = 3;
+
+export type ManagerWakeReason =
+  | "owner_message"
+  | "worker_result"
+  | "worker_heartbeat"
+  | "followup_due"
+  | "blocked_task"
+  | "stalled_assignment"
+  | "status_query";
 
 export type DecisionRecord = {
   id: string;
@@ -35,12 +45,38 @@ export type ConversationRecord = {
   ownerId: string;
   channel: string;
   peerId: string;
+  activeWorkstreamId?: string;
+  activeWorkstreamTitle?: string;
   activeTaskId?: string;
   activeTaskTitle?: string;
   pendingClarificationQuestion?: string;
   rollingSummary?: string;
   createdAt: number;
   updatedAt: number;
+};
+
+export type ManagerSessionRecord = {
+  id: string;
+  ownerId: string;
+  activeWorkstreamId?: string;
+  lastWakeReason?: ManagerWakeReason;
+  lastWakeAt?: number;
+  pendingInboxCount: number;
+  createdAt: number;
+  updatedAt: number;
+};
+
+export type ManagerInboxEvent = {
+  id: string;
+  sessionId: string;
+  ownerId: string;
+  workstreamId?: string;
+  reason: ManagerWakeReason;
+  status: "pending" | "processed";
+  summary: string;
+  createdAt: number;
+  processedAt?: number;
+  metadata?: Record<string, unknown>;
 };
 
 export type MemorySystemSnapshot = {
@@ -53,6 +89,8 @@ export type MemorySystemSnapshot = {
     decisionRecords: DecisionRecord[];
     conversations: ConversationRecord[];
     conversationTurns: ConversationTurn[];
+    managerSessions: ManagerSessionRecord[];
+    managerInboxEvents: ManagerInboxEvent[];
   };
 };
 
@@ -63,6 +101,32 @@ export type LegacyMemorySystemSnapshotV0 = {
   decisionRecords?: DecisionRecord[];
   conversations?: ConversationRecord[];
   conversationTurns?: ConversationTurn[];
+};
+
+export type LegacyMemorySystemSnapshotV1 = {
+  schemaVersion: 1;
+  createdAt: number;
+  updatedAt: number;
+  data: {
+    projects?: Project[];
+    workers?: WorkerProfile[];
+    decisionRecords?: DecisionRecord[];
+    conversations?: ConversationRecord[];
+    conversationTurns?: ConversationTurn[];
+  };
+};
+
+export type LegacyMemorySystemSnapshotV2 = {
+  schemaVersion: 2;
+  createdAt: number;
+  updatedAt: number;
+  data: {
+    projects?: Project[];
+    workers?: WorkerProfile[];
+    decisionRecords?: DecisionRecord[];
+    conversations?: ConversationRecord[];
+    conversationTurns?: ConversationTurn[];
+  };
 };
 
 export type TaskSummary = {
@@ -95,8 +159,30 @@ export type WorkerSummary = {
   status: WorkerProfile["status"];
   currentAssignmentId?: string;
   strengths: string[];
+  preferredTaskTypes: string[];
+  recentTaskTypes: string[];
+  lastHeartbeatAt?: number;
+  lastOutcome?: WorkerProfile["lastOutcome"];
+  lastOutcomeAt?: number;
   recentFailures: string[];
   openAssignments: number;
+  reuseHint: string;
+  summary: string;
+};
+
+export type WorkstreamSummary = {
+  workstreamId: string;
+  ownerId: string;
+  rootTaskId: string;
+  title: string;
+  goal: string;
+  status: Workstream["status"];
+  priority: Workstream["priority"];
+  activeTaskId?: string;
+  activeWorkerId?: string;
+  nextFollowupAt?: number;
+  lastCheckpointAt?: number;
+  lastManagerJudgment?: string;
   summary: string;
 };
 
@@ -111,6 +197,7 @@ export type ProjectSummary = {
 };
 
 export type ManagerMemorySnapshot = {
+  workstreamSummaries: WorkstreamSummary[];
   taskSummaries: TaskSummary[];
   commitmentSummaries: CommitmentSummary[];
   workerSummaries: WorkerSummary[];
@@ -118,6 +205,8 @@ export type ManagerMemorySnapshot = {
   decisionRecords: DecisionRecord[];
   conversations: ConversationRecord[];
   conversationTurns: ConversationTurn[];
+  managerSessions: ManagerSessionRecord[];
+  managerInboxEvents: ManagerInboxEvent[];
 };
 
 export type MemoryStoreQuery = {
@@ -134,11 +223,15 @@ export interface MemoryStore {
   appendDecisionRecord(record: DecisionRecord): DecisionRecord;
   upsertConversation(conversation: ConversationRecord): ConversationRecord;
   appendConversationTurn(turn: ConversationTurn): ConversationTurn;
+  upsertManagerSession(session: ManagerSessionRecord): ManagerSessionRecord;
+  appendManagerInboxEvent(event: ManagerInboxEvent): ManagerInboxEvent;
   listProjects(): Project[];
   listWorkers(): WorkerProfile[];
   listDecisionRecords(): DecisionRecord[];
   listConversations(ownerId?: string): ConversationRecord[];
   listConversationTurns(conversationId: string): ConversationTurn[];
+  listManagerSessions(ownerId?: string): ManagerSessionRecord[];
+  listManagerInboxEvents(sessionId?: string): ManagerInboxEvent[];
   toSnapshot(): MemorySystemSnapshot;
 }
 
@@ -152,11 +245,51 @@ function asArray<T>(value: T[] | undefined): T[] {
 }
 
 export function migrateMemorySnapshot(
-  snapshot: MemorySystemSnapshot | LegacyMemorySystemSnapshotV0,
+  snapshot:
+    | MemorySystemSnapshot
+    | LegacyMemorySystemSnapshotV0
+    | LegacyMemorySystemSnapshotV1
+    | LegacyMemorySystemSnapshotV2,
   now: number = Date.now()
 ): MemorySystemSnapshot {
   if ("data" in snapshot && snapshot.schemaVersion === MEMORY_SYSTEM_SCHEMA_VERSION) {
     return snapshot;
+  }
+
+  if ("data" in snapshot && snapshot.schemaVersion === 1) {
+    const legacy = snapshot as LegacyMemorySystemSnapshotV1;
+    return {
+      schemaVersion: MEMORY_SYSTEM_SCHEMA_VERSION,
+      createdAt: legacy.createdAt,
+      updatedAt: legacy.updatedAt,
+      data: {
+        projects: asArray(legacy.data.projects),
+        workers: asArray(legacy.data.workers),
+        decisionRecords: asArray(legacy.data.decisionRecords),
+        conversations: asArray(legacy.data.conversations),
+        conversationTurns: asArray(legacy.data.conversationTurns),
+        managerSessions: [],
+        managerInboxEvents: []
+      }
+    };
+  }
+
+  if ("data" in snapshot && snapshot.schemaVersion === 2) {
+    const legacy = snapshot as LegacyMemorySystemSnapshotV2;
+    return {
+      schemaVersion: MEMORY_SYSTEM_SCHEMA_VERSION,
+      createdAt: legacy.createdAt,
+      updatedAt: legacy.updatedAt,
+      data: {
+        projects: asArray(legacy.data.projects),
+        workers: asArray(legacy.data.workers),
+        decisionRecords: asArray(legacy.data.decisionRecords),
+        conversations: asArray(legacy.data.conversations),
+        conversationTurns: asArray(legacy.data.conversationTurns),
+        managerSessions: [],
+        managerInboxEvents: []
+      }
+    };
   }
 
   const legacy = snapshot as LegacyMemorySystemSnapshotV0;
@@ -169,7 +302,9 @@ export function migrateMemorySnapshot(
       workers: asArray(legacy.workers),
       decisionRecords: asArray(legacy.decisionRecords),
       conversations: asArray(legacy.conversations),
-      conversationTurns: asArray(legacy.conversationTurns)
+      conversationTurns: asArray(legacy.conversationTurns),
+      managerSessions: [],
+      managerInboxEvents: []
     }
   };
 }
@@ -195,12 +330,22 @@ export function validateMemorySnapshot(snapshot: MemorySystemSnapshot): string[]
   if (!Array.isArray(snapshot.data.conversationTurns)) {
     issues.push("snapshot.data.conversationTurns must be an array");
   }
+  if (!Array.isArray(snapshot.data.managerSessions)) {
+    issues.push("snapshot.data.managerSessions must be an array");
+  }
+  if (!Array.isArray(snapshot.data.managerInboxEvents)) {
+    issues.push("snapshot.data.managerInboxEvents must be an array");
+  }
 
   return issues;
 }
 
 export function repairMemorySnapshot(
-  snapshot: MemorySystemSnapshot | LegacyMemorySystemSnapshotV0,
+  snapshot:
+    | MemorySystemSnapshot
+    | LegacyMemorySystemSnapshotV0
+    | LegacyMemorySystemSnapshotV1
+    | LegacyMemorySystemSnapshotV2,
   now: number = Date.now()
 ): MemorySystemSnapshot {
   const migrated = migrateMemorySnapshot(snapshot, now);
@@ -212,7 +357,9 @@ export function repairMemorySnapshot(
       workers: asArray(migrated.data.workers),
       decisionRecords: asArray(migrated.data.decisionRecords),
       conversations: asArray(migrated.data.conversations),
-      conversationTurns: asArray(migrated.data.conversationTurns)
+      conversationTurns: asArray(migrated.data.conversationTurns),
+      managerSessions: asArray(migrated.data.managerSessions),
+      managerInboxEvents: asArray(migrated.data.managerInboxEvents)
     }
   };
 }
@@ -268,8 +415,21 @@ function buildWorkerSummary(worker: WorkerProfile, assignments: Assignment[]): W
     status: worker.status,
     currentAssignmentId: worker.currentAssignmentId,
     strengths: worker.strengths ?? [],
+    preferredTaskTypes: worker.preferredTaskTypes ?? [],
+    recentTaskTypes: worker.recentTaskTypes ?? [],
+    lastHeartbeatAt: worker.lastHeartbeatAt,
+    lastOutcome: worker.lastOutcome,
+    lastOutcomeAt: worker.lastOutcomeAt,
     recentFailures: worker.recentFailures ?? [],
     openAssignments: openAssignments.length,
+    reuseHint:
+      worker.status === "idle" && (worker.recentTaskTypes?.length ?? 0) > 0
+        ? `Recently handled ${worker.recentTaskTypes?.slice(0, 2).join(", ")}`
+        : worker.status === "idle"
+          ? "Idle and available for a new assignment"
+          : worker.currentAssignmentId
+            ? `Currently occupied with ${worker.currentAssignmentId}`
+            : `${worker.status} and may need review before reuse`,
     summary: `${worker.id} is ${worker.status} with ${openAssignments.length} open assignments`
   };
 }
@@ -292,6 +452,24 @@ function buildProjectSummary(project: Project, tasks: Task[]): ProjectSummary {
   };
 }
 
+function buildWorkstreamSummary(workstream: Workstream): WorkstreamSummary {
+  return {
+    workstreamId: workstream.id,
+    ownerId: workstream.ownerId,
+    rootTaskId: workstream.rootTaskId,
+    title: workstream.title,
+    goal: workstream.goal,
+    status: workstream.status,
+    priority: workstream.priority,
+    activeTaskId: workstream.activeTaskId,
+    activeWorkerId: workstream.activeWorkerId,
+    nextFollowupAt: workstream.nextFollowupAt,
+    lastCheckpointAt: workstream.lastCheckpointAt,
+    lastManagerJudgment: workstream.lastManagerJudgment,
+    summary: `${workstream.title} is ${workstream.status}`
+  };
+}
+
 export function buildManagerMemorySnapshot(input: {
   store: InMemoryTaskStore;
   workers?: WorkerProfile[];
@@ -299,10 +477,14 @@ export function buildManagerMemorySnapshot(input: {
   decisionRecords?: DecisionRecord[];
   conversations?: ConversationRecord[];
   conversationTurns?: ConversationTurn[];
+  managerSessions?: ManagerSessionRecord[];
+  managerInboxEvents?: ManagerInboxEvent[];
 }): ManagerMemorySnapshot {
   const tasks = input.store.listTasks();
+  const workstreams = input.store.listWorkstreams();
   const assignments = input.store.listAssignments();
   const commitments = input.store.listCommitments();
+  const workstreamSummaries = workstreams.map(buildWorkstreamSummary);
   const taskSummaries = tasks.map((task) =>
     buildTaskSummary(task, input.store.listProgressEvents(task.id))
   );
@@ -315,13 +497,16 @@ export function buildManagerMemorySnapshot(input: {
   );
 
   return {
+    workstreamSummaries,
     taskSummaries,
     commitmentSummaries,
     workerSummaries,
     projectSummaries,
     decisionRecords: input.decisionRecords ?? [],
     conversations: input.conversations ?? [],
-    conversationTurns: input.conversationTurns ?? []
+    conversationTurns: input.conversationTurns ?? [],
+    managerSessions: input.managerSessions ?? [],
+    managerInboxEvents: input.managerInboxEvents ?? []
   };
 }
 
@@ -365,7 +550,9 @@ export class InMemoryManagerMemory {
       conversations: this.memoryStore.listConversations(),
       conversationTurns: this.memoryStore.listConversations().flatMap((conversation) =>
         this.memoryStore.listConversationTurns(conversation.id)
-      )
+      ),
+      managerSessions: this.memoryStore.listManagerSessions(),
+      managerInboxEvents: this.memoryStore.listManagerInboxEvents()
     });
   }
 
@@ -389,6 +576,31 @@ export class InMemoryManagerMemory {
       if (
         normalizedText &&
         !`${task.title} ${task.goal} ${task.summary}`.toLowerCase().includes(normalizedText)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  searchWorkstreams(query: {
+    text?: string;
+    status?: Workstream["status"];
+    activeWorkerId?: string;
+  }): WorkstreamSummary[] {
+    const normalizedText = query.text?.trim().toLowerCase();
+    return this.snapshot().workstreamSummaries.filter((workstream) => {
+      if (query.status && workstream.status !== query.status) {
+        return false;
+      }
+      if (query.activeWorkerId && workstream.activeWorkerId !== query.activeWorkerId) {
+        return false;
+      }
+      if (
+        normalizedText &&
+        !`${workstream.title} ${workstream.goal} ${workstream.summary}`
+          .toLowerCase()
+          .includes(normalizedText)
       ) {
         return false;
       }
@@ -456,6 +668,8 @@ export class InMemoryMemoryStore implements MemoryStore {
   private readonly decisionRecords = new Map<string, DecisionRecord>();
   private readonly conversations = new Map<string, ConversationRecord>();
   private readonly conversationTurns = new Map<string, ConversationTurn[]>();
+  private readonly managerSessions = new Map<string, ManagerSessionRecord>();
+  private readonly managerInboxEvents = new Map<string, ManagerInboxEvent>();
   private readonly createdAt: number;
   private updatedAt: number;
 
@@ -499,6 +713,18 @@ export class InMemoryMemoryStore implements MemoryStore {
     return turn;
   }
 
+  upsertManagerSession(session: ManagerSessionRecord): ManagerSessionRecord {
+    this.managerSessions.set(session.id, session);
+    this.touch(session.updatedAt);
+    return session;
+  }
+
+  appendManagerInboxEvent(event: ManagerInboxEvent): ManagerInboxEvent {
+    this.managerInboxEvents.set(event.id, event);
+    this.touch(event.processedAt ?? event.createdAt);
+    return event;
+  }
+
   listProjects(): Project[] {
     return [...this.projects.values()].sort((left, right) => right.updatedAt - left.updatedAt);
   }
@@ -523,6 +749,18 @@ export class InMemoryMemoryStore implements MemoryStore {
     );
   }
 
+  listManagerSessions(ownerId?: string): ManagerSessionRecord[] {
+    return [...this.managerSessions.values()]
+      .filter((session) => (ownerId ? session.ownerId === ownerId : true))
+      .sort((left, right) => right.updatedAt - left.updatedAt);
+  }
+
+  listManagerInboxEvents(sessionId?: string): ManagerInboxEvent[] {
+    return [...this.managerInboxEvents.values()]
+      .filter((event) => (sessionId ? event.sessionId === sessionId : true))
+      .sort((left, right) => left.createdAt - right.createdAt);
+  }
+
   toSnapshot(): MemorySystemSnapshot {
     return {
       schemaVersion: MEMORY_SYSTEM_SCHEMA_VERSION,
@@ -534,7 +772,9 @@ export class InMemoryMemoryStore implements MemoryStore {
         decisionRecords: this.listDecisionRecords(),
         conversations: this.listConversations().reverse(),
         conversationTurns: this.listConversations()
-          .flatMap((conversation) => this.listConversationTurns(conversation.id))
+          .flatMap((conversation) => this.listConversationTurns(conversation.id)),
+        managerSessions: this.listManagerSessions().reverse(),
+        managerInboxEvents: this.listManagerInboxEvents()
       }
     };
   }
@@ -565,6 +805,12 @@ export class InMemoryMemoryStore implements MemoryStore {
     for (const turn of repaired.data.conversationTurns) {
       const turns = store.conversationTurns.get(turn.conversationId) ?? [];
       store.conversationTurns.set(turn.conversationId, [...turns, turn]);
+    }
+    for (const session of repaired.data.managerSessions) {
+      store.managerSessions.set(session.id, session);
+    }
+    for (const event of repaired.data.managerInboxEvents) {
+      store.managerInboxEvents.set(event.id, event);
     }
 
     return store;

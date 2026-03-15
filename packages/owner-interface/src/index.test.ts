@@ -1,46 +1,49 @@
 import { InMemoryTaskStore } from "@autoaide/task-system";
 import { describe, expect, it } from "vitest";
-import { DeterministicManagerRuntime } from "@autoaide/manager-runtime";
+import {
+  buildManagerFollowupReceipts,
+  DeterministicManagerRuntime,
+  applyManagerToolCalls,
+  executeManagerTurn,
+  interpretOwnerMessage,
+  previewOwnerMessage,
+  summarizeManagerBehaviors
+} from "@autoaide/manager-runtime";
 import { InMemoryMemoryStore } from "@autoaide/memory-system";
 import { InMemoryWorkerRegistry } from "@autoaide/worker-orchestrator";
 import {
-  applyManagerToolCalls,
-  buildManagerFollowupReceipts,
   buildSupervisionReplies,
   createReminderReply,
   dispatchSupervisionRepliesSafely,
   dispatchSupervisionReplies,
   InMemoryChannelBridge,
   createEscalationReply,
-  createSummaryReply,
-  handleOwnerIngress,
-  ingestOwnerGoalAndPlan,
-  parseOwnerMessage,
-  summarizeManagerBehaviors
+  createSummaryReply
 } from "./index.js";
 
 describe("owner-interface", () => {
-  it("parses owner messages into task intents", () => {
+  it("parses owner messages into task intents through manager-runtime", () => {
     expect(
-      parseOwnerMessage({
+      interpretOwnerMessage({
         id: "message-1",
         ownerId: "owner-1",
         channel: "telegram",
         peerId: "peer-1",
-        text: "实现 AutoAide\n先把 owner-interface 做出来",
+        text: "Implement AutoAide\nStart with owner-interface",
         createdAt: 100
       })
     ).toEqual({
       ownerId: "owner-1",
-      title: "实现 AutoAide",
-      goal: "先把 owner-interface 做出来",
+      title: "Implement AutoAide",
+      goal: "Start with owner-interface",
       sourceMessageId: "message-1",
+      mode: "managed_task",
       needsClarification: false,
       clarificationQuestion: undefined
     });
   });
 
-  it("requests clarification for underspecified owner messages", async () => {
+  it("requests clarification for underspecified owner messages through manager-runtime preview", async () => {
     const bridge = new InMemoryChannelBridge();
     const delivered: string[] = [];
     bridge.register("telegram", {
@@ -49,22 +52,23 @@ describe("owner-interface", () => {
       }
     });
 
-    const intent = await handleOwnerIngress({
+    const preview = await previewOwnerMessage({
       message: {
         id: "message-1",
         ownerId: "owner-1",
         channel: "telegram",
         peerId: "peer-1",
-        text: "修一下",
+        text: "Fix it",
         createdAt: 100
       },
-      bridge,
       runtime: new DeterministicManagerRuntime(),
       now: 120
     });
 
-    expect(intent.needsClarification).toBe(true);
-    expect(delivered).toEqual(["请补充更具体的目标、范围或完成标准。"]);
+    await bridge.send(preview.reply);
+
+    expect(preview.intent.needsClarification).toBe(true);
+    expect(delivered).toEqual(["Please provide a more specific goal, scope, or completion criteria."]);
   });
 
   it("builds summary replies", () => {
@@ -73,9 +77,9 @@ describe("owner-interface", () => {
         ownerId: "owner-1",
         channel: "telegram",
         peerId: "peer-1",
-        title: "实现 AutoAide",
+        title: "Implement AutoAide",
         tasksCreated: 3,
-        nextStep: "开始派发第一个任务",
+        nextStep: "Start assigning the first task",
         now: 100
       })
     ).toEqual({
@@ -83,7 +87,7 @@ describe("owner-interface", () => {
       channel: "telegram",
       peerId: "peer-1",
       kind: "summary",
-      text: "已记录任务《实现 AutoAide》，当前拆出 3 个任务。 下一步：开始派发第一个任务",
+      text: "Captured \"Implement AutoAide\" and created 3 tasks. Next: Start assigning the first task",
       createdAt: 100
     });
   });
@@ -98,11 +102,11 @@ describe("owner-interface", () => {
           kind: "follow_up_owner",
           taskId: "task-1",
           priority: "high",
-          reason: "缺少验收标准"
+          reason: "Missing acceptance criteria"
         },
         now: 100
       }).text
-    ).toBe("需要你补充或确认：缺少验收标准");
+    ).toBe("Need your clarification or confirmation: Missing acceptance criteria");
   });
 
   it("builds reminder replies", () => {
@@ -116,32 +120,33 @@ describe("owner-interface", () => {
           ownerId: "owner-1",
           taskId: "task-1",
           commitmentId: "commitment-1",
-          summary: "今天回复验收标准"
+          summary: "Reply with acceptance criteria today"
         },
         now: 100
       }).text
-    ).toBe("提醒：你承诺的事项已到期，今天回复验收标准");
+    ).toBe("Reminder: your commitment is due, Reply with acceptance criteria today");
   });
 
   it("summarizes manager behaviors from a runtime response", () => {
     const receipts = summarizeManagerBehaviors({
       intent: {
         ownerId: "owner-1",
-        title: "整理 AutoAide TUI",
-        goal: "改成 conversation-first",
+        title: "Refine AutoAide TUI",
+        goal: "Make it conversation-first",
         sourceMessageId: "message-1",
+        mode: "managed_task",
         needsClarification: false
       },
       reply: {
         kind: "summary",
-        text: "已开始安排。"
+        text: "I have started coordinating the work."
       },
       plan: {
         rootTask: {
           id: "task-root",
           ownerId: "owner-1",
-          title: "整理 AutoAide TUI",
-          goal: "改成 conversation-first",
+          title: "Refine AutoAide TUI",
+          goal: "Make it conversation-first",
           status: "planned",
           priority: "high",
           createdAt: 100,
@@ -152,8 +157,8 @@ describe("owner-interface", () => {
       toolCalls: [
         {
           kind: "assign_worker",
-          taskTitle: "整理 AutoAide TUI",
-          objective: "改布局",
+          taskTitle: "Refine AutoAide TUI",
+          objective: "Update the layout",
           reason: "ready"
         }
       ]
@@ -167,7 +172,7 @@ describe("owner-interface", () => {
     ]);
   });
 
-  it("ingests an owner goal, creates a plan, and sends a summary reply", async () => {
+  it("executes an owner goal through manager-runtime and sends a summary reply", async () => {
     const store = new InMemoryTaskStore();
     const memoryStore = new InMemoryMemoryStore(120);
     const workerRegistry = new InMemoryWorkerRegistry();
@@ -179,23 +184,24 @@ describe("owner-interface", () => {
       }
     });
 
-    const result = await ingestOwnerGoalAndPlan({
+    const result = await executeManagerTurn({
       message: {
         id: "message-1",
         ownerId: "owner-1",
         channel: "telegram",
         peerId: "peer-1",
-        text: "实现 AutoAide\n先把 owner-interface 做出来",
+        text: "Implement AutoAide\nStart with owner-interface",
         createdAt: 100
       },
       store,
-      bridge,
       runtime: new DeterministicManagerRuntime(),
       memoryStore,
       workerRegistry,
       rootTaskId: "task-root",
       now: 120
     });
+
+    await bridge.send(result.reply);
 
     expect(result.plan?.rootTask.id).toBe("task-root");
     expect(store.listTasks()).toHaveLength(1);
@@ -214,7 +220,7 @@ describe("owner-interface", () => {
       "plan_created",
       "tool_calls_emitted"
     ]);
-    expect(delivered).toEqual(["已记录任务《实现 AutoAide》，当前拆出 1 个任务。 下一步：经理将继续安排执行器处理"]);
+    expect(delivered).toEqual(["Captured \"Implement AutoAide\" and created 1 tasks. Next: the manager will continue assigning executors."]);
   });
 
   it("applies manager tool calls into memory, follow-up, and worker assignment state", () => {
@@ -223,8 +229,8 @@ describe("owner-interface", () => {
     store.upsertTask({
       id: "task-1",
       ownerId: "owner-1",
-      title: "整理 AutoAide TUI",
-      goal: "把默认界面改成对话优先",
+      title: "Refine AutoAide TUI",
+      goal: "Make the default UI conversation-first",
       status: "planned",
       priority: "high",
       createdAt: now,
@@ -242,19 +248,19 @@ describe("owner-interface", () => {
       toolCalls: [
         {
           kind: "record_decision",
-          summary: "默认 TUI 保持对话优先"
+          summary: "Keep the default TUI conversation-first"
         },
         {
           kind: "schedule_followup",
-          taskTitle: "整理 AutoAide TUI",
-          summary: "一小时后回看进度",
+          taskTitle: "Refine AutoAide TUI",
+          summary: "Review progress in one hour",
           dueInMinutes: 60,
           reason: "monitor_progress"
         },
         {
           kind: "assign_worker",
-          taskTitle: "整理 AutoAide TUI",
-          objective: "调整默认界面布局",
+          taskTitle: "Refine AutoAide TUI",
+          objective: "Adjust the default layout",
           reason: "step_ready_for_execution"
         }
       ]
@@ -273,8 +279,8 @@ describe("owner-interface", () => {
     store.upsertTask({
       id: "task-1",
       ownerId: "owner-1",
-      title: "整理 AutoAide TUI",
-      goal: "改成 conversation-first",
+      title: "Refine AutoAide TUI",
+      goal: "Make it conversation-first",
       status: "reviewing",
       priority: "high",
       createdAt: 100,
@@ -287,8 +293,8 @@ describe("owner-interface", () => {
       channel: "web",
       peerId: "peer-1",
       activeTaskId: "task-1",
-      activeTaskTitle: "整理 AutoAide TUI",
-      pendingClarificationQuestion: "请确认验收标准",
+      activeTaskTitle: "Refine AutoAide TUI",
+      pendingClarificationQuestion: "Please confirm the acceptance criteria",
       createdAt: 100,
       updatedAt: 120
     });
@@ -311,8 +317,8 @@ describe("owner-interface", () => {
     store.upsertTask({
       id: "task-1",
       ownerId: "owner-1",
-      title: "整理 AutoAide TUI",
-      goal: "改成 conversation-first",
+      title: "Refine AutoAide TUI",
+      goal: "Make it conversation-first",
       status: "blocked",
       priority: "high",
       blockers: ["worker execution failed"],
@@ -326,7 +332,7 @@ describe("owner-interface", () => {
       channel: "web",
       peerId: "peer-1",
       activeTaskId: "task-1",
-      activeTaskTitle: "整理 AutoAide TUI",
+      activeTaskTitle: "Refine AutoAide TUI",
       createdAt: 100,
       updatedAt: 120
     });
@@ -341,13 +347,13 @@ describe("owner-interface", () => {
     expect(receipts).toEqual([
       {
         kind: "followup_blocked_task",
-        summary: "manager marked 整理 AutoAide TUI as blocked",
-        ownerText: "《整理 AutoAide TUI》当前被阻塞：worker execution failed"
+        summary: "manager marked Refine AutoAide TUI as blocked",
+        ownerText: "\"Refine AutoAide TUI\" is currently blocked: worker execution failed"
       },
       {
         kind: "followup_replan_task",
-        summary: "manager is preparing a replan path for 整理 AutoAide TUI",
-        ownerText: "我正在为《整理 AutoAide TUI》重新规划下一步，避免这条任务线停住。"
+        summary: "manager is preparing a replan path for Refine AutoAide TUI",
+        ownerText: "I am replanning the next step for \"Refine AutoAide TUI\" so this workstream does not stall."
       }
     ]);
   });
@@ -357,8 +363,8 @@ describe("owner-interface", () => {
     store.upsertTask({
       id: "task-1",
       ownerId: "owner-1",
-      title: "整理 AutoAide TUI",
-      goal: "改成 conversation-first",
+      title: "Refine AutoAide TUI",
+      goal: "Make it conversation-first",
       status: "blocked",
       priority: "high",
       blockers: ["Need owner clarification on acceptance criteria"],
@@ -372,7 +378,7 @@ describe("owner-interface", () => {
       channel: "web",
       peerId: "peer-1",
       activeTaskId: "task-1",
-      activeTaskTitle: "整理 AutoAide TUI",
+      activeTaskTitle: "Refine AutoAide TUI",
       createdAt: 100,
       updatedAt: 120
     });
@@ -415,7 +421,7 @@ describe("owner-interface", () => {
           {
             kind: "blocked_task",
             taskId: "task-1",
-            summary: "缺少验收标准"
+            summary: "Missing acceptance criteria"
           }
         ],
         actions: [
@@ -423,7 +429,7 @@ describe("owner-interface", () => {
             kind: "follow_up_owner",
             taskId: "task-1",
             priority: "high",
-            reason: "缺少验收标准"
+            reason: "Missing acceptance criteria"
           }
         ],
         reminders: [
@@ -431,7 +437,7 @@ describe("owner-interface", () => {
             kind: "followup_due",
             ownerId: "owner-1",
             taskId: "task-1",
-            summary: "实现 AutoAide needs follow-up"
+            summary: "Implement AutoAide needs follow-up"
           }
         ]
       }
@@ -439,8 +445,8 @@ describe("owner-interface", () => {
 
     expect(replies).toHaveLength(2);
     expect(delivered).toEqual([
-      "需要你补充或确认：缺少验收标准",
-      "提醒：实现 AutoAide needs follow-up"
+      "Need your clarification or confirmation: Missing acceptance criteria",
+      "Reminder: Implement AutoAide needs follow-up"
     ]);
   });
 
@@ -461,13 +467,13 @@ describe("owner-interface", () => {
             kind: "follow_up_owner",
             taskId: "task-1",
             priority: "high",
-            reason: "缺少验收标准"
+            reason: "Missing acceptance criteria"
           },
           {
             kind: "follow_up_owner",
             taskId: "task-1",
             priority: "high",
-            reason: "缺少验收标准"
+            reason: "Missing acceptance criteria"
           }
         ],
         reminders: [
@@ -475,7 +481,7 @@ describe("owner-interface", () => {
             kind: "followup_due",
             ownerId: "owner-1",
             taskId: "task-1",
-            summary: "实现 AutoAide needs follow-up"
+            summary: "Implement AutoAide needs follow-up"
           }
         ]
       }
@@ -512,7 +518,7 @@ describe("owner-interface", () => {
             kind: "followup_due",
             ownerId: "owner-1",
             taskId: "task-1",
-            summary: "实现 AutoAide needs follow-up"
+            summary: "Implement AutoAide needs follow-up"
           }
         ]
       }

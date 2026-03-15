@@ -29,10 +29,10 @@ The repository already has the core manager-side skeleton:
 
 - task system
 - memory system
-- manager core
+- manager runtime and policy skeleton
 - worker orchestrator
-- supervision core
-- minimal server and config/logging foundation
+- minimal config/logging foundation
+- a postponed minimal server placeholder for future web/channel ingress
 
 The full owner-facing product experience is still in progress:
 
@@ -42,13 +42,36 @@ The full owner-facing product experience is still in progress:
 
 ## CLI
 
-The intended install shape is a direct CLI:
+The intended install shape is a direct CLI.
+
+The default first-use path is:
 
 ```bash
-autoaide help
-autoaide status
 autoaide tui
 ```
+
+The intended minimal command surface is:
+
+```bash
+autoaide tui
+autoaide exec "<goal>"
+autoaide status
+autoaide models
+autoaide dashboard
+autoaide stop
+autoaide doctor
+```
+
+If the first real run fails, use:
+
+```bash
+autoaide doctor
+```
+
+The point of the product is to let the owner talk to the manager immediately, not to make diagnostics the primary entrypoint.
+
+`apps/server` is intentionally postponed.
+For current product and development work, default to `autoaide tui`.
 
 For local development, use a global `pnpm link`:
 
@@ -76,18 +99,18 @@ rehash
 Inside the repo, you can verify the same command surface with:
 
 ```bash
+pnpm exec autoaide tui
 pnpm exec autoaide help
 pnpm exec autoaide status
-pnpm exec autoaide codex check
-pnpm exec autoaide tui
 ```
 
 ## Docs
 
-- [Pitch Deck](./AutoAide-定位与发现.md)
-- [Architecture](./AutoAide-架构设计.md)
-- [Development Plan](./AutoAide-开发计划.md)
-- [Product Comparison](./AutoAide-vs-OpenClaw-优劣势对比.md)
-- [Task and Memory Design](./AutoAide-任务与记忆系统设计.md)
-- [Testing Plan](./AutoAide-测试计划.md)
-- [TUI Guide](./AutoAide-TUI使用指南.md)
+Start here:
+
+- [Docs Index](./docs/core/AutoAide-文档索引.md)
+- [Development Plan](./docs/core/AutoAide-开发计划.md)
+- [Architecture](./docs/core/AutoAide-架构设计.md)
+- [CEO-COO Multi-Workstream Architecture](./docs/manager/AutoAide-CEO-COO多线程管理架构设计.md)
+- [Task and Memory Design](./docs/core/AutoAide-任务与记忆系统设计.md)
+- [Testing Plan](./docs/core/AutoAide-测试计划.md)

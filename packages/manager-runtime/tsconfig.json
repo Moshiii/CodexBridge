@@ -16,14 +16,18 @@
       "@autoaide/executor-codex": ["../executor-codex/src/index.ts"],
       "@autoaide/manager-core": ["../manager-core/src/index.ts"],
       "@autoaide/memory-system": ["../memory-system/src/index.ts"],
-      "@autoaide/task-system": ["../task-system/src/index.ts"]
+      "@autoaide/supervision-core": ["../supervision-core/src/index.ts"],
+      "@autoaide/task-system": ["../task-system/src/index.ts"],
+      "@autoaide/worker-orchestrator": ["../worker-orchestrator/src/index.ts"]
     }
   },
   "references": [
     { "path": "../executor-codex" },
     { "path": "../manager-core" },
     { "path": "../memory-system" },
-    { "path": "../task-system" }
+    { "path": "../supervision-core" },
+    { "path": "../task-system" },
+    { "path": "../worker-orchestrator" }
   ],
   "include": ["src/**/*.ts"]
 }

@@ -9,6 +9,8 @@
     "@autoaide/executor-codex": "file:../executor-codex",
     "@autoaide/manager-core": "file:../manager-core",
     "@autoaide/memory-system": "file:../memory-system",
-    "@autoaide/task-system": "file:../task-system"
+    "@autoaide/supervision-core": "file:../supervision-core",
+    "@autoaide/task-system": "file:../task-system",
+    "@autoaide/worker-orchestrator": "file:../worker-orchestrator"
   }
 }

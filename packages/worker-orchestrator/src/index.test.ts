@@ -53,6 +53,11 @@ describe("worker-orchestrator", () => {
     expect(assignment.status).toBe("starting");
     expect(store.getTask("task-1")?.status).toBe("assigned");
     expect(registry.getWorker("worker-1")?.status).toBe("busy");
+    expect(registry.getWorker("worker-1")).toMatchObject({
+      lastTaskId: "task-1",
+      recentTaskTypes: ["Implement orchestrator"],
+      lastAssignmentAt: 130
+    });
   });
 
   it("records heartbeat and promotes the assignment to running", () => {
@@ -90,6 +95,7 @@ describe("worker-orchestrator", () => {
     expect(assignment.status).toBe("running");
     expect(assignment.heartbeatAt).toBe(150);
     expect(store.getTask("task-1")?.status).toBe("running");
+    expect(registry.getWorker("worker-1")?.lastHeartbeatAt).toBe(150);
   });
 
   it("records worker results and clears worker occupancy", () => {
@@ -127,7 +133,11 @@ describe("worker-orchestrator", () => {
 
     expect(success.status).toBe("succeeded");
     expect(store.getTask("task-1")?.status).toBe("reviewing");
-    expect(registry.getWorker("worker-1")?.status).toBe("idle");
+    expect(registry.getWorker("worker-1")).toMatchObject({
+      status: "idle",
+      lastOutcome: "succeeded",
+      lastOutcomeAt: 160
+    });
   });
 
   it("detects stalled assignments from stale worker heartbeats", () => {

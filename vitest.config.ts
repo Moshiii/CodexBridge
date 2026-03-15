@@ -14,7 +14,6 @@ export default defineConfig({
       "@autoaide/executor-codex": path.resolve("packages/executor-codex/src/index.ts"),
       "@autoaide/owner-interface": path.resolve("packages/owner-interface/src/index.ts"),
       "@autoaide/supervision-core": path.resolve("packages/supervision-core/src/index.ts"),
-      "@autoaide/terminal-ui": path.resolve("packages/terminal-ui/src/index.ts"),
       "@autoaide/tui": path.resolve("apps/tui/src/index.ts")
     }
   },

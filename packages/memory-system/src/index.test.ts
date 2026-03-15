@@ -3,7 +3,8 @@ import {
   InMemoryTaskStore,
   createAssignment,
   createCommitment,
-  createTask
+  createTask,
+  createWorkstream
 } from "@autoaide/task-system";
 import {
   InMemoryManagerMemory,
@@ -19,6 +20,18 @@ import {
 describe("memory-system", () => {
   it("builds manager memory summaries from structured state", () => {
     const store = new InMemoryTaskStore();
+    store.upsertWorkstream(
+      createWorkstream({
+        id: "workstream-1",
+        ownerId: "owner-1",
+        rootTaskId: "task-1",
+        title: "Migrate core workstream",
+        goal: "Track the full migration thread",
+        activeTaskId: "task-1",
+        activeWorkerId: "worker-1",
+        now: 95
+      })
+    );
     store.upsertTask(
       createTask({
         id: "task-1",
@@ -76,7 +89,12 @@ describe("memory-system", () => {
           currentAssignmentId: "assignment-1",
           createdAt: 100,
           updatedAt: 130,
-          strengths: ["typescript"]
+          strengths: ["typescript"],
+          preferredTaskTypes: ["bug-triage"],
+          recentTaskTypes: ["Migrate tasks"],
+          lastHeartbeatAt: 135,
+          lastOutcome: "succeeded",
+          lastOutcomeAt: 136
         }
       ],
       projects: [
@@ -92,9 +110,22 @@ describe("memory-system", () => {
       ]
     });
 
+    expect(snapshot.workstreamSummaries).toHaveLength(1);
+    expect(snapshot.workstreamSummaries[0]).toMatchObject({
+      workstreamId: "workstream-1",
+      activeTaskId: "task-1",
+      activeWorkerId: "worker-1"
+    });
     expect(snapshot.taskSummaries).toHaveLength(1);
     expect(snapshot.commitmentSummaries).toHaveLength(1);
     expect(snapshot.workerSummaries).toHaveLength(1);
+    expect(snapshot.workerSummaries[0]).toMatchObject({
+      strengths: ["typescript"],
+      preferredTaskTypes: ["bug-triage"],
+      recentTaskTypes: ["Migrate tasks"],
+      lastHeartbeatAt: 135,
+      lastOutcome: "succeeded"
+    });
     expect(snapshot.projectSummaries).toHaveLength(1);
     expect(snapshot.decisionRecords).toHaveLength(1);
   });
@@ -131,6 +162,17 @@ describe("memory-system", () => {
 
   it("supports text and status search across task summaries", () => {
     const store = new InMemoryTaskStore();
+    store.upsertWorkstream(
+      createWorkstream({
+        id: "workstream-1",
+        ownerId: "owner-1",
+        rootTaskId: "task-2",
+        title: "Blocked execution lane",
+        goal: "Resolve owner question",
+        activeWorkerId: "worker-2",
+        now: 90
+      })
+    );
     store.upsertTask(
       createTask({
         id: "task-1",
@@ -158,6 +200,8 @@ describe("memory-system", () => {
     expect(memory.searchTasks({ text: "memory-system" })).toHaveLength(1);
     expect(memory.searchTasks({ status: "blocked" })).toHaveLength(1);
     expect(memory.searchTasks({ workerId: "worker-2" })).toHaveLength(1);
+    expect(memory.searchWorkstreams({ text: "blocked execution" })).toHaveLength(1);
+    expect(memory.searchWorkstreams({ activeWorkerId: "worker-2" })).toHaveLength(1);
   });
 
   it("supports commitment search and owner-level open commitment lookups", () => {
@@ -236,6 +280,26 @@ describe("memory-system", () => {
       text: "Please review the plan.",
       createdAt: 146
     });
+    memoryStore.upsertManagerSession({
+      id: "session-1",
+      ownerId: "owner-1",
+      activeWorkstreamId: "workstream-1",
+      lastWakeReason: "owner_message",
+      lastWakeAt: 151,
+      pendingInboxCount: 1,
+      createdAt: 147,
+      updatedAt: 151
+    });
+    memoryStore.appendManagerInboxEvent({
+      id: "inbox-1",
+      sessionId: "session-1",
+      ownerId: "owner-1",
+      workstreamId: "workstream-1",
+      reason: "owner_message",
+      status: "pending",
+      summary: "Owner asked for a plan update.",
+      createdAt: 152
+    });
 
     const snapshot = memoryStore.toSnapshot();
     expect(snapshot.schemaVersion).toBe(MEMORY_SYSTEM_SCHEMA_VERSION);
@@ -246,6 +310,8 @@ describe("memory-system", () => {
     expect(restored.listDecisionRecords()).toHaveLength(1);
     expect(restored.listConversations()).toHaveLength(1);
     expect(restored.listConversationTurns("conversation-1")).toHaveLength(1);
+    expect(restored.listManagerSessions()).toHaveLength(1);
+    expect(restored.listManagerInboxEvents("session-1")).toHaveLength(1);
   });
 
   it("can rebuild manager memory from a persisted memory snapshot", () => {
@@ -289,8 +355,8 @@ describe("memory-system", () => {
       channel: "web",
       peerId: "peer-1",
       activeTaskId: "task-1",
-      activeTaskTitle: "整理 AutoAide TUI",
-      pendingClarificationQuestion: "请确认验收标准",
+      activeTaskTitle: "Refine AutoAide TUI",
+      pendingClarificationQuestion: "Please confirm the acceptance criteria",
       rollingSummary: "Owner wants a conversation-first TUI.",
       createdAt: 100,
       updatedAt: 120
@@ -300,7 +366,7 @@ describe("memory-system", () => {
       conversationId: "conversation-1",
       ownerId: "owner-1",
       role: "owner",
-      text: "整理一下 TUI",
+      text: "Please review the TUI",
       createdAt: 101
     });
     memoryStore.appendConversationTurn({
@@ -308,7 +374,7 @@ describe("memory-system", () => {
       conversationId: "conversation-1",
       ownerId: "owner-1",
       role: "manager",
-      text: "请确认验收标准",
+      text: "Please confirm the acceptance criteria",
       createdAt: 102
     });
 
@@ -317,7 +383,11 @@ describe("memory-system", () => {
 
     expect(snapshot.conversations).toHaveLength(1);
     expect(snapshot.conversationTurns).toHaveLength(2);
-    expect(memory.getConversation("conversation-1")?.pendingClarificationQuestion).toBe("请确认验收标准");
+    expect(snapshot.managerSessions).toEqual([]);
+    expect(snapshot.managerInboxEvents).toEqual([]);
+    expect(memory.getConversation("conversation-1")?.pendingClarificationQuestion).toBe(
+      "Please confirm the acceptance criteria"
+    );
     expect(memory.listConversationTurns("conversation-1")[1]?.role).toBe("manager");
   });
 
@@ -376,6 +446,8 @@ describe("memory-system", () => {
     expect(migrated.data.projects).toHaveLength(1);
     expect(migrated.data.workers).toHaveLength(1);
     expect(migrated.data.decisionRecords).toHaveLength(1);
+    expect(migrated.data.managerSessions).toEqual([]);
+    expect(migrated.data.managerInboxEvents).toEqual([]);
   });
 
   it("repairs malformed memory snapshots before restore", () => {
@@ -389,7 +461,9 @@ describe("memory-system", () => {
           workers: undefined as never,
           decisionRecords: undefined as never,
           conversations: undefined as never,
-          conversationTurns: undefined as never
+          conversationTurns: undefined as never,
+          managerSessions: undefined as never,
+          managerInboxEvents: undefined as never
         }
       },
       100
@@ -403,5 +477,7 @@ describe("memory-system", () => {
     expect(restored.listDecisionRecords()).toEqual([]);
     expect(restored.listConversations()).toEqual([]);
     expect(restored.listConversationTurns("conversation-1")).toEqual([]);
+    expect(restored.listManagerSessions()).toEqual([]);
+    expect(restored.listManagerInboxEvents()).toEqual([]);
   });
 });

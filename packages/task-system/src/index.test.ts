@@ -12,6 +12,7 @@ import {
   createAssignment,
   createCommitment,
   createTask,
+  createWorkstream,
   transitionAssignment,
   transitionCommitment,
   transitionTask
@@ -92,10 +93,14 @@ describe("task-system", () => {
       taskId: "task-1",
       workerId: "worker-1",
       objective: "Do the work",
+      deliverable: "Return a concise implementation summary",
+      completionSignal: "Report the implementation summary back to manager",
       now: 100
     });
 
     expect(assignment.status).toBe("queued");
+    expect(assignment.deliverable).toBe("Return a concise implementation summary");
+    expect(assignment.completionSignal).toBe("Report the implementation summary back to manager");
     expect(canTransitionAssignment("queued", "starting")).toBe(true);
     expect(canTransitionAssignment("queued", "running")).toBe(false);
 
@@ -129,6 +134,16 @@ describe("task-system", () => {
 
   it("stores and queries tasks, assignments, commitments and progress events", () => {
     const store = new InMemoryTaskStore();
+    store.upsertWorkstream(
+      createWorkstream({
+        id: "workstream-1",
+        ownerId: "owner-1",
+        rootTaskId: "task-1",
+        title: "Plan workstream",
+        goal: "Track the planning thread",
+        now: 90
+      })
+    );
     const task = store.upsertTask(
       createTask({
         id: "task-1",
@@ -167,6 +182,7 @@ describe("task-system", () => {
       createdAt: 130
     });
 
+    expect(store.listWorkstreams({ ownerId: "owner-1" })).toHaveLength(1);
     expect(store.listTasks({ ownerId: "owner-1" })).toHaveLength(1);
     expect(store.listAssignments({ workerId: "worker-1" })).toHaveLength(1);
     expect(store.listCommitments({ status: "open" })).toHaveLength(1);
@@ -214,6 +230,16 @@ describe("task-system", () => {
 
   it("exports and restores store snapshots", () => {
     const store = new InMemoryTaskStore(50);
+    store.upsertWorkstream(
+      createWorkstream({
+        id: "workstream-1",
+        ownerId: "owner-1",
+        rootTaskId: "task-1",
+        title: "Planning lane",
+        goal: "Keep one stable workstream",
+        now: 80
+      })
+    );
     store.upsertTask(
       createTask({
         id: "task-1",
@@ -236,6 +262,7 @@ describe("task-system", () => {
     expect(snapshot.schemaVersion).toBe(TASK_SYSTEM_SCHEMA_VERSION);
 
     const restored = InMemoryTaskStore.fromSnapshot(snapshot);
+    expect(restored.getWorkstream("workstream-1")?.title).toBe("Planning lane");
     expect(restored.getTask("task-1")?.title).toBe("Plan work");
     expect(restored.getCommitment("commitment-1")?.summary).toBe("Send plan by EOD");
   });
@@ -262,13 +289,14 @@ describe("task-system", () => {
 
   it("rejects unsupported snapshot versions", () => {
     const issues = validateSnapshot({
-      schemaVersion: 999,
-      createdAt: 1,
-      updatedAt: 2,
-      data: {
-        tasks: [],
-        assignments: [],
-        commitments: [],
+        schemaVersion: 999,
+        createdAt: 1,
+        updatedAt: 2,
+        data: {
+          workstreams: [],
+          tasks: [],
+          assignments: [],
+          commitments: [],
         progressEvents: []
       }
     });
@@ -290,6 +318,7 @@ describe("task-system", () => {
     }, 500);
 
     expect(migrated.schemaVersion).toBe(TASK_SYSTEM_SCHEMA_VERSION);
+    expect(migrated.data.workstreams).toEqual([]);
     expect(migrated.data.tasks).toHaveLength(1);
 
     const repaired = repairSnapshot(
@@ -298,6 +327,7 @@ describe("task-system", () => {
         createdAt: 1,
         updatedAt: 2,
         data: {
+          workstreams: undefined as unknown as [],
           tasks: [],
           assignments: undefined as unknown as [],
           commitments: [],
@@ -308,6 +338,7 @@ describe("task-system", () => {
     );
 
     expect(validateSnapshot(repaired)).toEqual([]);
+    expect(repaired.data.workstreams).toEqual([]);
     expect(repaired.data.assignments).toEqual([]);
     expect(repaired.data.progressEvents).toEqual([]);
   });

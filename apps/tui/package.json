@@ -7,9 +7,12 @@
   "types": "./dist/index.d.ts",
   "dependencies": {
     "@autoaide/executor-codex": "file:../../packages/executor-codex",
+    "@autoaide/manager-runtime": "file:../../packages/manager-runtime",
     "@autoaide/memory-system": "file:../../packages/memory-system",
+    "@autoaide/owner-interface": "file:../../packages/owner-interface",
     "@autoaide/task-system": "file:../../packages/task-system",
-    "@autoaide/terminal-ui": "file:../../packages/terminal-ui",
-    "@autoaide/worker-orchestrator": "file:../../packages/worker-orchestrator"
+    "@autoaide/worker-orchestrator": "file:../../packages/worker-orchestrator",
+    "@types/blessed": "^0.1.27",
+    "blessed": "^0.1.81"
   }
 }

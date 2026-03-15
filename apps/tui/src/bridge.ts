@@ -112,7 +112,7 @@ function buildStatus(runtime: OperatorRuntimeState): BridgeResponse {
     protocolVersion: AUTOAIDE_TUI_PROTOCOL_VERSION,
     type: "status_update",
     message: runtime.pendingClarification
-      ? `Waiting for clarification: ${runtime.pendingClarification.question}`
+      ? "Waiting for clarification"
       : runtime.activeTaskTitle
         ? `Active task: ${runtime.activeTaskTitle}`
         : "Manager is ready for your goal",
@@ -249,9 +249,11 @@ function emitSnapshot(runtime: OperatorRuntimeState): void {
     protocolVersion: AUTOAIDE_TUI_PROTOCOL_VERSION,
     type: "history_reset"
   });
-  readConversationEvents(runtime.paths).forEach((event, index) => {
-    emitCell(toPersistedCell(event, index));
-  });
+  readConversationEvents(runtime.paths)
+    .filter((event) => event.role !== "event")
+    .forEach((event, index) => {
+      emitCell(toPersistedCell(event, index));
+    });
   emitThreadList(runtime);
   emit(buildStatus(runtime));
 }
@@ -273,6 +275,23 @@ function emitCommandResult(level: "info" | "error", message: string): void {
     level,
     message
   });
+}
+
+function summarizeActionLabel(toolCall: string): string {
+  switch (toolCall) {
+    case "assign_worker":
+      return "assign worker";
+    case "create_tasks":
+      return "create tasks";
+    case "ask_owner":
+      return "ask owner";
+    case "replan_task":
+      return "replan";
+    case "record_decision":
+      return "record decision";
+    default:
+      return toolCall.replace(/_/g, " ");
+  }
 }
 
 async function processPendingAssignments(runtime: OperatorRuntimeState): Promise<void> {
@@ -397,15 +416,12 @@ async function handleSubmit(runtime: OperatorRuntimeState, managerRuntime: Manag
   });
 
   for (const receipt of result.behaviorReceipts) {
-    const kind =
-      receipt.kind === "plan_created"
-        ? "plan"
-        : receipt.kind === "clarification_requested"
-          ? "warning"
-          : receipt.kind === "tool_calls_emitted"
-            ? "tool_call"
-            : "status";
-    emitCell(nextCell(kind, receipt.kind, receipt.summary));
+    if (receipt.kind === "plan_created") {
+      emitCell(nextCell("plan", "plan", receipt.summary));
+    }
+    if (receipt.kind === "clarification_requested") {
+      emitCell(nextCell("warning", "clarification", receipt.summary));
+    }
     appendConversationTurn(runtime, {
       role: "event",
       text: `${receipt.kind}: ${receipt.summary}`,
@@ -414,14 +430,16 @@ async function handleSubmit(runtime: OperatorRuntimeState, managerRuntime: Manag
   }
 
   for (const receipt of result.actionReceipts) {
-    emitCell(
-      nextCell(
-        "tool_call",
-        receipt.toolCall,
-        `[${receipt.status}] ${receipt.summary}`,
-        receipt.status === "applied" ? "final" : "error"
-      )
-    );
+    if (receipt.toolCall !== "record_decision") {
+      emitCell(
+        nextCell(
+          "tool_call",
+          summarizeActionLabel(receipt.toolCall),
+          receipt.summary,
+          receipt.status === "applied" ? "final" : "error"
+        )
+      );
+    }
     appendConversationTurn(runtime, {
       role: "event",
       text: `${receipt.toolCall}: [${receipt.status}] ${receipt.summary}`,
@@ -460,8 +478,9 @@ async function handleSubmit(runtime: OperatorRuntimeState, managerRuntime: Manag
     memoryStore: runtime.memoryStore,
     conversationId: runtime.conversationId
   })) {
-    emitCell(nextCell("status", followup.kind, followup.summary));
-    emitCell(nextCell("assistant", "manager", followup.ownerText));
+    if (followup.kind !== "followup_waiting_owner") {
+      emitCell(nextCell("status", "follow-up", followup.summary));
+    }
     appendConversationTurn(runtime, {
       role: "event",
       text: `${followup.kind}: ${followup.summary}`,

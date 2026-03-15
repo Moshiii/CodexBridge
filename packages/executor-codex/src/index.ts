@@ -24,6 +24,8 @@ export type CodexRunRequest = {
   assignmentId: string;
   taskId: string;
   objective: string;
+  deliverable?: string;
+  completionSignal?: string;
   inputs: Record<string, unknown>;
   workspaceRoot: string;
   allowedTools: string[];
@@ -162,6 +164,8 @@ export function createCodexRunRequest(input: {
     assignmentId: input.assignment.id,
     taskId: input.task.id,
     objective: input.assignment.objective,
+    deliverable: input.assignment.deliverable,
+    completionSignal: input.assignment.completionSignal,
     inputs: input.assignment.inputs,
     workspaceRoot: policy.workspaceRoot,
     allowedTools: policy.allowedTools,
@@ -241,6 +245,8 @@ export function buildCodexExecPrompt(request: CodexRunRequest): string {
     `Assignment ID: ${request.assignmentId}`,
     `Task ID: ${request.taskId}`,
     `Objective: ${request.objective}`,
+    ...(request.deliverable ? [`Deliverable: ${request.deliverable}`] : []),
+    ...(request.completionSignal ? [`Completion signal: ${request.completionSignal}`] : []),
     `Workspace root: ${request.workspaceRoot}`,
     `Allowed tools: ${request.allowedTools.join(", ")}`,
     `Inputs JSON: ${JSON.stringify(request.inputs)}`,
