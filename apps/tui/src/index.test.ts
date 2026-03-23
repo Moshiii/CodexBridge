@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { DeterministicManagerRuntime } from "@autoaide/manager-runtime";
 import { InMemoryMemoryStore } from "@autoaide/memory-system";
 import { InMemoryTaskStore, createTask } from "@autoaide/task-system";
-import { InMemoryWorkerRegistry } from "@autoaide/worker-orchestrator";
+import { InMemoryWorkerRegistry, assignTaskToWorker, recordWorkerHeartbeat, spawnWorker } from "@autoaide/worker-orchestrator";
 import { InMemoryCodexExecutorAdapter, InMemoryCodexRunRegistry } from "@autoaide/executor-codex";
 import {
   buildOperatorDashboard,
@@ -16,6 +16,7 @@ import {
   parseSlashCommand,
   renderInteractiveScreen,
   runCodexConnectivityCheck,
+  runManagerSchedulerTick,
   submitOwnerMessage,
   switchRuntimeThread,
   type OperatorRuntimeState,
@@ -626,6 +627,20 @@ describe("tui app", () => {
       activeWorkstreamTitle: "Fix it",
       activeTaskId: expectedRootTaskId
     });
+    expect(runtime.memoryStore.listManagerSessions("owner-local")[0]).toMatchObject({
+      id: "manager-session-terminal-owner-local",
+      activeWorkstreamId: `workstream-${expectedRootTaskId}`
+    });
+    expect(
+      runtime.memoryStore
+        .listManagerInboxEvents("manager-session-terminal-owner-local")
+        .map((event) => event.reason)
+    ).toContain("owner_message");
+    expect(
+      runtime.memoryStore
+        .listManagerInboxEvents("manager-session-terminal-owner-local")
+        .map((event) => event.reason)
+    ).toContain("worker_result");
     expect(
       state.messages.some(
         (message) => "title" in message && message.title === "Followup Reviewing Result"
@@ -811,6 +826,19 @@ describe("tui app", () => {
 
     expect(calls).toBe(2);
     expect(runtime.store.listTasks()[0]?.status).toBe("done");
+    expect(runtime.memoryStore.listManagerSessions("owner-local")[0]?.pendingInboxCount).toBe(0);
+    expect(
+      runtime.memoryStore
+        .listManagerInboxEvents("manager-session-terminal-owner-local")
+        .filter((event) => event.reason === "owner_message")
+        .every((event) => event.status === "processed")
+    ).toBe(true);
+    expect(
+      runtime.memoryStore
+        .listManagerInboxEvents("manager-session-terminal-owner-local")
+        .filter((event) => event.reason === "worker_result")
+        .every((event) => event.status === "processed")
+    ).toBe(true);
     expect(
       state.messages.some(
         (message) => message.kind === "manager" && message.text.includes("closed the task")
@@ -820,6 +848,141 @@ describe("tui app", () => {
       runtime.memoryStore
         .listConversationTurns("terminal-owner-local")
         .some((turn) => turn.text.includes("mark_task_done: [applied] marked Investigate Failing Test done"))
+    ).toBe(true);
+  });
+
+  it("answers a workstream status query without replanning", async () => {
+    const now = Date.now();
+    const state: TuiScreenState = {
+      dashboard: buildOperatorDashboard(),
+      compactStatus: "manager  tasks 0  workers 0  busy 0  alerts 0  reminders 0",
+      messages: [{ kind: "system", text: "AutoAide interactive TUI ready." }],
+      statusLine: "Interactive mode active",
+      promptLabel: "Input:"
+    };
+    const runtime = createTestRuntime(
+      now,
+      new InMemoryCodexExecutorAdapter(async (request) => ({
+        status: "succeeded",
+        runId: request.runId,
+        assignmentId: request.assignmentId,
+        finishedAt: now + 5,
+        summary: "STATUS_QUERY_OK"
+      }))
+    );
+
+    await submitOwnerMessage({
+      text: "Investigate the failing test",
+      state,
+      runtime,
+      managerRuntime: new DeterministicManagerRuntime(),
+      now
+    });
+
+    const taskCount = runtime.store.listTasks().length;
+    await submitOwnerMessage({
+      text: "Investigate the failing test 任务怎么样了？",
+      state,
+      runtime,
+      managerRuntime: new DeterministicManagerRuntime(),
+      now: now + 10
+    });
+
+    expect(runtime.store.listTasks()).toHaveLength(taskCount);
+    expect(
+      state.messages.some(
+        (message) =>
+          message.kind === "manager" &&
+          message.text.includes("Investigate the failing test is")
+      )
+    ).toBe(true);
+    expect(state.statusLine).toContain("Reported workstream status");
+    expect(
+      runtime.memoryStore
+        .listManagerInboxEvents("manager-session-terminal-owner-local")
+        .some((event) => event.reason === "status_query" && event.status === "processed")
+    ).toBe(true);
+  });
+
+  it("processes worker heartbeat through the scheduler tick without a new owner message", async () => {
+    const now = Date.now();
+    const state: TuiScreenState = {
+      dashboard: buildOperatorDashboard(),
+      compactStatus: "manager  tasks 0  workers 0  busy 0  alerts 0  reminders 0",
+      messages: [{ kind: "system", text: "AutoAide interactive TUI ready." }],
+      statusLine: "Interactive mode active",
+      promptLabel: "Input:"
+    };
+    const runtime = createTestRuntime(now);
+
+    runtime.store.upsertTask(
+      createTask({
+        id: "task-heartbeat-1",
+        ownerId: "owner-local",
+        title: "Monitor heartbeat lane",
+        goal: "Keep the worker heartbeat visible to manager",
+        now
+      })
+    );
+    runtime.store.updateTaskStatus("task-heartbeat-1", "planned", now + 1);
+    spawnWorker(runtime.registry, { workerId: "worker-heartbeat-1", now: now + 2 });
+    assignTaskToWorker({
+      store: runtime.store,
+      registry: runtime.registry,
+      taskId: "task-heartbeat-1",
+      workerId: "worker-heartbeat-1",
+      assignmentId: "assignment-heartbeat-1",
+      objective: "Keep running",
+      now: now + 3
+    });
+    recordWorkerHeartbeat({
+      store: runtime.store,
+      registry: runtime.registry,
+      workerId: "worker-heartbeat-1",
+      assignmentId: "assignment-heartbeat-1",
+      now: now + 4
+    });
+
+    runtime.activeRootTaskId = "task-heartbeat-1";
+    runtime.activeTaskTitle = "Monitor heartbeat lane";
+    runtime.activeWorkstreamId = "workstream-task-heartbeat-1";
+    runtime.activeWorkstreamTitle = "Monitor heartbeat lane";
+    runtime.store.upsertWorkstream({
+      id: "workstream-task-heartbeat-1",
+      ownerId: "owner-local",
+      rootTaskId: "task-heartbeat-1",
+      title: "Monitor heartbeat lane",
+      goal: "Keep the worker heartbeat visible to manager",
+      status: "active",
+      priority: "medium",
+      activeTaskId: "task-heartbeat-1",
+      activeWorkerId: "worker-heartbeat-1",
+      createdAt: now,
+      updatedAt: now + 4
+    });
+    runtime.memoryStore.upsertManagerSession({
+      id: "manager-session-terminal-owner-local",
+      ownerId: "owner-local",
+      activeWorkstreamId: "workstream-task-heartbeat-1",
+      lastWakeReason: "owner_message",
+      lastWakeAt: now,
+      pendingInboxCount: 0,
+      createdAt: now,
+      updatedAt: now
+    });
+
+    const tickCount = await runManagerSchedulerTick({
+      state,
+      runtime,
+      managerRuntime: new DeterministicManagerRuntime(),
+      now: now + 10
+    });
+
+    expect(tickCount).toBe(0);
+    expect(
+      runtime.memoryStore
+        .listManagerInboxEvents("manager-session-terminal-owner-local")
+        .some((event) => event.reason === "worker_heartbeat" && event.status === "pending")
     ).toBe(true);
   });
 

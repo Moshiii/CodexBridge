@@ -18,7 +18,7 @@ import {
 } from "@autoaide/manager-runtime";
 import { InMemoryMemoryStore, InMemoryManagerMemory } from "@autoaide/memory-system";
 import { createTask, createWorkstream, InMemoryTaskStore, type Task, type WorkstreamStatus } from "@autoaide/task-system";
-import { InMemoryWorkerRegistry, assignTaskToWorker, spawnWorker } from "@autoaide/worker-orchestrator";
+import { InMemoryWorkerRegistry, assignTaskToWorker, detectStalledAssignments, spawnWorker } from "@autoaide/worker-orchestrator";
 import {
   appendConversationEvent,
   listPersistedThreads,
@@ -61,6 +61,8 @@ import {
   parseSlashCommand
 } from "./tui/slash-commands.js";
 import { createBlessedTuiView } from "./tui/blessed-ui.js";
+import { resolveWorkstreamStatusQuery } from "./workstream-status.js";
+import { startPeriodicScheduler, type PeriodicSchedulerHandle } from "./scheduler.js";
 
 export type CodexConnectivityCheckResult = {
   dashboard: string;
@@ -77,6 +79,7 @@ export type CodexConnectivityEventHandler = (event: CodexConnectivityEvent) => v
 export type { TuiStepType, ManagerThreadItemType, TuiCell as TuiMessage, TuiScreenState };
 export { formatConversationCell as formatConversationMessage, renderInteractiveScreen, scrollTranscriptBy };
 export { runManagerExec } from "./exec.js";
+export { runManagerExecSchedulerTick, startManagerExecSchedulerDaemon } from "./exec.js";
 export type { AutoAideExecEvent, AutoAideExecEventHandler, AutoAideExecItem } from "./exec.js";
 export {
   buildTranscriptPagerMessage,
@@ -203,6 +206,7 @@ function buildDashboardFromState(input: {
   registry: InMemoryWorkerRegistry;
   memoryStore: InMemoryMemoryStore;
   now: number;
+  
 }) {
   for (const worker of input.registry.listWorkers()) {
     input.memoryStore.upsertWorker(worker);
@@ -265,6 +269,7 @@ function createOperatorRuntimeStateFor(conversationId: string, now = Date.now())
   return {
     now,
     paths: restored.paths,
+    sessionId: `manager-session-${conversationId}`,
     conversationId,
     ownerId: LOCAL_OWNER_ID,
     store: restored.store,
@@ -348,6 +353,87 @@ function syncActiveWorkstream(
 
   runtime.activeWorkstreamId = workstreamId;
   runtime.activeWorkstreamTitle = runtime.activeTaskTitle;
+}
+
+function syncManagerSession(runtime: OperatorRuntimeState, now: number, lastWakeReason?: import("@autoaide/memory-system").ManagerWakeReason): void {
+  const sessionId = runtime.sessionId ?? `manager-session-${runtime.conversationId}`;
+  runtime.sessionId = sessionId;
+  const existing = runtime.memoryStore.listManagerSessions(runtime.ownerId).find((session) => session.id === sessionId);
+  const pendingInboxCount = runtime.memoryStore
+    .listManagerInboxEvents(sessionId)
+    .filter((event) => event.status === "pending").length;
+
+  runtime.memoryStore.upsertManagerSession({
+    id: sessionId,
+    ownerId: runtime.ownerId,
+    activeWorkstreamId: runtime.activeWorkstreamId,
+    lastWakeReason: lastWakeReason ?? existing?.lastWakeReason,
+    lastWakeAt: lastWakeReason ? now : existing?.lastWakeAt,
+    pendingInboxCount,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  });
+}
+
+function appendManagerInboxEvent(
+  runtime: OperatorRuntimeState,
+  input: {
+    reason: import("@autoaide/memory-system").ManagerWakeReason;
+    summary: string;
+    now: number;
+    workstreamId?: string;
+    status?: "pending" | "processed";
+    metadata?: Record<string, unknown>;
+  }
+): void {
+  const sessionId = runtime.sessionId ?? `manager-session-${runtime.conversationId}`;
+  runtime.sessionId = sessionId;
+  runtime.memoryStore.appendManagerInboxEvent({
+    id: `inbox-${input.now}-${runtime.memoryStore.listManagerInboxEvents(sessionId).length + 1}`,
+    sessionId,
+    ownerId: runtime.ownerId,
+    workstreamId: input.workstreamId ?? runtime.activeWorkstreamId,
+    reason: input.reason,
+    status: input.status ?? "pending",
+    summary: input.summary,
+    createdAt: input.now,
+    processedAt: input.status === "processed" ? input.now : undefined,
+    metadata: input.metadata
+  });
+  syncManagerSession(runtime, input.now, input.reason);
+}
+
+function markManagerInboxEventsProcessed(
+  runtime: OperatorRuntimeState,
+  input: {
+    now: number;
+    ids?: string[];
+    predicate?: (event: import("@autoaide/memory-system").ManagerInboxEvent) => boolean;
+  }
+): void {
+  const ids = new Set(input.ids ?? []);
+  const events = runtime.memoryStore.listManagerInboxEvents(runtime.sessionId);
+  let changed = false;
+
+  for (const event of events) {
+    const shouldProcess =
+      event.status === "pending" &&
+      ((ids.size > 0 && ids.has(event.id)) || (input.predicate ? input.predicate(event) : false));
+    if (!shouldProcess) {
+      continue;
+    }
+
+    runtime.memoryStore.appendManagerInboxEvent({
+      ...event,
+      status: "processed",
+      processedAt: input.now
+    });
+    changed = true;
+  }
+
+  if (changed) {
+    syncManagerSession(runtime, input.now);
+  }
 }
 
 export function buildOperatorDashboard(): string {
@@ -555,6 +641,7 @@ function upsertConversationState(runtime: OperatorRuntimeState, now: number): vo
     createdAt: existing?.createdAt ?? now,
     updatedAt: now
   });
+  syncManagerSession(runtime, now);
   persistRuntimeState(runtime);
 }
 
@@ -609,12 +696,13 @@ async function processPendingAssignments(
       });
     } catch (error) {
       const errorText = error instanceof Error ? error.message : String(error);
+      const failedAt = Date.now();
       runtime.store.upsertTask({
         ...task,
         status: "blocked",
         blockers: [errorText],
-        updatedAt: Date.now(),
-        lastProgressAt: Date.now()
+        updatedAt: failedAt,
+        lastProgressAt: failedAt
       });
       await emitTuiEvent(
         state,
@@ -637,14 +725,25 @@ async function processPendingAssignments(
       appendConversationTurn(runtime, {
         role: "event",
         text: `worker_failed: ${assignment.workerId} failed ${task.title}: ${errorText}`,
-        now: Date.now()
+        now: failedAt
       });
       appendConversationTurn(runtime, {
         role: "manager",
         text: `Failed "${task.title}": ${errorText}`,
-        now: Date.now()
+        now: failedAt
       });
-      upsertConversationState(runtime, Date.now());
+      appendManagerInboxEvent(runtime, {
+        reason: "blocked_task",
+        summary: `${task.title} is blocked after worker failure`,
+        now: failedAt,
+        metadata: {
+          assignmentId: assignment.id,
+          taskId: task.id,
+          workerId: assignment.workerId,
+          error: errorText
+        }
+      });
+      upsertConversationState(runtime, failedAt);
       continue;
     }
 
@@ -669,6 +768,17 @@ async function processPendingAssignments(
       role: "event",
       text: `${receipt.result.status === "succeeded" ? "worker_completed" : "worker_failed"}: ${assignment.workerId} ${receipt.result.status} ${task.title}: ${receipt.managerView.summary}`,
       now: receipt.result.finishedAt
+    });
+    appendManagerInboxEvent(runtime, {
+      reason: "worker_result",
+      summary: `${assignment.workerId} ${receipt.result.status} ${task.title}`,
+      now: receipt.result.finishedAt,
+      metadata: {
+        assignmentId: assignment.id,
+        taskId: task.id,
+        workerId: assignment.workerId,
+        resultStatus: receipt.result.status
+      }
     });
     await emitTuiEvent(
       state,
@@ -727,6 +837,15 @@ async function emitManagerFollowups(
       text: receipt.ownerText,
       now
     });
+    appendManagerInboxEvent(runtime, {
+      reason:
+        receipt.kind === "followup_blocked_task"
+          ? "blocked_task"
+          : "followup_due",
+      summary: receipt.summary,
+      now,
+      status: "processed"
+    });
   }
 }
 
@@ -757,6 +876,155 @@ function findAutomaticFollowupTask(runtime: OperatorRuntimeState, now: number): 
     );
 }
 
+function ensureAutomaticWakeEvent(runtime: OperatorRuntimeState, now: number): void {
+  const task = findAutomaticFollowupTask(runtime, now);
+  if (!task) {
+    return;
+  }
+
+  const reason = task.status === "blocked" ? "blocked_task" : "followup_due";
+  const alreadyPending = runtime.memoryStore
+    .listManagerInboxEvents(runtime.sessionId)
+    .some(
+      (event) =>
+        event.status === "pending" &&
+        event.metadata?.taskId === task.id
+    );
+
+  if (alreadyPending) {
+    return;
+  }
+
+  appendManagerInboxEvent(runtime, {
+    reason,
+    summary:
+      reason === "blocked_task"
+        ? `${task.title} remains blocked and needs manager review`
+        : `${task.title} needs a scheduled manager follow-up`,
+    now,
+    metadata: {
+      taskId: task.id,
+      taskStatus: task.status
+    }
+  });
+}
+
+function ensureStalledAssignmentWakeEvents(runtime: OperatorRuntimeState, now: number): void {
+  const stalledAssignments = detectStalledAssignments(runtime.store, runtime.registry, now, 5 * 60_000);
+  for (const assignment of stalledAssignments) {
+    const alreadyPending = runtime.memoryStore
+      .listManagerInboxEvents(runtime.sessionId)
+      .some(
+        (event) =>
+          event.status === "pending" &&
+          event.reason === "stalled_assignment" &&
+          event.metadata?.assignmentId === assignment.assignmentId
+      );
+    if (alreadyPending) {
+      continue;
+    }
+
+    const task = runtime.store.getTask(assignment.taskId);
+    appendManagerInboxEvent(runtime, {
+      reason: "stalled_assignment",
+      summary: `${task?.title ?? assignment.taskId} appears stalled`,
+      now,
+      metadata: {
+        assignmentId: assignment.assignmentId,
+        taskId: assignment.taskId,
+        workerId: assignment.workerId,
+        lastHeartbeatAt: assignment.lastHeartbeatAt
+      }
+    });
+  }
+}
+
+function ensureWorkerHeartbeatWakeEvents(runtime: OperatorRuntimeState, now: number): void {
+  const session = runtime.memoryStore.listManagerSessions(runtime.ownerId).find((item) => item.id === runtime.sessionId);
+  const lastWakeAt = session?.lastWakeAt ?? 0;
+
+  for (const worker of runtime.registry.listWorkers()) {
+    if (
+      worker.status !== "busy" ||
+      !worker.currentAssignmentId ||
+      typeof worker.lastHeartbeatAt !== "number" ||
+      worker.lastHeartbeatAt <= lastWakeAt
+    ) {
+      continue;
+    }
+
+    const assignment = runtime.store.getAssignment(worker.currentAssignmentId);
+    if (!assignment) {
+      continue;
+    }
+
+    const alreadyPending = runtime.memoryStore
+      .listManagerInboxEvents(runtime.sessionId)
+      .some(
+        (event) =>
+          event.status === "pending" &&
+          event.reason === "worker_heartbeat" &&
+          event.metadata?.assignmentId === assignment.id &&
+          event.metadata?.lastHeartbeatAt === worker.lastHeartbeatAt
+      );
+    if (alreadyPending) {
+      continue;
+    }
+
+    const task = runtime.store.getTask(assignment.taskId);
+    appendManagerInboxEvent(runtime, {
+      reason: "worker_heartbeat",
+      summary: `${worker.id} reported heartbeat on ${task?.title ?? assignment.taskId}`,
+      now,
+      metadata: {
+        assignmentId: assignment.id,
+        taskId: assignment.taskId,
+        workerId: worker.id,
+        lastHeartbeatAt: worker.lastHeartbeatAt
+      }
+    });
+  }
+}
+
+function resolveWakeEventTask(
+  runtime: OperatorRuntimeState,
+  event: import("@autoaide/memory-system").ManagerInboxEvent
+): Task | undefined {
+  const taskId =
+    (typeof event.metadata?.taskId === "string" ? event.metadata.taskId : undefined) ??
+    runtime.store.getWorkstream(event.workstreamId ?? "")?.activeTaskId ??
+    runtime.store.getWorkstream(event.workstreamId ?? "")?.rootTaskId ??
+    runtime.activeRootTaskId;
+
+  return taskId ? runtime.store.getTask(taskId) : undefined;
+}
+
+function pickNextWakeEvent(
+  runtime: OperatorRuntimeState,
+  now: number
+): import("@autoaide/memory-system").ManagerInboxEvent | undefined {
+  ensureAutomaticWakeEvent(runtime, now);
+  ensureWorkerHeartbeatWakeEvents(runtime, now);
+  ensureStalledAssignmentWakeEvents(runtime, now);
+  const priority: Record<import("@autoaide/memory-system").ManagerWakeReason, number> = {
+    owner_message: 99,
+    blocked_task: 1,
+    worker_result: 2,
+    followup_due: 3,
+    stalled_assignment: 4,
+    worker_heartbeat: 5,
+    status_query: 6
+  };
+
+  return runtime.memoryStore
+    .listManagerInboxEvents(runtime.sessionId)
+    .filter((event) => event.status === "pending" && event.reason !== "owner_message")
+    .sort((left, right) => {
+      const byPriority = priority[left.reason] - priority[right.reason];
+      return byPriority !== 0 ? byPriority : left.createdAt - right.createdAt;
+    })[0];
+}
+
 function buildAutomaticFollowupPrompt(task: Task, now: number): string {
   if (task.status === "reviewing") {
     return [
@@ -785,7 +1053,73 @@ function buildAutomaticFollowupPrompt(task: Task, now: number): string {
   ].join("\n");
 }
 
-async function maybeRunAutomaticManagerFollowup(input: {
+function buildSessionTickPrompt(input: {
+  event: import("@autoaide/memory-system").ManagerInboxEvent;
+  task?: Task;
+  now: number;
+}): string {
+  const task = input.task;
+  if (!task) {
+    return [
+      `Review manager wake event "${input.event.reason}" and decide the next action.`,
+      `Event summary: ${input.event.summary}`,
+      `Current time: ${input.now}`,
+      "If no action is needed, explain the current status clearly."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "worker_result" || task.status === "reviewing") {
+    return [
+      `Review the active task "${task.title}" after a worker result and decide the next manager action.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      "If the worker result is sufficient, use mark_task_done.",
+      "If more execution is needed, use assign_worker, replace_worker, nudge_worker, replan_task, or ask_owner."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "blocked_task" || task.status === "blocked") {
+    return [
+      `Follow up on the blocked task "${task.title}" and decide the next manager action.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      `Current blockers: ${(task.blockers ?? []).join("; ") || "unknown"}`,
+      "Use replace_worker, replan_task, ask_owner, or nudge_worker when appropriate."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "stalled_assignment") {
+    return [
+      `Review the stalled assignment for "${task.title}" and decide the next manager action.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      `Last known heartbeat: ${String(input.event.metadata?.lastHeartbeatAt ?? "unknown")}`,
+      "Decide whether to nudge_worker, replace_worker, replan_task, ask_owner, or continue waiting."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "worker_heartbeat") {
+    return [
+      `Review the worker heartbeat for "${task.title}" and decide whether any manager action is needed.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      `Last heartbeat: ${String(input.event.metadata?.lastHeartbeatAt ?? "unknown")}`,
+      "Usually continue waiting unless the context suggests nudging, replacing, or replanning."
+    ].join("\n");
+  }
+
+  return [
+    `Follow up on the active task "${task.title}" and decide the next manager action.`,
+    `Task ID: ${task.id}`,
+    `Wake reason: ${input.event.reason}`,
+    `Inbox summary: ${input.event.summary}`,
+    `Current status: ${task.status}`,
+    `Current time: ${input.now}`,
+    "Decide whether to wait, nudge_worker, replace_worker, replan_task, ask_owner, or mark_task_done."
+  ].join("\n");
+}
+
+async function runManagerSessionTick(input: {
   state: TuiScreenState;
   runtime: OperatorRuntimeState;
   managerRuntime?: ManagerRuntime;
@@ -796,17 +1130,20 @@ async function maybeRunAutomaticManagerFollowup(input: {
     return false;
   }
 
-  const task = findAutomaticFollowupTask(input.runtime, input.now);
-  if (!task) {
+  const wakeEvent = pickNextWakeEvent(input.runtime, input.now);
+  if (!wakeEvent) {
     return false;
   }
+  const task = resolveWakeEventTask(input.runtime, wakeEvent);
 
   const followupNow = input.now + 1;
   await emitTuiEvent(
     input.state,
     {
       type: "manager_thinking",
-      text: `Manager is reviewing ${task.title} and deciding the next step...`
+      text: task
+        ? `Manager is reviewing ${task.title} after ${wakeEvent.reason}...`
+        : `Manager is reviewing ${wakeEvent.reason}...`
     },
     input.onEvent
   );
@@ -817,7 +1154,11 @@ async function maybeRunAutomaticManagerFollowup(input: {
       ownerId: input.runtime.ownerId,
       channel: "web",
       peerId: "local-terminal",
-      text: buildAutomaticFollowupPrompt(task, followupNow),
+      text: buildSessionTickPrompt({
+        event: wakeEvent,
+        task,
+        now: followupNow
+      }),
       createdAt: followupNow
     },
     store: input.runtime.store,
@@ -826,7 +1167,7 @@ async function maybeRunAutomaticManagerFollowup(input: {
     conversation: buildManagerConversationContext(input.state, input.runtime),
     memoryStore: input.runtime.memoryStore,
     workerRegistry: input.runtime.registry,
-    rootTaskId: input.runtime.activeRootTaskId ?? task.id,
+    rootTaskId: input.runtime.activeRootTaskId ?? task?.id ?? `tick-${followupNow}`,
     now: followupNow
   });
 
@@ -873,10 +1214,14 @@ async function maybeRunAutomaticManagerFollowup(input: {
   });
 
   await processPendingAssignments(input.state, input.runtime, input.onEvent);
+  markManagerInboxEventsProcessed(input.runtime, {
+    now: followupNow,
+    ids: [wakeEvent.id]
+  });
 
   if (result.response.intent.needsClarification) {
     input.runtime.pendingClarification = {
-      originalText: input.runtime.pendingClarification?.originalText ?? task.title,
+      originalText: input.runtime.pendingClarification?.originalText ?? task?.title ?? wakeEvent.summary,
       question: result.response.intent.clarificationQuestion ?? result.response.reply.text,
       openedAt: input.runtime.pendingClarification?.openedAt ?? followupNow
     };
@@ -898,6 +1243,83 @@ async function maybeRunAutomaticManagerFollowup(input: {
 
   upsertConversationState(input.runtime, followupNow);
   return true;
+}
+
+async function drainManagerSessionTicks(input: {
+  state: TuiScreenState;
+  runtime: OperatorRuntimeState;
+  managerRuntime?: ManagerRuntime;
+  now: number;
+  onEvent?: TuiEventHandler;
+  limit?: number;
+}): Promise<number> {
+  let count = 0;
+  const limit = input.limit ?? 4;
+  while (count < limit) {
+    const ran = await runManagerSessionTick({
+      state: input.state,
+      runtime: input.runtime,
+      managerRuntime: input.managerRuntime,
+      now: input.now + count,
+      onEvent: input.onEvent
+    });
+    if (!ran) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+export async function runManagerSchedulerTick(input: {
+  state: TuiScreenState;
+  runtime: OperatorRuntimeState;
+  managerRuntime?: ManagerRuntime;
+  now?: number;
+  onEvent?: TuiEventHandler;
+}): Promise<number> {
+  const now = input.now ?? Date.now();
+  ensureAutomaticWakeEvent(input.runtime, now);
+  ensureWorkerHeartbeatWakeEvents(input.runtime, now);
+  ensureStalledAssignmentWakeEvents(input.runtime, now);
+  const count = await drainManagerSessionTicks({
+    state: input.state,
+    runtime: input.runtime,
+    managerRuntime: input.managerRuntime,
+    now,
+    onEvent: input.onEvent
+  });
+  upsertConversationState(input.runtime, now);
+  refreshDashboard(input.state, input.runtime, now);
+  return count;
+}
+
+export function startManagerSchedulerDaemon(input: {
+  state: TuiScreenState;
+  runtime: OperatorRuntimeState;
+  managerRuntime?: ManagerRuntime;
+  intervalMs?: number;
+  onEvent?: TuiEventHandler;
+  requestRedraw?: () => void;
+}): PeriodicSchedulerHandle {
+  return startPeriodicScheduler({
+    intervalMs: input.intervalMs ?? 30_000,
+    run: async () => {
+      if (input.state.pendingTurn) {
+        return;
+      }
+      const tickCount = await runManagerSchedulerTick({
+        state: input.state,
+        runtime: input.runtime,
+        managerRuntime: input.managerRuntime,
+        onEvent: input.onEvent
+      });
+      if (tickCount > 0) {
+        input.state.statusLine = `Manager scheduler processed ${tickCount} wake event(s)`;
+      }
+      input.requestRedraw?.();
+    }
+  });
 }
 
 function buildManagerConversationContext(
@@ -954,12 +1376,60 @@ export async function submitOwnerMessage(input: {
   const effectiveText = input.runtime.pendingClarification
     ? [input.runtime.pendingClarification.originalText, input.text].join("\n")
     : input.text;
+
+  const statusQuery = !input.runtime.pendingClarification
+    ? resolveWorkstreamStatusQuery({
+        text: input.text,
+        memory: managerMemory,
+        store: input.runtime.store,
+        activeWorkstreamId: input.runtime.activeWorkstreamId
+      })
+    : undefined;
+
   appendConversationTurn(input.runtime, {
     role: "owner",
     text: input.text,
     now
   });
+  appendManagerInboxEvent(input.runtime, {
+    reason: "owner_message",
+    summary: input.text,
+    now
+  });
   upsertConversationState(input.runtime, now);
+
+  if (statusQuery) {
+    markManagerInboxEventsProcessed(input.runtime, {
+      now,
+      predicate: (event) => event.reason === "status_query" || event.reason === "owner_message"
+    });
+    appendManagerInboxEvent(input.runtime, {
+      reason: "status_query",
+      summary: statusQuery.queryText || input.text,
+      now,
+      status: "processed",
+      metadata: {
+        source: "owner_message"
+      }
+    });
+    await emitTuiEvent(input.state, { type: "manager_reply", text: statusQuery.replyText }, input.onEvent);
+    appendConversationTurn(input.runtime, {
+      role: "manager",
+      text: statusQuery.replyText,
+      now
+    });
+    upsertConversationState(input.runtime, now);
+    refreshDashboard(input.state, input.runtime, now);
+    await emitTuiEvent(
+      input.state,
+      {
+        type: "status",
+        text: "Reported workstream status"
+      },
+      input.onEvent
+    );
+    return;
+  }
 
   await emitTuiEvent(
     input.state,
@@ -1030,6 +1500,10 @@ export async function submitOwnerMessage(input: {
     text: result.reply.text,
     now
   });
+  markManagerInboxEventsProcessed(input.runtime, {
+    now,
+    predicate: (event) => event.reason === "owner_message"
+  });
 
   await processPendingAssignments(input.state, input.runtime, input.onEvent);
 
@@ -1057,13 +1531,13 @@ export async function submitOwnerMessage(input: {
     }
   }
   upsertConversationState(input.runtime, now);
-  const ranAutomaticFollowup = await maybeRunAutomaticManagerFollowup({
+  const ranAutomaticFollowup = (await drainManagerSessionTicks({
     state: input.state,
     runtime: input.runtime,
     managerRuntime: input.managerRuntime,
     now,
     onEvent: input.onEvent
-  });
+  })) > 0;
   if (!ranAutomaticFollowup) {
     await emitManagerFollowups(input.state, input.runtime, now, input.onEvent);
   }
@@ -1275,8 +1749,16 @@ export async function runInteractiveTui(): Promise<void> {
     view.render();
   };
 
+  const scheduler = startManagerSchedulerDaemon({
+    state,
+    runtime,
+    managerRuntime,
+    requestRedraw
+  });
+
   const exitTui = async () => {
     await pendingSubmission;
+    scheduler.stop();
     view.destroy();
     resolveExit?.();
   };

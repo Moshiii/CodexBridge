@@ -7,6 +7,8 @@ import {
   buildOperatorDashboard,
   runCodexConnectivityCheck,
   runManagerExec,
+  runManagerExecSchedulerTick,
+  startManagerExecSchedulerDaemon,
   type AutoAideExecEvent,
   type AutoAideExecItem
 } from "@autoaide/tui";
@@ -38,6 +40,7 @@ function printTopLevelHelp(): void {
       "  tui         Open the interactive terminal UI",
       "  exec        Run one manager turn and stream results",
       "  status      Print the current operator dashboard",
+      "  supervise   Run the manager scheduler loop as a foreground service",
       "  models      List mounted agent kernels",
       "  dashboard   Reserved entrypoint for a future GUI/dashboard",
       "  stop        Stop the local AutoAide supervisor process",
@@ -48,6 +51,7 @@ function printTopLevelHelp(): void {
       "  autoaide tui",
       "  autoaide exec \"Explain this codebase\"",
       "  autoaide exec --json \"Investigate the failing test\"",
+      "  autoaide supervise --once",
       "  autoaide doctor"
     ].join("\n")
   );
@@ -170,6 +174,90 @@ async function runExec(args: string[]): Promise<number> {
   return failed ? 1 : 0;
 }
 
+function parseSuperviseArgs(args: string[]): {
+  once: boolean;
+  intervalMs: number;
+  maxTicks?: number;
+} {
+  let once = false;
+  let intervalMs = 30_000;
+  let maxTicks: number | undefined;
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--once") {
+      once = true;
+      continue;
+    }
+    if (arg === "--interval-ms") {
+      const value = Number(args[index + 1]);
+      if (Number.isFinite(value) && value > 0) {
+        intervalMs = value;
+        index += 1;
+      }
+      continue;
+    }
+    if (arg === "--max-ticks") {
+      const value = Number(args[index + 1]);
+      if (Number.isFinite(value) && value > 0) {
+        maxTicks = value;
+        index += 1;
+      }
+    }
+  }
+
+  return { once, intervalMs, maxTicks };
+}
+
+async function runSupervise(args: string[]): Promise<number> {
+  const parsed = parseSuperviseArgs(args);
+
+  if (parsed.once) {
+    const result = await runManagerExecSchedulerTick({});
+    console.log(`AutoAide supervise tick: processed ${result.tickCount} wake event(s) on ${result.threadId}`);
+    return 0;
+  }
+
+  console.log(`AutoAide supervise loop started (interval ${parsed.intervalMs}ms)`);
+  let finished = false;
+  let tickRuns = 0;
+  const daemon = startManagerExecSchedulerDaemon({
+    intervalMs: parsed.intervalMs,
+    onTick: async (tickCount) => {
+      tickRuns += 1;
+      console.log(`AutoAide supervise tick ${tickRuns}: processed ${tickCount} wake event(s)`);
+      if (parsed.maxTicks && tickRuns >= parsed.maxTicks && !finished) {
+        finished = true;
+        daemon.stop();
+        resolveExit?.();
+      }
+    }
+  });
+
+  let resolveExit: (() => void) | undefined;
+  const exitPromise = new Promise<void>((resolve) => {
+    resolveExit = resolve;
+  });
+
+  const stop = () => {
+    if (finished) {
+      return;
+    }
+    finished = true;
+    daemon.stop();
+    resolveExit?.();
+  };
+
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+
+  await exitPromise;
+  process.removeListener("SIGINT", stop);
+  process.removeListener("SIGTERM", stop);
+  console.log("AutoAide supervise loop stopped");
+  return 0;
+}
+
 const commands: Record<string, CommandDefinition> = {
   tui: {
     name: "tui",
@@ -194,6 +282,14 @@ const commands: Record<string, CommandDefinition> = {
     handler: async () => {
       console.log(buildOperatorDashboard());
       return 0;
+    }
+  },
+  supervise: {
+    name: "supervise",
+    summary: "Run the manager scheduler loop as a foreground service",
+    usage: "autoaide supervise [--once] [--interval-ms <ms>] [--max-ticks <n>]",
+    handler: async (args) => {
+      return await runSupervise(args);
     }
   },
   models: {

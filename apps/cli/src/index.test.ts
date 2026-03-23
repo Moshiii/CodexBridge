@@ -41,6 +41,45 @@ describe("autoaide cli", () => {
     log.mockRestore();
   });
 
+  it("runs a single scheduler tick through supervise --once", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(tuiModule, "runManagerExecSchedulerTick").mockResolvedValue({
+      threadId: "terminal-owner-local",
+      tickCount: 2
+    });
+
+    await expect(runCli(["supervise", "--once"])).resolves.toBe(0);
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("processed 2 wake event"));
+    log.mockRestore();
+  });
+
+  it("runs the foreground scheduler loop for a bounded number of ticks", async () => {
+    vi.useFakeTimers();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(tuiModule, "startManagerExecSchedulerDaemon").mockImplementation(({ onTick }) => {
+      const timer = setInterval(() => {
+        void onTick?.(1);
+      }, 10);
+      return {
+        stop() {
+          clearInterval(timer);
+        }
+      };
+    });
+
+    const runPromise = runCli(["supervise", "--interval-ms", "10", "--max-ticks", "2"]);
+    await vi.advanceTimersByTimeAsync(50);
+
+    await expect(runPromise).resolves.toBe(0);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("supervise loop started"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("tick 1"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("tick 2"));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining("supervise loop stopped"));
+    log.mockRestore();
+    vi.useRealTimers();
+  });
+
   it("streams exec events through the exec command", async () => {
     const writeSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
     vi.spyOn(tuiModule, "runManagerExec").mockImplementation(async ({ onEvent }) => {

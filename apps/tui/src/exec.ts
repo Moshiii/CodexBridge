@@ -16,12 +16,14 @@ import {
 } from "@autoaide/manager-runtime";
 import { InMemoryMemoryStore, InMemoryManagerMemory } from "@autoaide/memory-system";
 import { createWorkstream, type Task, type WorkstreamStatus } from "@autoaide/task-system";
-import { InMemoryWorkerRegistry } from "@autoaide/worker-orchestrator";
+import { InMemoryWorkerRegistry, detectStalledAssignments } from "@autoaide/worker-orchestrator";
 import {
   appendConversationEvent,
   persistRuntimeState,
   restorePersistedRuntime
 } from "./persistence.js";
+import { resolveWorkstreamStatusQuery } from "./workstream-status.js";
+import { startPeriodicScheduler, type PeriodicSchedulerHandle } from "./scheduler.js";
 
 type PendingClarification = {
   originalText: string;
@@ -109,6 +111,7 @@ function createOperatorExecRuntimeStateFor(conversationId: string, now = Date.no
   return {
     now,
     paths: restored.paths,
+    sessionId: `manager-session-${conversationId}`,
     conversationId,
     ownerId: LOCAL_OWNER_ID,
     store: restored.store,
@@ -194,6 +197,87 @@ function syncActiveWorkstream(
   runtime.activeWorkstreamTitle = runtime.activeTaskTitle;
 }
 
+function syncManagerSession(runtime: OperatorExecRuntimeState, now: number, lastWakeReason?: import("@autoaide/memory-system").ManagerWakeReason): void {
+  const sessionId = runtime.sessionId ?? `manager-session-${runtime.conversationId}`;
+  runtime.sessionId = sessionId;
+  const existing = runtime.memoryStore.listManagerSessions(runtime.ownerId).find((session) => session.id === sessionId);
+  const pendingInboxCount = runtime.memoryStore
+    .listManagerInboxEvents(sessionId)
+    .filter((event) => event.status === "pending").length;
+
+  runtime.memoryStore.upsertManagerSession({
+    id: sessionId,
+    ownerId: runtime.ownerId,
+    activeWorkstreamId: runtime.activeWorkstreamId,
+    lastWakeReason: lastWakeReason ?? existing?.lastWakeReason,
+    lastWakeAt: lastWakeReason ? now : existing?.lastWakeAt,
+    pendingInboxCount,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now
+  });
+}
+
+function appendManagerInboxEvent(
+  runtime: OperatorExecRuntimeState,
+  input: {
+    reason: import("@autoaide/memory-system").ManagerWakeReason;
+    summary: string;
+    now: number;
+    workstreamId?: string;
+    status?: "pending" | "processed";
+    metadata?: Record<string, unknown>;
+  }
+): void {
+  const sessionId = runtime.sessionId ?? `manager-session-${runtime.conversationId}`;
+  runtime.sessionId = sessionId;
+  runtime.memoryStore.appendManagerInboxEvent({
+    id: `inbox-${input.now}-${runtime.memoryStore.listManagerInboxEvents(sessionId).length + 1}`,
+    sessionId,
+    ownerId: runtime.ownerId,
+    workstreamId: input.workstreamId ?? runtime.activeWorkstreamId,
+    reason: input.reason,
+    status: input.status ?? "pending",
+    summary: input.summary,
+    createdAt: input.now,
+    processedAt: input.status === "processed" ? input.now : undefined,
+    metadata: input.metadata
+  });
+  syncManagerSession(runtime, input.now, input.reason);
+}
+
+function markManagerInboxEventsProcessed(
+  runtime: OperatorExecRuntimeState,
+  input: {
+    now: number;
+    ids?: string[];
+    predicate?: (event: import("@autoaide/memory-system").ManagerInboxEvent) => boolean;
+  }
+): void {
+  const ids = new Set(input.ids ?? []);
+  const events = runtime.memoryStore.listManagerInboxEvents(runtime.sessionId);
+  let changed = false;
+
+  for (const event of events) {
+    const shouldProcess =
+      event.status === "pending" &&
+      ((ids.size > 0 && ids.has(event.id)) || (input.predicate ? input.predicate(event) : false));
+    if (!shouldProcess) {
+      continue;
+    }
+
+    runtime.memoryStore.appendManagerInboxEvent({
+      ...event,
+      status: "processed",
+      processedAt: input.now
+    });
+    changed = true;
+  }
+
+  if (changed) {
+    syncManagerSession(runtime, input.now);
+  }
+}
+
 function appendConversationTurn(
   runtime: OperatorExecRuntimeState,
   input: {
@@ -243,6 +327,7 @@ function upsertConversationState(runtime: OperatorExecRuntimeState, now: number)
     createdAt: existing?.createdAt ?? now,
     updatedAt: now
   });
+  syncManagerSession(runtime, now);
   persistRuntimeState(runtime);
 }
 
@@ -357,6 +442,17 @@ async function processPendingAssignments(
         text: `${ok ? "worker_completed" : "worker_failed"}: ${assignment.workerId} ${receipt.result.status} ${task.title}: ${receipt.managerView.summary}`,
         now: receipt.result.finishedAt
       });
+      appendManagerInboxEvent(runtime, {
+        reason: "worker_result",
+        summary: `${assignment.workerId} ${receipt.result.status} ${task.title}`,
+        now: receipt.result.finishedAt,
+        metadata: {
+          assignmentId: assignment.id,
+          taskId: task.id,
+          workerId: assignment.workerId,
+          resultStatus: receipt.result.status
+        }
+      });
       upsertConversationState(runtime, receipt.result.finishedAt);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -378,7 +474,19 @@ async function processPendingAssignments(
         text: `worker_failed: ${assignment.workerId} failed ${task.title}: ${message}`,
         now: Date.now()
       });
-      upsertConversationState(runtime, Date.now());
+      const failedAt = Date.now();
+      appendManagerInboxEvent(runtime, {
+        reason: "blocked_task",
+        summary: `${task.title} is blocked after worker failure`,
+        now: failedAt,
+        metadata: {
+          assignmentId: assignment.id,
+          taskId: task.id,
+          workerId: assignment.workerId,
+          error: message
+        }
+      });
+      upsertConversationState(runtime, failedAt);
     }
   }
 }
@@ -420,6 +528,17 @@ async function emitFollowups(
       text: receipt.ownerText,
       now
     });
+    appendManagerInboxEvent(runtime, {
+      reason:
+        receipt.kind === "followup_blocked_task"
+          ? "blocked_task"
+          : receipt.kind === "followup_replan_task"
+            ? "followup_due"
+            : "followup_due",
+      summary: receipt.summary,
+      now,
+      status: "processed"
+    });
   }
 }
 
@@ -450,6 +569,155 @@ function findAutomaticFollowupTask(runtime: OperatorExecRuntimeState, now: numbe
     );
 }
 
+function ensureAutomaticWakeEvent(runtime: OperatorExecRuntimeState, now: number): void {
+  const task = findAutomaticFollowupTask(runtime, now);
+  if (!task) {
+    return;
+  }
+
+  const reason = task.status === "blocked" ? "blocked_task" : "followup_due";
+  const alreadyPending = runtime.memoryStore
+    .listManagerInboxEvents(runtime.sessionId)
+    .some(
+      (event) =>
+        event.status === "pending" &&
+        event.metadata?.taskId === task.id
+    );
+
+  if (alreadyPending) {
+    return;
+  }
+
+  appendManagerInboxEvent(runtime, {
+    reason,
+    summary:
+      reason === "blocked_task"
+        ? `${task.title} remains blocked and needs manager review`
+        : `${task.title} needs a scheduled manager follow-up`,
+    now,
+    metadata: {
+      taskId: task.id,
+      taskStatus: task.status
+    }
+  });
+}
+
+function ensureStalledAssignmentWakeEvents(runtime: OperatorExecRuntimeState, now: number): void {
+  const stalledAssignments = detectStalledAssignments(runtime.store, runtime.registry, now, 5 * 60_000);
+  for (const assignment of stalledAssignments) {
+    const alreadyPending = runtime.memoryStore
+      .listManagerInboxEvents(runtime.sessionId)
+      .some(
+        (event) =>
+          event.status === "pending" &&
+          event.reason === "stalled_assignment" &&
+          event.metadata?.assignmentId === assignment.assignmentId
+      );
+    if (alreadyPending) {
+      continue;
+    }
+
+    const task = runtime.store.getTask(assignment.taskId);
+    appendManagerInboxEvent(runtime, {
+      reason: "stalled_assignment",
+      summary: `${task?.title ?? assignment.taskId} appears stalled`,
+      now,
+      metadata: {
+        assignmentId: assignment.assignmentId,
+        taskId: assignment.taskId,
+        workerId: assignment.workerId,
+        lastHeartbeatAt: assignment.lastHeartbeatAt
+      }
+    });
+  }
+}
+
+function ensureWorkerHeartbeatWakeEvents(runtime: OperatorExecRuntimeState, now: number): void {
+  const session = runtime.memoryStore.listManagerSessions(runtime.ownerId).find((item) => item.id === runtime.sessionId);
+  const lastWakeAt = session?.lastWakeAt ?? 0;
+
+  for (const worker of runtime.registry.listWorkers()) {
+    if (
+      worker.status !== "busy" ||
+      !worker.currentAssignmentId ||
+      typeof worker.lastHeartbeatAt !== "number" ||
+      worker.lastHeartbeatAt <= lastWakeAt
+    ) {
+      continue;
+    }
+
+    const assignment = runtime.store.getAssignment(worker.currentAssignmentId);
+    if (!assignment) {
+      continue;
+    }
+
+    const alreadyPending = runtime.memoryStore
+      .listManagerInboxEvents(runtime.sessionId)
+      .some(
+        (event) =>
+          event.status === "pending" &&
+          event.reason === "worker_heartbeat" &&
+          event.metadata?.assignmentId === assignment.id &&
+          event.metadata?.lastHeartbeatAt === worker.lastHeartbeatAt
+      );
+    if (alreadyPending) {
+      continue;
+    }
+
+    const task = runtime.store.getTask(assignment.taskId);
+    appendManagerInboxEvent(runtime, {
+      reason: "worker_heartbeat",
+      summary: `${worker.id} reported heartbeat on ${task?.title ?? assignment.taskId}`,
+      now,
+      metadata: {
+        assignmentId: assignment.id,
+        taskId: assignment.taskId,
+        workerId: worker.id,
+        lastHeartbeatAt: worker.lastHeartbeatAt
+      }
+    });
+  }
+}
+
+function resolveWakeEventTask(
+  runtime: OperatorExecRuntimeState,
+  event: import("@autoaide/memory-system").ManagerInboxEvent
+): Task | undefined {
+  const taskId =
+    (typeof event.metadata?.taskId === "string" ? event.metadata.taskId : undefined) ??
+    runtime.store.getWorkstream(event.workstreamId ?? "")?.activeTaskId ??
+    runtime.store.getWorkstream(event.workstreamId ?? "")?.rootTaskId ??
+    runtime.activeRootTaskId;
+
+  return taskId ? runtime.store.getTask(taskId) : undefined;
+}
+
+function pickNextWakeEvent(
+  runtime: OperatorExecRuntimeState,
+  now: number
+): import("@autoaide/memory-system").ManagerInboxEvent | undefined {
+  ensureAutomaticWakeEvent(runtime, now);
+  ensureWorkerHeartbeatWakeEvents(runtime, now);
+  ensureStalledAssignmentWakeEvents(runtime, now);
+  const priority: Record<import("@autoaide/memory-system").ManagerWakeReason, number> = {
+    owner_message: 99,
+    blocked_task: 1,
+    worker_result: 2,
+    followup_due: 3,
+    stalled_assignment: 4,
+    worker_heartbeat: 5,
+    status_query: 6
+  };
+
+  return runtime.memoryStore
+    .listManagerInboxEvents(runtime.sessionId)
+    .filter((event) => event.status === "pending" && event.reason !== "owner_message")
+    .sort((left, right) => {
+      const byPriority = priority[left.reason] - priority[right.reason];
+      return byPriority !== 0 ? byPriority : left.createdAt - right.createdAt;
+    })[0];
+}
+
 function buildAutomaticFollowupPrompt(task: Task, now: number): string {
   if (task.status === "reviewing") {
     return [
@@ -476,7 +744,73 @@ function buildAutomaticFollowupPrompt(task: Task, now: number): string {
   ].join("\n");
 }
 
-async function maybeRunAutomaticManagerFollowup(input: {
+function buildSessionTickPrompt(input: {
+  event: import("@autoaide/memory-system").ManagerInboxEvent;
+  task?: Task;
+  now: number;
+}): string {
+  const task = input.task;
+  if (!task) {
+    return [
+      `Review manager wake event "${input.event.reason}" and decide the next action.`,
+      `Event summary: ${input.event.summary}`,
+      `Current time: ${input.now}`,
+      "If no action is needed, explain the current status clearly."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "worker_result" || task.status === "reviewing") {
+    return [
+      `Review the active task "${task.title}" after a worker result and decide the next manager action.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      "If the worker result is sufficient, use mark_task_done.",
+      "If more execution is needed, use assign_worker, replace_worker, nudge_worker, replan_task, or ask_owner."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "blocked_task" || task.status === "blocked") {
+    return [
+      `Follow up on the blocked task "${task.title}" and decide the next manager action.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      `Current blockers: ${(task.blockers ?? []).join("; ") || "unknown"}`,
+      "Use replace_worker, replan_task, ask_owner, or nudge_worker when appropriate."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "stalled_assignment") {
+    return [
+      `Review the stalled assignment for "${task.title}" and decide the next manager action.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      `Last known heartbeat: ${String(input.event.metadata?.lastHeartbeatAt ?? "unknown")}`,
+      "Decide whether to nudge_worker, replace_worker, replan_task, ask_owner, or continue waiting."
+    ].join("\n");
+  }
+
+  if (input.event.reason === "worker_heartbeat") {
+    return [
+      `Review the worker heartbeat for "${task.title}" and decide whether any manager action is needed.`,
+      `Task ID: ${task.id}`,
+      `Inbox summary: ${input.event.summary}`,
+      `Last heartbeat: ${String(input.event.metadata?.lastHeartbeatAt ?? "unknown")}`,
+      "Usually continue waiting unless the context suggests nudging, replacing, or replanning."
+    ].join("\n");
+  }
+
+  return [
+    `Follow up on the active task "${task.title}" and decide the next manager action.`,
+    `Task ID: ${task.id}`,
+    `Wake reason: ${input.event.reason}`,
+    `Inbox summary: ${input.event.summary}`,
+    `Current status: ${task.status}`,
+    `Current time: ${input.now}`,
+    "Decide whether to wait, nudge_worker, replace_worker, replan_task, ask_owner, or mark_task_done."
+  ].join("\n");
+}
+
+async function runManagerSessionTick(input: {
   runtime: OperatorExecRuntimeState;
   managerRuntime?: ManagerRuntime;
   now: number;
@@ -485,10 +819,11 @@ async function maybeRunAutomaticManagerFollowup(input: {
   if (!shouldUseAutomaticManagerFollowup(input.managerRuntime)) {
     return false;
   }
-  const task = findAutomaticFollowupTask(input.runtime, input.now);
-  if (!task) {
+  const wakeEvent = pickNextWakeEvent(input.runtime, input.now);
+  if (!wakeEvent) {
     return false;
   }
+  const task = resolveWakeEventTask(input.runtime, wakeEvent);
 
   const followupNow = input.now + 1;
   await emit(
@@ -497,7 +832,9 @@ async function maybeRunAutomaticManagerFollowup(input: {
       item: {
         id: nextId("reasoning"),
         type: "reasoning",
-        text: `Manager is reviewing ${task.title}...`,
+        text: task
+          ? `Manager is reviewing ${task.title} after ${wakeEvent.reason}...`
+          : `Manager is reviewing ${wakeEvent.reason}...`,
         status: "in_progress"
       }
     },
@@ -510,7 +847,11 @@ async function maybeRunAutomaticManagerFollowup(input: {
       ownerId: input.runtime.ownerId,
       channel: "web",
       peerId: "local-terminal",
-      text: buildAutomaticFollowupPrompt(task, followupNow),
+      text: buildSessionTickPrompt({
+        event: wakeEvent,
+        task,
+        now: followupNow
+      }),
       createdAt: followupNow
     },
     store: input.runtime.store,
@@ -519,7 +860,7 @@ async function maybeRunAutomaticManagerFollowup(input: {
     conversation: buildManagerConversationContext(input.runtime),
     memoryStore: input.runtime.memoryStore,
     workerRegistry: input.runtime.registry,
-    rootTaskId: input.runtime.activeRootTaskId ?? task.id,
+    rootTaskId: input.runtime.activeRootTaskId ?? task?.id ?? `tick-${followupNow}`,
     now: followupNow
   });
 
@@ -593,10 +934,14 @@ async function maybeRunAutomaticManagerFollowup(input: {
   });
 
   await processPendingAssignments(input.runtime, input.onEvent);
+  markManagerInboxEventsProcessed(input.runtime, {
+    now: followupNow,
+    ids: [wakeEvent.id]
+  });
 
   if (result.response.intent.needsClarification) {
     input.runtime.pendingClarification = {
-      originalText: input.runtime.pendingClarification?.originalText ?? task.title,
+      originalText: input.runtime.pendingClarification?.originalText ?? task?.title ?? wakeEvent.summary,
       question: result.response.intent.clarificationQuestion ?? result.response.reply.text,
       openedAt: input.runtime.pendingClarification?.openedAt ?? followupNow
     };
@@ -620,6 +965,75 @@ async function maybeRunAutomaticManagerFollowup(input: {
   return true;
 }
 
+async function drainManagerSessionTicks(input: {
+  runtime: OperatorExecRuntimeState;
+  managerRuntime?: ManagerRuntime;
+  now: number;
+  onEvent?: AutoAideExecEventHandler;
+  limit?: number;
+}): Promise<number> {
+  let count = 0;
+  const limit = input.limit ?? 4;
+  while (count < limit) {
+    const ran = await runManagerSessionTick({
+      runtime: input.runtime,
+      managerRuntime: input.managerRuntime,
+      now: input.now + count,
+      onEvent: input.onEvent
+    });
+    if (!ran) {
+      break;
+    }
+    count += 1;
+  }
+  return count;
+}
+
+export async function runManagerExecSchedulerTick(input: {
+  threadId?: string;
+  managerRuntime?: ManagerRuntime;
+  onEvent?: AutoAideExecEventHandler;
+  now?: number;
+}): Promise<{ threadId: string; tickCount: number }> {
+  const now = input.now ?? Date.now();
+  const runtime = createOperatorExecRuntimeStateFor(input.threadId ?? LOCAL_CONVERSATION_ID, now);
+  ensureAutomaticWakeEvent(runtime, now);
+  ensureWorkerHeartbeatWakeEvents(runtime, now);
+  ensureStalledAssignmentWakeEvents(runtime, now);
+  const tickCount = await drainManagerSessionTicks({
+    runtime,
+    managerRuntime: input.managerRuntime,
+    now,
+    onEvent: input.onEvent
+  });
+  upsertConversationState(runtime, now);
+  return {
+    threadId: runtime.conversationId,
+    tickCount
+  };
+}
+
+export function startManagerExecSchedulerDaemon(input: {
+  threadId?: string;
+  managerRuntime?: ManagerRuntime;
+  onEvent?: AutoAideExecEventHandler;
+  intervalMs?: number;
+  onTick?: (tickCount: number) => void | Promise<void>;
+}): PeriodicSchedulerHandle {
+  const threadId = input.threadId ?? LOCAL_CONVERSATION_ID;
+  return startPeriodicScheduler({
+    intervalMs: input.intervalMs ?? 30_000,
+    run: async () => {
+      const result = await runManagerExecSchedulerTick({
+        threadId,
+        managerRuntime: input.managerRuntime,
+        onEvent: input.onEvent
+      });
+      await input.onTick?.(result.tickCount);
+    }
+  });
+}
+
 export async function runManagerExec(input: {
   text: string;
   threadId?: string;
@@ -633,6 +1047,14 @@ export async function runManagerExec(input: {
   const effectiveText = runtime.pendingClarification
     ? [runtime.pendingClarification.originalText, input.text].join("\n")
     : input.text;
+  const statusQuery = !runtime.pendingClarification
+    ? resolveWorkstreamStatusQuery({
+        text: input.text,
+        memory: managerMemory,
+        store: runtime.store,
+        activeWorkstreamId: runtime.activeWorkstreamId
+      })
+    : undefined;
 
   await emit({ type: "thread.started", threadId: runtime.conversationId }, input.onEvent);
   await emit({ type: "turn.started", text: input.text }, input.onEvent);
@@ -654,7 +1076,58 @@ export async function runManagerExec(input: {
     text: input.text,
     now
   });
+  appendManagerInboxEvent(runtime, {
+    reason: "owner_message",
+    summary: input.text,
+    now
+  });
   upsertConversationState(runtime, now);
+
+  if (statusQuery) {
+    markManagerInboxEventsProcessed(runtime, {
+      now,
+      predicate: (event) => event.reason === "status_query" || event.reason === "owner_message"
+    });
+    appendManagerInboxEvent(runtime, {
+      reason: "status_query",
+      summary: statusQuery.queryText || input.text,
+      now,
+      status: "processed",
+      metadata: {
+        source: "owner_message"
+      }
+    });
+    await emit(
+      {
+        type: "item.completed",
+        item: {
+          id: nextId("assistant"),
+          type: "assistant_message",
+          text: statusQuery.replyText,
+          status: "completed"
+        }
+      },
+      input.onEvent
+    );
+    appendConversationTurn(runtime, {
+      role: "manager",
+      text: statusQuery.replyText,
+      now
+    });
+    upsertConversationState(runtime, now);
+    await emit(
+      {
+        type: "turn.completed",
+        text: statusQuery.replyText,
+        threadId: runtime.conversationId
+      },
+      input.onEvent
+    );
+    return {
+      threadId: runtime.conversationId,
+      finalText: statusQuery.replyText
+    };
+  }
 
   try {
     const result = await executeManagerTurn({
@@ -758,6 +1231,10 @@ export async function runManagerExec(input: {
       text: result.reply.text,
       now
     });
+    markManagerInboxEventsProcessed(runtime, {
+      now,
+      predicate: (event) => event.reason === "owner_message"
+    });
 
     await processPendingAssignments(runtime, input.onEvent);
 
@@ -785,12 +1262,12 @@ export async function runManagerExec(input: {
     }
 
     upsertConversationState(runtime, now);
-    const ranAutomaticFollowup = await maybeRunAutomaticManagerFollowup({
+    const ranAutomaticFollowup = (await drainManagerSessionTicks({
       runtime,
       managerRuntime: input.managerRuntime,
       now,
       onEvent: input.onEvent
-    });
+    })) > 0;
     if (!ranAutomaticFollowup) {
       await emitFollowups(runtime, now, input.onEvent);
     }

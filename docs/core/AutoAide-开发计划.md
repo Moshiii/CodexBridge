@@ -1201,9 +1201,9 @@ manager 对齐定义：
 
 - [x] 引入 `workstream` 抽象，作为 CEO/COO 沟通和切换的第一对象
 - [x] 引入 `manager inbox` 持久化 schema，作为 wake event 的存储基线
-- [ ] 引入 `runManagerSessionTick(sessionId, wakeReason)` 模型
-- [ ] 支持 CEO 对任意 workstream 的即时状态查询
-- [ ] 将现有 review/follow-up 自动补偿逻辑升级为 session-level wake loop
+- [x] 引入 `runManagerSessionTick(sessionId, wakeReason)` 模型
+- [x] 支持 CEO 对任意 workstream 的即时状态查询
+- [x] 将现有 review/follow-up 自动补偿逻辑升级为 session-level wake loop
 
 交付物：
 
@@ -1258,7 +1258,14 @@ manager 对齐定义：
 
 - `packages/memory-system` 已具备 `ManagerSessionRecord` 与 `ManagerInboxEvent`
 - `InMemoryMemoryStore` 已支持 session / inbox 的 upsert、append、list 和 snapshot restore
-- 当前还未把运行时真实事件全面写入 inbox，也还未接 `session tick`
+- `apps/tui/src/index.ts` 与 `apps/tui/src/exec.ts` 已开始写入真实 wake event：
+  - `owner_message`
+  - `worker_result`
+  - `blocked_task`
+  - `followup_due`
+- `stalled_assignment` 已进入 session-level wake source，manager 可在 assignment 长时间无心跳时被动发现异常
+- `apps/tui/src/index.ts` 与 `apps/tui/src/exec.ts` 现已把 pending inbox event 接入 `session tick`，并在 tick 完成后标记为 `processed`
+- 当前还缺 `worker_heartbeat` 写入
 
 完成标准：
 
@@ -1267,14 +1274,27 @@ manager 对齐定义：
 
 ### Phase 11C: Session Tick 与 Wake Loop
 
-状态：`pending`
+状态：`in_progress`
 
 任务：
 
-- [ ] 引入 `runManagerSessionTick(sessionId, wakeReason)`
-- [ ] 让 scheduler / heartbeat 唤醒 manager，而不是只在 owner 新消息时触发
-- [ ] 支持 CEO 对任意 workstream 的即时状态查询
-- [ ] 将 reviewing / blocked / follow-up due 的自动补偿逻辑迁入 session-level wake loop
+- [x] 引入 `runManagerSessionTick(sessionId, wakeReason)`
+- [~] 让 scheduler / heartbeat 唤醒 manager，而不是只在 owner 新消息时触发
+- [x] 支持 CEO 对任意 workstream 的即时状态查询
+- [x] 将 reviewing / blocked / follow-up due 的自动补偿逻辑迁入 session-level wake loop
+
+当前进展：
+
+- `apps/tui/src/index.ts` 与 `apps/tui/src/exec.ts` 已新增 session-level wake loop
+- 已新增显式 `scheduler tick` 入口，可在没有 owner 新消息时扫描并写入 wake event
+- 已新增本地 `scheduler loop`，TUI 与 exec 都可以周期性触发 manager wake loop
+- CLI 已新增 `autoaide supervise`，可以以前台 supervisor/service 方式运行 manager scheduler
+- `owner_message` 在主 manager turn 消费后会被标记为 `processed`
+- `worker_result`、`blocked_task`、`followup_due`、`worker_heartbeat` 会被 `runManagerSessionTick(...)` 统一纳入 wake source
+- `stalled_assignment` 现已进入同一条 wake loop，作为 heartbeat/scheduler 前的过渡检测源
+- `reviewing / blocked / follow-up due` 不再只是局部补偿逻辑，而是通过 inbox event 驱动 manager 再次判断
+- CEO 现在可以直接对 workstream 发起即时状态查询，系统会走本地快速状态路径而不是重新规划
+- 当前还缺真正的后台守护进程与 install/start/stop 管理
 
 完成标准：
 
