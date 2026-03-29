@@ -5,6 +5,19 @@ import { WORKSPACE_PATH } from "./config.mjs";
 const DEFAULT_START_COMMAND = "codex exec --skip-git-repo-check --json -";
 const DEFAULT_RESUME_TEMPLATE = "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -";
 
+function getShellSpec() {
+  if (process.platform === "win32") {
+    return {
+      command: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/s", "/c"],
+    };
+  }
+  return {
+    command: process.env.SHELL || "zsh",
+    args: ["-lc"],
+  };
+}
+
 export function buildCommandConfig(config) {
   return {
     cwd: process.env.CODEX_CWD?.trim() || WORKSPACE_PATH,
@@ -51,7 +64,8 @@ function parseCodexJson(stdout) {
 
 async function runShellCommand(prompt, command, cwd) {
   return await new Promise((resolve) => {
-    const child = spawn(process.env.SHELL || "zsh", ["-lc", command], {
+    const shellSpec = getShellSpec();
+    const child = spawn(shellSpec.command, [...shellSpec.args, command], {
       cwd,
       env: process.env,
       stdio: ["pipe", "pipe", "pipe"],
