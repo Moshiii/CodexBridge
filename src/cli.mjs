@@ -172,13 +172,11 @@ function startTelegramBridge(config) {
           process.env.CODEX_RESUME_COMMAND_TEMPLATE?.trim() ||
           "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -",
       },
-      detached: true,
       stdio: ["ignore", bridgeOutFd, bridgeOutFd],
     },
   );
   closeSync(bridgeOutFd);
 
-  child.unref();
   return child;
 }
 

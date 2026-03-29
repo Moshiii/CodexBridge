@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 
@@ -18,6 +18,7 @@ const DEFAULT_STATE_DIR = process.env.AUTOAIDE_HOME?.trim()
   : path.join(DEFAULT_AUTOAIDE_HOME, "telegram");
 const DEFAULT_OFFSET_PATH = path.join(DEFAULT_STATE_DIR, "offset.json");
 const DEFAULT_ROUTER_STATE_PATH = path.join(DEFAULT_STATE_DIR, "sessions.json");
+const DEFAULT_LOCK_PATH = path.join(DEFAULT_STATE_DIR, "bridge.lock.json");
 const DEFAULT_MAIN_SESSION_LABEL = "main";
 const DEFAULT_MAIN_SESSION_DISPLAY = "personal-chief-of-staff";
 const DEFAULT_CODEX_START_COMMAND = "codex exec --skip-git-repo-check --json -";
@@ -137,6 +138,75 @@ async function readOffset(statePath) {
 
 async function writeOffset(statePath, offset) {
   await writeJsonFile(statePath, { offset });
+}
+
+function isProcessAlive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) {
+    return false;
+  }
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function writeLockFile(lockPath) {
+  const handle = await open(lockPath, "wx");
+  try {
+    await handle.writeFile(
+      `${JSON.stringify(
+        {
+          pid: process.pid,
+          startedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+  } finally {
+    await handle.close();
+  }
+}
+
+async function acquireBridgeLock(lockPath) {
+  await mkdir(path.dirname(lockPath), { recursive: true });
+  try {
+    await writeLockFile(lockPath);
+    return true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") {
+      throw error;
+    }
+  }
+
+  const existing = await readJsonFile(lockPath, null);
+  if (isProcessAlive(existing?.pid)) {
+    return false;
+  }
+
+  try {
+    await unlink(lockPath);
+  } catch {
+    // If we cannot remove stale lock, let next create fail and bubble.
+  }
+
+  await writeLockFile(lockPath);
+  return true;
+}
+
+async function releaseBridgeLock(lockPath) {
+  const existing = await readJsonFile(lockPath, null);
+  if (existing?.pid !== process.pid) {
+    return;
+  }
+  try {
+    await unlink(lockPath);
+  } catch {
+    // Ignore cleanup errors on shutdown.
+  }
 }
 
 function createDefaultRouterState() {
@@ -545,9 +615,36 @@ async function main() {
   const token = requireEnv("TELEGRAM_BOT_TOKEN");
   const offsetPath = process.env.TELEGRAM_OFFSET_FILE?.trim() || DEFAULT_OFFSET_PATH;
   const routerStatePath = process.env.TELEGRAM_ROUTER_STATE_FILE?.trim() || DEFAULT_ROUTER_STATE_PATH;
+  const lockPath = process.env.TELEGRAM_BRIDGE_LOCK_FILE?.trim() || DEFAULT_LOCK_PATH;
   const allowedChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
   const commandConfig = buildCommandConfig();
   const codexCwd = process.env.CODEX_CWD?.trim() || path.join(DEFAULT_AUTOAIDE_HOME, "workspace");
+
+  const lockAcquired = await acquireBridgeLock(lockPath);
+  if (!lockAcquired) {
+    console.error(`telegram bridge lock is active, exiting: ${lockPath}`);
+    return;
+  }
+
+  let lockReleased = false;
+  const releaseOnce = async () => {
+    if (lockReleased) {
+      return;
+    }
+    lockReleased = true;
+    await releaseBridgeLock(lockPath);
+  };
+  const shutdown = async (signal) => {
+    console.log(`received ${signal}, shutting down telegram bridge`);
+    await releaseOnce();
+    process.exit(0);
+  };
+  process.once("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  process.once("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
 
   let nextOffset = await readOffset(offsetPath);
 
@@ -560,26 +657,30 @@ async function main() {
     console.log(`allowed chat ids: ${Array.from(allowedChatIds).join(", ")}`);
   }
 
-  while (true) {
-    try {
-      const updates = await getUpdates(token, nextOffset);
-      for (const update of updates) {
-        nextOffset = update.update_id + 1;
-        await writeOffset(offsetPath, nextOffset);
-        await processUpdate(update, {
-          token,
-          allowedChatIds,
-          routerStatePath,
-          commandConfig: {
-            ...commandConfig,
-            cwd: codexCwd,
-          },
-        });
+  try {
+    while (true) {
+      try {
+        const updates = await getUpdates(token, nextOffset);
+        for (const update of updates) {
+          nextOffset = update.update_id + 1;
+          await writeOffset(offsetPath, nextOffset);
+          await processUpdate(update, {
+            token,
+            allowedChatIds,
+            routerStatePath,
+            commandConfig: {
+              ...commandConfig,
+              cwd: codexCwd,
+            },
+          });
+        }
+      } catch (error) {
+        console.error("poll loop error:", error);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
       }
-    } catch (error) {
-      console.error("poll loop error:", error);
-      await new Promise((resolve) => setTimeout(resolve, 2000));
     }
+  } finally {
+    await releaseOnce();
   }
 }
 
