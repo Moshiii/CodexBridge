@@ -1,10 +1,13 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { spawn } from "node:child_process";
+import { closeSync, openSync } from "node:fs";
+import path from "node:path";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
 import {
   AUTOAIDE_HOME,
   BOOTSTRAP_STATE_PATH,
+  LOGS_PATH,
   TELEGRAM_BRIDGE_PATH,
   TELEGRAM_STATE_PATH,
   WORKSPACE_PATH,
@@ -30,6 +33,11 @@ function printBanner() {
 function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
   const telegram = config.channels?.telegram;
   const telegramOnline = Boolean(bridgeProcess && !bridgeProcess.killed && bridgeProcess.exitCode == null);
+  const telegramChatIds = telegram?.enabled
+    ? (telegram.allowedChatIds ?? []).length
+      ? (telegram.allowedChatIds ?? []).join(", ")
+      : "(all chats, no filter)"
+    : null;
   return [
     `Home: ${AUTOAIDE_HOME}`,
     `Workspace: ${WORKSPACE_PATH}`,
@@ -40,9 +48,7 @@ function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
     `CLI active session: ${cliState.activeSessionLabel}`,
     `Telegram paired: ${telegram?.enabled ? "yes" : "no"}`,
     `Telegram daemon online: ${telegramOnline ? "yes" : "no"}`,
-    telegram?.enabled
-      ? `Telegram chat ids: ${(telegram.allowedChatIds ?? []).join(", ")}`
-      : null,
+    telegram?.enabled ? `Telegram chat ids: ${telegramChatIds}` : null,
   ]
     .filter(Boolean)
     .join("\n");
@@ -142,22 +148,21 @@ function renderCliResult(result) {
 
 function startTelegramBridge(config) {
   const telegram = config.channels?.telegram;
-  if (!telegram?.enabled || !telegram.botToken || !(telegram.allowedChatIds ?? []).length) {
+  if (!telegram?.enabled || !telegram.botToken) {
     return null;
   }
 
+  const bridgeLogPath = path.join(LOGS_PATH, "telegram-bridge.log");
+  const bridgeOutFd = openSync(bridgeLogPath, "a");
   const child = spawn(
-    process.env.SHELL || "zsh",
-    [
-      "-lc",
-      `node "${TELEGRAM_BRIDGE_PATH}"`,
-    ],
+    process.execPath,
+    [TELEGRAM_BRIDGE_PATH],
     {
       cwd: WORKSPACE_PATH,
       env: {
         ...process.env,
         TELEGRAM_BOT_TOKEN: telegram.botToken,
-        TELEGRAM_ALLOWED_CHAT_IDS: telegram.allowedChatIds.join(","),
+        TELEGRAM_ALLOWED_CHAT_IDS: (telegram.allowedChatIds ?? []).join(","),
         AUTOAIDE_HOME,
         CODEX_CWD: process.env.CODEX_CWD?.trim() || WORKSPACE_PATH,
         CODEX_START_COMMAND:
@@ -167,12 +172,29 @@ function startTelegramBridge(config) {
           process.env.CODEX_RESUME_COMMAND_TEMPLATE?.trim() ||
           "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -",
       },
-      stdio: "ignore",
+      detached: true,
+      stdio: ["ignore", bridgeOutFd, bridgeOutFd],
     },
   );
+  closeSync(bridgeOutFd);
 
   child.unref();
   return child;
+}
+
+async function autoFillTelegramChatIdIfNeeded(config) {
+  const telegram = config.channels?.telegram;
+  if (!telegram?.enabled || !telegram.botToken || (telegram.allowedChatIds ?? []).length) {
+    return;
+  }
+
+  try {
+    const paired = await pairTelegramChannel(telegram.botToken);
+    telegram.allowedChatIds = [paired.chatId];
+    await writeConfig(config);
+  } catch {
+    // Keep running without chat filter if we can't resolve latest private chat.
+  }
 }
 
 async function handleChannelCommand(rl, config, bridgeProcessRef) {
@@ -274,6 +296,7 @@ export async function startCli() {
   };
   const rl = createInterface({ input, output });
   const config = await readConfig();
+  await autoFillTelegramChatIdIfNeeded(config);
   const cliState = await readCliState();
   const bridgeProcessRef = {
     current: startTelegramBridge(config),
