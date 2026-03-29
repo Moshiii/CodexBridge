@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 
@@ -18,6 +18,7 @@ const DEFAULT_STATE_DIR = process.env.AUTOAIDE_HOME?.trim()
   : path.join(DEFAULT_AUTOAIDE_HOME, "telegram");
 const DEFAULT_OFFSET_PATH = path.join(DEFAULT_STATE_DIR, "offset.json");
 const DEFAULT_ROUTER_STATE_PATH = path.join(DEFAULT_STATE_DIR, "sessions.json");
+const DEFAULT_PID_PATH = path.join(DEFAULT_STATE_DIR, "bridge.pid");
 const DEFAULT_MAIN_SESSION_LABEL = "main";
 const DEFAULT_MAIN_SESSION_DISPLAY = "personal-chief-of-staff";
 const DEFAULT_CODEX_START_COMMAND = "codex exec --skip-git-repo-check --json -";
@@ -128,6 +129,22 @@ async function readJsonFile(filePath, fallback) {
 async function writeJsonFile(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+}
+
+async function writePidFile(filePath) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, `${process.pid}\n`, "utf8");
+}
+
+async function clearPidFile(filePath) {
+  try {
+    const currentPid = (await readFile(filePath, "utf8")).trim();
+    if (currentPid === String(process.pid)) {
+      await unlink(filePath);
+    }
+  } catch {
+    // ignore pid cleanup failures
+  }
 }
 
 async function readOffset(statePath) {
@@ -545,9 +562,21 @@ async function main() {
   const token = requireEnv("TELEGRAM_BOT_TOKEN");
   const offsetPath = process.env.TELEGRAM_OFFSET_FILE?.trim() || DEFAULT_OFFSET_PATH;
   const routerStatePath = process.env.TELEGRAM_ROUTER_STATE_FILE?.trim() || DEFAULT_ROUTER_STATE_PATH;
+  const pidPath = process.env.TELEGRAM_BRIDGE_PID_FILE?.trim() || DEFAULT_PID_PATH;
   const allowedChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
   const commandConfig = buildCommandConfig();
   const codexCwd = process.env.CODEX_CWD?.trim() || path.join(DEFAULT_AUTOAIDE_HOME, "workspace");
+
+  await writePidFile(pidPath);
+  process.on("exit", () => {
+    void clearPidFile(pidPath);
+  });
+  process.on("SIGTERM", () => {
+    void clearPidFile(pidPath).finally(() => process.exit(0));
+  });
+  process.on("SIGINT", () => {
+    void clearPidFile(pidPath).finally(() => process.exit(0));
+  });
 
   let nextOffset = await readOffset(offsetPath);
 

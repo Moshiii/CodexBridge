@@ -1,14 +1,10 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
-import { spawn } from "node:child_process";
-import { closeSync, openSync } from "node:fs";
-import path from "node:path";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
 import {
   AUTOAIDE_HOME,
   BOOTSTRAP_STATE_PATH,
-  LOGS_PATH,
-  TELEGRAM_BRIDGE_PATH,
+  DAEMON_PID_PATH,
   TELEGRAM_STATE_PATH,
   WORKSPACE_PATH,
   ensureAutoAideHome,
@@ -19,6 +15,7 @@ import {
   createDefaultCliState,
 } from "./config.mjs";
 import { buildCommandConfig, runCliTurn } from "./codex-runner.mjs";
+import { isDaemonRunning } from "./daemon.mjs";
 import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstrap.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
 
@@ -32,7 +29,8 @@ function printBanner() {
 
 function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
   const telegram = config.channels?.telegram;
-  const telegramOnline = Boolean(bridgeProcess && !bridgeProcess.killed && bridgeProcess.exitCode == null);
+  const daemonOnline = Boolean(bridgeProcess?.pid);
+  const telegramOnline = daemonOnline && telegram?.enabled;
   const telegramChatIds = telegram?.enabled
     ? (telegram.allowedChatIds ?? []).length
       ? (telegram.allowedChatIds ?? []).join(", ")
@@ -42,10 +40,12 @@ function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
     `Home: ${AUTOAIDE_HOME}`,
     `Workspace: ${WORKSPACE_PATH}`,
     `Bootstrap state: ${BOOTSTRAP_STATE_PATH}`,
+    `Daemon pid file: ${DAEMON_PID_PATH}`,
     `Telegram state: ${TELEGRAM_STATE_PATH}`,
     `Model: ${config.model || "gpt-5.4"}`,
     `Bootstrap completed: ${bootstrapInfo.bootstrapPending ? "no" : "yes"}`,
     `CLI active session: ${cliState.activeSessionLabel}`,
+    `AutoAide daemon online: ${daemonOnline ? "yes" : "no"}`,
     `Telegram paired: ${telegram?.enabled ? "yes" : "no"}`,
     `Telegram daemon online: ${telegramOnline ? "yes" : "no"}`,
     telegram?.enabled ? `Telegram chat ids: ${telegramChatIds}` : null,
@@ -146,42 +146,6 @@ function renderCliResult(result) {
   return parts.join("\n\n");
 }
 
-function startTelegramBridge(config) {
-  const telegram = config.channels?.telegram;
-  if (!telegram?.enabled || !telegram.botToken) {
-    return null;
-  }
-
-  const bridgeLogPath = path.join(LOGS_PATH, "telegram-bridge.log");
-  const bridgeOutFd = openSync(bridgeLogPath, "a");
-  const child = spawn(
-    process.execPath,
-    [TELEGRAM_BRIDGE_PATH],
-    {
-      cwd: WORKSPACE_PATH,
-      env: {
-        ...process.env,
-        TELEGRAM_BOT_TOKEN: telegram.botToken,
-        TELEGRAM_ALLOWED_CHAT_IDS: (telegram.allowedChatIds ?? []).join(","),
-        AUTOAIDE_HOME,
-        CODEX_CWD: process.env.CODEX_CWD?.trim() || WORKSPACE_PATH,
-        CODEX_START_COMMAND:
-          process.env.CODEX_START_COMMAND?.trim() ||
-          "codex exec --skip-git-repo-check --json -",
-        CODEX_RESUME_COMMAND_TEMPLATE:
-          process.env.CODEX_RESUME_COMMAND_TEMPLATE?.trim() ||
-          "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -",
-      },
-      detached: true,
-      stdio: ["ignore", bridgeOutFd, bridgeOutFd],
-    },
-  );
-  closeSync(bridgeOutFd);
-
-  child.unref();
-  return child;
-}
-
 async function autoFillTelegramChatIdIfNeeded(config) {
   const telegram = config.channels?.telegram;
   if (!telegram?.enabled || !telegram.botToken || (telegram.allowedChatIds ?? []).length) {
@@ -196,7 +160,6 @@ async function autoFillTelegramChatIdIfNeeded(config) {
     // Keep running without chat filter if we can't resolve latest private chat.
   }
 }
-
 async function handleChannelCommand(rl, config, bridgeProcessRef) {
   console.log("Available channels:");
   console.log("1. Telegram\n");
@@ -226,11 +189,9 @@ async function handleChannelCommand(rl, config, bridgeProcessRef) {
       allowedChatIds: [paired.chatId],
     };
     await writeConfig(config);
-
-    if (bridgeProcessRef.current && bridgeProcessRef.current.exitCode == null) {
-      bridgeProcessRef.current.kill("SIGTERM");
-    }
-    bridgeProcessRef.current = startTelegramBridge(config);
+    bridgeProcessRef.current = {
+      pid: await isDaemonRunning(),
+    };
 
     console.log(
       `Paired successfully.\nTelegram chat connected: ${paired.chatId}${paired.username ? ` (@${paired.username})` : ""}\n`,
@@ -269,15 +230,15 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
       await handleChannelCommand(rl, config, bridgeProcessRef);
       return true;
     case "/status":
+      bridgeProcessRef.current = {
+        pid: await isDaemonRunning(),
+      };
       console.log(`${formatCliStatus(config, bridgeProcessRef.current, cliState, bootstrapInfoRef.current)}\n`);
       return true;
     case "/where":
       console.log(`CLI current session: ${cliState.activeSessionLabel}\n`);
       return true;
     case "/exit":
-      if (bridgeProcessRef.current && bridgeProcessRef.current.exitCode == null) {
-        bridgeProcessRef.current.kill("SIGTERM");
-      }
       rl.close();
       return "exit";
     default:
@@ -299,7 +260,9 @@ export async function startCli() {
   await autoFillTelegramChatIdIfNeeded(config);
   const cliState = await readCliState();
   const bridgeProcessRef = {
-    current: startTelegramBridge(config),
+    current: {
+      pid: await isDaemonRunning(),
+    },
   };
 
   if (!cliState.sessions?.main) {

@@ -26,6 +26,15 @@ If you do not want to use `npm link`, you can run:
 npx autoaide
 ```
 
+What happens when you run `autoaide`:
+
+1. AutoAide ensures the single background daemon is running
+2. the daemon manages Telegram and future channels
+3. the CLI connects as an interactive shell
+
+You can open multiple `autoaide` CLI windows.
+They all reuse the same daemon and the same Telegram listener.
+
 ## What Happens On Install
 
 `npm install` runs a setup script that creates:
@@ -42,6 +51,19 @@ npx autoaide
 This is the product runtime home.
 
 The repository root is not the assistant workspace and should not be treated as the place where the assistant thinks, stores memory, or runs day-to-day work.
+
+Important runtime files:
+
+```text
+~/.autoaide/autoaide.pid
+~/.autoaide/logs/daemon.log
+~/.autoaide/telegram/bridge.pid
+```
+
+- `autoaide.pid`
+  - the single background daemon
+- `bridge.pid`
+  - the single Telegram listener managed by that daemon
 
 ## First Launch
 
@@ -61,11 +83,17 @@ Telegram is currently the first supported external channel.
 Inside the CLI:
 
 - `/channel` starts Telegram pairing
-- `/status` shows the current model, runtime paths, and Telegram worker status
+- `/status` shows the current model, runtime paths, daemon status, and Telegram status
 - `/where` shows the current CLI session
 - `/help` shows commands
 
-The Telegram worker is started by the CLI when Telegram is configured.
+Telegram is managed by the daemon, not by each individual CLI process.
+
+That means:
+
+- opening a second `autoaide` window does not create a second Telegram listener
+- Telegram messages still route through the same background service
+- one bot message should only be processed once
 
 ## Workspace Model
 
@@ -90,19 +118,24 @@ See [workspace-markdown-system.md](/Users/moshiwei/Documents/GitHub/AutoAide/doc
 ## Current Product Shape
 
 - CLI-first entrypoint via `autoaide`
+- single background daemon per `~/.autoaide`
 - Codex CLI as the execution backend
 - thin session mapping instead of a custom agent runtime
 - dedicated runtime home at `~/.autoaide`
-- Telegram bridge launched from the CLI
+- Telegram bridge managed by the daemon
 - workspace Markdown seeded from built-in templates
 - Codex started with `--skip-git-repo-check` so the workspace does not need to be a git repo
 
 ## Repo Map
 
 - [bin/autoaide.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/bin/autoaide.mjs)
-  - CLI entrypoint
+  - CLI entrypoint and daemon subcommand
 - [src/cli.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/cli.mjs)
   - interactive shell
+- [src/daemon.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/daemon.mjs)
+  - single background daemon
+- [src/launcher.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/launcher.mjs)
+  - ensures the daemon is running before CLI startup
 - [src/codex-runner.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/codex-runner.mjs)
   - Codex backend adapter
 - [src/workspace-bootstrap.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/workspace-bootstrap.mjs)

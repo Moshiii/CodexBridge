@@ -12,7 +12,10 @@ export const CLI_STATE_PATH = path.join(AUTOAIDE_HOME, "cli-sessions.json");
 export const BOOTSTRAP_STATE_PATH = path.join(AUTOAIDE_HOME, "bootstrap-state.json");
 export const WORKSPACE_PATH = path.join(AUTOAIDE_HOME, "workspace");
 export const LOGS_PATH = path.join(AUTOAIDE_HOME, "logs");
+export const DAEMON_PID_PATH = path.join(AUTOAIDE_HOME, "autoaide.pid");
+export const DAEMON_LOG_PATH = path.join(LOGS_PATH, "daemon.log");
 export const TELEGRAM_STATE_PATH = path.join(AUTOAIDE_HOME, "telegram");
+export const TELEGRAM_BRIDGE_PID_PATH = path.join(TELEGRAM_STATE_PATH, "bridge.pid");
 export const TELEGRAM_BRIDGE_PATH = path.join(
   PROJECT_ROOT,
   "plugins",
