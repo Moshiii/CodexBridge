@@ -86,6 +86,24 @@ Recommended layout:
       YYYY-MM-DD.md
 ```
 
+## 4.1 What Is Implemented Today
+
+The current product already uses part of this Markdown system.
+
+Implemented now:
+
+- Codex runs with `cwd=~/.autoaide/workspace`
+- Codex can therefore read `AGENTS.md` natively
+- AutoAide reads `SOUL.md`, `IDENTITY.md`, `USER.md`, and `TOOLS.md`
+- AutoAide injects those files into the prompt before calling Codex
+- bootstrap writes identity and user answers back into workspace Markdown
+
+Not fully implemented yet:
+
+- heartbeat turns driven by `HEARTBEAT.md`
+- ongoing long-term memory maintenance into `MEMORY.md`
+- daily memory rollups in `memory/YYYY-MM-DD.md`
+
 ## 5. File Set
 
 ### 5.1 `AGENTS.md`

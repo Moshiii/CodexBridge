@@ -15,6 +15,10 @@ It does not stream partial output.
 
 - `plugins/telegram-codex/telegram-codex-bridge.mjs`
 
+In normal product use, this worker is launched by `autoaide`.
+
+You can still run it directly for debugging.
+
 ## What It Does
 
 - uses Telegram Bot API `getUpdates` long polling
@@ -62,6 +66,14 @@ node plugins/telegram-codex/telegram-codex-bridge.mjs
 
 Then send your bot a Telegram message.
 
+For normal product use, prefer:
+
+```bash
+autoaide
+```
+
+Then use `/channel` inside the CLI.
+
 ## Run Codex From Source
 
 If you do not want to use a globally installed `codex`, point `CODEX_START_COMMAND` and `CODEX_RESUME_COMMAND_TEMPLATE` to the Codex executable or wrapper you want to use.
@@ -90,6 +102,9 @@ node plugins/telegram-codex/telegram-codex-bridge.mjs
   - sends exit code plus any stdout/stderr it captured
 - non-text Telegram messages:
   - replies with `Only text messages are supported right now.`
+- running status message:
+  - replies with `Running Codex on [session-label]...`
+  - does not echo the full original prompt text
 
 ## Limitations
 

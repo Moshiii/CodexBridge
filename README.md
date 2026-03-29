@@ -1,95 +1,121 @@
 # AutoAide
 
-This repository now contains a lightweight CLI-first AutoAide prototype.
+AutoAide is a lightweight CLI-first personal AI shell.
+
+It is designed around three ideas:
+
+- the repo is the software install directory
+- `~/.autoaide` is the runtime home
+- `~/.autoaide/workspace` is the assistant's persistent working area
+
+The current backend is Codex CLI. The product shape is intentionally thin so the backend can later be swapped for Gemini or Claude Code.
 
 ## Quickstart
 
 ```bash
-git clone <this-repo>
+git clone https://github.com/Moshiii/AutoAide.git
 cd AutoAide
 npm install
 npm link
 autoaide
 ```
 
-This opens the interactive CLI.
-
-After `npm install`, AutoAide creates a local working area at:
-
-```bash
-~/.autoaide/
-~/.autoaide/workspace/
-~/.autoaide/logs/
-~/.autoaide/telegram/
-```
-
-Important:
-
-- the repository root is the install/source directory only
-- `~/.autoaide/workspace` is the AI assistant working directory
-- `~/.autoaide/telegram` stores Telegram offsets and session-routing state
-- AutoAide should operate inside `~/.autoaide/workspace`, not directly inside the repo source tree
-- starter workspace Markdown is seeded automatically, but bootstrap is still considered incomplete until identity and user details are filled in
-
-If you do not want to use `npm link`, you can still run:
+If you do not want to use `npm link`, you can run:
 
 ```bash
 npx autoaide
 ```
 
-## CLI
+## What Happens On Install
 
-- natural language input goes to the local `main` session
+`npm install` runs a setup script that creates:
+
+```text
+~/.autoaide/
+  config.json
+  bootstrap-state.json
+  logs/
+  telegram/
+  workspace/
+```
+
+This is the product runtime home.
+
+The repository root is not the assistant workspace and should not be treated as the place where the assistant thinks, stores memory, or runs day-to-day work.
+
+## First Launch
+
+When you launch `autoaide` for the first time:
+
+1. starter Markdown files are seeded into `~/.autoaide/workspace`
+2. AutoAide checks whether bootstrap is actually complete
+3. if not, it runs a short first-run conversation
+4. your answers are written into workspace files like `IDENTITY.md`, `USER.md`, and `SOUL.md`
+
+Seeding files does not count as bootstrap completion by itself.
+
+## Telegram
+
+Telegram is currently the first supported external channel.
+
+Inside the CLI:
+
 - `/channel` starts Telegram pairing
-- `/status` shows home/workspace paths, the current model, and whether the Telegram daemon is online
+- `/status` shows the current model, runtime paths, and Telegram worker status
 - `/where` shows the current CLI session
 - `/help` shows commands
 
-## Bootstrap
+The Telegram worker is started by the CLI when Telegram is configured.
 
-On first launch, AutoAide seeds starter files into:
+## Workspace Model
 
-```bash
-~/.autoaide/workspace
-```
+AutoAide uses `~/.autoaide/workspace` as a persistent context layer.
 
-This does not mean bootstrap is complete.
-
-AutoAide still considers itself uninitialized until the first-run identity setup is actually finished.
-
-The initial workspace includes starter files such as:
+Today, the product uses these files in two ways:
 
 - `AGENTS.md`
+  - read natively by Codex when turns run inside `~/.autoaide/workspace`
+- `SOUL.md`, `IDENTITY.md`, `USER.md`, `TOOLS.md`
+  - read by AutoAide and injected as workspace context before sending a turn to Codex
+
+Bootstrap and long-term context files are also present in the workspace model:
+
 - `BOOTSTRAP.md`
-- `IDENTITY.md`
-- `SOUL.md`
-- `USER.md`
-- `TOOLS.md`
 - `HEARTBEAT.md`
+- `MEMORY.md`
+- `memory/YYYY-MM-DD.md`
 
-## Current Layout
-
-- `bin/autoaide.mjs`
-  - CLI entrypoint
-- `src/cli.mjs`
-  - interactive CLI
-- `plugins/telegram-codex/telegram-codex-bridge.mjs`
-  - Telegram bridge worker
-- `docs/telegram-codex-bridge.md`
-  - bridge behavior and setup
-- `docs/telegram-always-on-agent-design.md`
-  - product and architecture direction
-- `docs/workspace-markdown-system.md`
-  - workspace Markdown model and file responsibilities
-- `docs/reference/templates/`
-  - starter workspace Markdown templates
+See [workspace-markdown-system.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/workspace-markdown-system.md) for the design.
 
 ## Current Product Shape
 
-- CLI-first
-- thin session mapping
-- Telegram pairing through `/channel`
-- local Codex CLI for execution
-- dedicated local workspace at `~/.autoaide/workspace`
-- Telegram worker started from the CLI when configured
-- Codex is launched with `--skip-git-repo-check` by default so `~/.autoaide/workspace` does not need to be a git repo
+- CLI-first entrypoint via `autoaide`
+- Codex CLI as the execution backend
+- thin session mapping instead of a custom agent runtime
+- dedicated runtime home at `~/.autoaide`
+- Telegram bridge launched from the CLI
+- workspace Markdown seeded from built-in templates
+- Codex started with `--skip-git-repo-check` so the workspace does not need to be a git repo
+
+## Repo Map
+
+- [bin/autoaide.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/bin/autoaide.mjs)
+  - CLI entrypoint
+- [src/cli.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/cli.mjs)
+  - interactive shell
+- [src/codex-runner.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/codex-runner.mjs)
+  - Codex backend adapter
+- [src/workspace-bootstrap.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/workspace-bootstrap.mjs)
+  - first-run bootstrap and template seeding
+- [src/workspace-context.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/workspace-context.mjs)
+  - Markdown context loading and prompt assembly
+- [plugins/telegram-codex/telegram-codex-bridge.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/plugins/telegram-codex/telegram-codex-bridge.mjs)
+  - Telegram worker
+- [docs/telegram-codex-bridge.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/telegram-codex-bridge.md)
+  - Telegram bridge behavior
+- [docs/telegram-always-on-agent-design.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/telegram-always-on-agent-design.md)
+  - product direction
+- [docs/workspace-markdown-system.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/workspace-markdown-system.md)
+  - workspace Markdown model
+- [docs/reference/templates](/Users/moshiwei/Documents/GitHub/AutoAide/docs/reference/templates)
+  - starter Markdown templates
