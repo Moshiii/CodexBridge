@@ -2,38 +2,15 @@
   "name": "autoaide",
   "version": "0.1.0",
   "private": true,
-  "packageManager": "pnpm@10.6.3",
+  "type": "module",
   "bin": {
-    "autoaide": "./apps/cli/src/index.ts"
-  },
-  "files": [
-    "apps",
-    "packages",
-    "docs",
-    "tsconfig.json",
-    "README.md"
-  ],
-  "engines": {
-    "node": ">=22"
+    "autoaide": "./bin/autoaide.mjs"
   },
   "scripts": {
-    "build": "tsc -b packages/core-config packages/core-logger packages/task-system packages/memory-system packages/manager-core packages/manager-runtime packages/worker-orchestrator packages/executor-codex packages/owner-interface packages/supervision-core apps/server apps/tui apps/cli",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "check": "pnpm run build && pnpm run test && pnpm run lint",
-    "lint": "oxlint .",
-    "dev": "tsx apps/cli/src/index.ts tui",
-    "dev:server": "tsx apps/server/src/index.ts",
-    "tui": "tsx apps/tui/src/index.ts",
-    "autoaide": "tsx apps/cli/src/index.ts"
+    "postinstall": "node ./scripts/postinstall.mjs",
+    "start": "node ./bin/autoaide.mjs"
   },
-  "dependencies": {
-    "tsx": "^4.20.0"
-  },
-  "devDependencies": {
-    "@types/node": "^24.0.0",
-    "oxlint": "^0.18.0",
-    "typescript": "^5.8.2",
-    "vitest": "^3.0.8"
+  "engines": {
+    "node": ">=22"
   }
 }

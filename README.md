@@ -1,116 +1,95 @@
 # AutoAide
 
-AutoAide is a digital adjutant for the owner.
+This repository now contains a lightweight CLI-first AutoAide prototype.
 
-It is designed to live inside chat surfaces such as Feishu, Telegram, WhatsApp, Slack, and Web, where it can hold context, coordinate workers, and keep work moving until there is a result.
+## Quickstart
 
-AutoAide does not do execution work itself. It stays loyal to the owner, manages information, dispatches worker executors, tracks progress, and reports back through channels.
+```bash
+git clone <this-repo>
+cd AutoAide
+npm install
+npm link
+autoaide
+```
 
-## Product Idea
+This opens the interactive CLI.
 
-AutoAide is built around a simple product shape:
+After `npm install`, AutoAide creates a local working area at:
 
-- the owner talks to one persistent AI counterpart
-- multiple people can talk to the same AutoAide in shared chats
-- AutoAide keeps each person, thread, and task separate
-- AutoAide routes concrete execution work to workers such as Codex
-- AutoAide returns with progress, blockers, and results
+```bash
+~/.autoaide/
+~/.autoaide/workspace/
+~/.autoaide/logs/
+~/.autoaide/telegram/
+```
 
-In short:
+Important:
 
-- `owner`: gives goals, priorities, and approvals
-- `manager`: a persistent Codex-driven butler agent that talks to the owner and manages work
-- `AutoAide core`: the substrate that gives the manager memory, orchestration, supervision, and interfaces
-- `worker`: the executor that does concrete work
+- the repository root is the install/source directory only
+- `~/.autoaide/workspace` is the AI assistant working directory
+- `~/.autoaide/telegram` stores Telegram offsets and session-routing state
+- AutoAide should operate inside `~/.autoaide/workspace`, not directly inside the repo source tree
+- starter workspace Markdown is seeded automatically, but bootstrap is still considered incomplete until identity and user details are filled in
 
-## Current Status
+If you do not want to use `npm link`, you can still run:
 
-The repository already has the core manager-side skeleton:
-
-- task system
-- memory system
-- manager runtime and policy skeleton
-- worker orchestrator
-- minimal config/logging foundation
-- a postponed minimal server placeholder for future web/channel ingress
-
-The full owner-facing product experience is still in progress:
-
-- real channel integrations are not complete
-- real executor protocol integration is not complete
-- long-running follow-up loops are still being built out
+```bash
+npx autoaide
+```
 
 ## CLI
 
-The intended install shape is a direct CLI.
+- natural language input goes to the local `main` session
+- `/channel` starts Telegram pairing
+- `/status` shows home/workspace paths, the current model, and whether the Telegram daemon is online
+- `/where` shows the current CLI session
+- `/help` shows commands
 
-The default first-use path is:
+## Bootstrap
 
-```bash
-autoaide tui
-```
-
-The intended minimal command surface is:
-
-```bash
-autoaide tui
-autoaide exec "<goal>"
-autoaide status
-autoaide models
-autoaide dashboard
-autoaide stop
-autoaide doctor
-```
-
-If the first real run fails, use:
+On first launch, AutoAide seeds starter files into:
 
 ```bash
-autoaide doctor
+~/.autoaide/workspace
 ```
 
-The point of the product is to let the owner talk to the manager immediately, not to make diagnostics the primary entrypoint.
+This does not mean bootstrap is complete.
 
-`apps/server` is intentionally postponed.
-For current product and development work, default to `autoaide tui`.
+AutoAide still considers itself uninitialized until the first-run identity setup is actually finished.
 
-For local development, use a global `pnpm link`:
+The initial workspace includes starter files such as:
 
-```bash
-export PNPM_HOME="$HOME/Library/pnpm"
-export PATH="$PNPM_HOME:$PATH"
-mkdir -p "$PNPM_HOME"
+- `AGENTS.md`
+- `BOOTSTRAP.md`
+- `IDENTITY.md`
+- `SOUL.md`
+- `USER.md`
+- `TOOLS.md`
+- `HEARTBEAT.md`
 
-cd ~/Documents/GitHub/AutoAide
-pnpm install
-pnpm build
-pnpm link --global
-rehash
-```
+## Current Layout
 
-After local code changes, refresh with:
+- `bin/autoaide.mjs`
+  - CLI entrypoint
+- `src/cli.mjs`
+  - interactive CLI
+- `plugins/telegram-codex/telegram-codex-bridge.mjs`
+  - Telegram bridge worker
+- `docs/telegram-codex-bridge.md`
+  - bridge behavior and setup
+- `docs/telegram-always-on-agent-design.md`
+  - product and architecture direction
+- `docs/workspace-markdown-system.md`
+  - workspace Markdown model and file responsibilities
+- `docs/reference/templates/`
+  - starter workspace Markdown templates
 
-```bash
-cd ~/Documents/GitHub/AutoAide
-pnpm build
-pnpm link --global
-rehash
-```
+## Current Product Shape
 
-Inside the repo, you can verify the same command surface with:
-
-```bash
-pnpm exec autoaide tui
-pnpm exec autoaide help
-pnpm exec autoaide status
-```
-
-## Docs
-
-Start here:
-
-- [Docs Index](./docs/core/AutoAide-文档索引.md)
-- [Development Plan](./docs/core/AutoAide-开发计划.md)
-- [Architecture](./docs/core/AutoAide-架构设计.md)
-- [CEO-COO Multi-Workstream Architecture](./docs/manager/AutoAide-CEO-COO多线程管理架构设计.md)
-- [Task and Memory Design](./docs/core/AutoAide-任务与记忆系统设计.md)
-- [Testing Plan](./docs/core/AutoAide-测试计划.md)
+- CLI-first
+- thin session mapping
+- Telegram pairing through `/channel`
+- local Codex CLI for execution
+- dedicated local workspace at `~/.autoaide/workspace`
+- Telegram worker started from the CLI when configured
+- Codex is launched with `--skip-git-repo-check` by default so `~/.autoaide/workspace` does not need to be a git repo
