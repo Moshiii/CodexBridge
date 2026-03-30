@@ -87,7 +87,7 @@ function buildCardLines({ model, workspacePath }) {
   ];
 }
 
-function renderCard(lines) {
+export function renderCard(lines) {
   const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
   const innerWidth = Math.max(...plainLines.map((line) => line.length));
   const top = `╭${"─".repeat(innerWidth + 2)}╮`;
@@ -97,6 +97,23 @@ function renderCard(lines) {
     return `│ ${line}${pad} │`;
   });
   return [top, ...body, bottom];
+}
+
+export function formatKeyValueCard(title, rows) {
+  const lines = [colorize(title, ANSI.bold + ANSI.brightCyan), ""];
+  for (const [label, value] of rows) {
+    lines.push(`${colorize(`${label}:`, ANSI.dim)} ${value}`);
+  }
+  return renderCard(lines).join("\n");
+}
+
+export function formatListCard(title, items) {
+  const lines = [colorize(title, ANSI.bold + ANSI.brightCyan), "", ...items];
+  return renderCard(lines).join("\n");
+}
+
+export function formatMessageCard(title, bodyLines) {
+  return renderCard([colorize(title, ANSI.bold + ANSI.brightCyan), "", ...bodyLines]).join("\n");
 }
 
 function glitchSubtitle(text) {

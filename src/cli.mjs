@@ -18,7 +18,7 @@ import { buildCommandConfig, runCliTurn } from "./codex-runner.mjs";
 import { isDaemonRunning } from "./daemon.mjs";
 import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstrap.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
-import { showStartupBanner } from "./ui/banner.mjs";
+import { formatKeyValueCard, formatListCard, formatMessageCard, showStartupBanner } from "./ui/banner.mjs";
 
 function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
   const telegram = config.channels?.telegram;
@@ -29,22 +29,20 @@ function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
       ? (telegram.allowedChatIds ?? []).join(", ")
       : "(all chats, no filter)"
     : null;
-  return [
-    `Home: ${AUTOAIDE_HOME}`,
-    `Workspace: ${WORKSPACE_PATH}`,
-    `Bootstrap state: ${BOOTSTRAP_STATE_PATH}`,
-    `Daemon pid file: ${DAEMON_PID_PATH}`,
-    `Telegram state: ${TELEGRAM_STATE_PATH}`,
-    `Model: ${config.model || "gpt-5.4"}`,
-    `Bootstrap completed: ${bootstrapInfo.bootstrapPending ? "no" : "yes"}`,
-    `CLI active session: ${cliState.activeSessionLabel}`,
-    `AutoAide daemon online: ${daemonOnline ? "yes" : "no"}`,
-    `Telegram paired: ${telegram?.enabled ? "yes" : "no"}`,
-    `Telegram daemon online: ${telegramOnline ? "yes" : "no"}`,
-    telegram?.enabled ? `Telegram chat ids: ${telegramChatIds}` : null,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  return formatKeyValueCard("AutoAide Status", [
+    ["home", AUTOAIDE_HOME],
+    ["workspace", WORKSPACE_PATH],
+    ["bootstrap state", BOOTSTRAP_STATE_PATH],
+    ["daemon pid file", DAEMON_PID_PATH],
+    ["telegram state", TELEGRAM_STATE_PATH],
+    ["model", config.model || "gpt-5.4"],
+    ["bootstrap completed", bootstrapInfo.bootstrapPending ? "no" : "yes"],
+    ["active session", cliState.activeSessionLabel],
+    ["daemon online", daemonOnline ? "yes" : "no"],
+    ["telegram paired", telegram?.enabled ? "yes" : "no"],
+    ["telegram daemon online", telegramOnline ? "yes" : "no"],
+    ...(telegram?.enabled ? [["telegram chat ids", telegramChatIds]] : []),
+  ]);
 }
 
 function printBootstrapHint(bootstrapInfo) {
@@ -52,12 +50,15 @@ function printBootstrapHint(bootstrapInfo) {
     return;
   }
 
-  console.log("Bootstrap is still pending.");
-  console.log("Use your first conversation to establish:");
-  console.log("- what the user should be called");
-  console.log("- what the assistant should be called");
-  console.log("- tone, vibe, and basic preferences");
-  console.log("Those details belong in IDENTITY.md, USER.md, and SOUL.md.\n");
+  console.log(
+    `${formatListCard("Bootstrap Pending", [
+      "Use your first conversation to establish:",
+      "- what the user should be called",
+      "- what the assistant should be called",
+      "- tone, vibe, and basic preferences",
+      "Those details belong in IDENTITY.md, USER.md, and SOUL.md.",
+    ])}\n`,
+  );
 }
 
 async function askBootstrapQuestion(rl, prompt, fallback = "") {
@@ -77,12 +78,16 @@ async function runBootstrapFlow(rl, bootstrapInfoRef) {
     return;
   }
 
-  console.log("Let's finish first-run setup.");
-  console.log("I need a few basics so I can keep them in the workspace and remember them later.\n");
+  console.log(
+    `${formatMessageCard("First-Run Setup", [
+      "Let's finish first-run setup.",
+      "I need a few basics so I can keep them in the workspace and remember them later.",
+    ])}\n`,
+  );
 
   const userName = await askBootstrapQuestion(rl, "What should I call you? ");
   if (!userName) {
-    console.log("Bootstrap is still pending. I need your name to continue.\n");
+    console.log(`${formatMessageCard("Bootstrap Pending", ["I need your name to continue."])}\n`);
     return;
   }
 
@@ -116,13 +121,16 @@ async function runBootstrapFlow(rl, bootstrapInfoRef) {
     creature: "AI assistant",
   });
 
-  console.log("\nBootstrap complete.");
-  console.log(`I'll call you ${userName}.`);
-  console.log(`My name is now ${assistantName}.\n`);
-  console.log("Saved:");
-  console.log("- IDENTITY.md");
-  console.log("- USER.md");
-  console.log("- SOUL.md\n");
+  console.log(
+    `\n${formatListCard("Bootstrap Complete", [
+      `I'll call you ${userName}.`,
+      `My name is now ${assistantName}.`,
+      "Saved:",
+      "- IDENTITY.md",
+      "- USER.md",
+      "- SOUL.md",
+    ])}\n`,
+  );
 }
 
 function renderCliResult(result) {
@@ -154,24 +162,27 @@ async function autoFillTelegramChatIdIfNeeded(config) {
   }
 }
 async function handleChannelCommand(rl, config, bridgeProcessRef) {
-  console.log("Available channels:");
-  console.log("1. Telegram\n");
+  console.log(`${formatListCard("Available Channels", ["1. Telegram"])}\n`);
   const selection = (await rl.question("Select a channel [telegram]: ")).trim().toLowerCase();
   if (selection && selection !== "1" && selection !== "telegram") {
-    console.log("Only Telegram is available right now.\n");
+    console.log(`${formatMessageCard("Channel Selection", ["Only Telegram is available right now."])}\n`);
     return;
   }
 
-  console.log("\nOpen Telegram and message @BotFather.");
-  console.log("Create a bot with /newbot, then paste the bot token here.\n");
+  console.log(
+    `\n${formatListCard("Telegram Pairing", [
+      "Open Telegram and message @BotFather.",
+      "Create a bot with /newbot, then paste the bot token here.",
+    ])}\n`,
+  );
 
   const token = (await rl.question("Telegram bot token: ")).trim();
   if (!token) {
-    console.log("Pairing cancelled.\n");
+    console.log(`${formatMessageCard("Telegram Pairing", ["Pairing cancelled."])}\n`);
     return;
   }
 
-  console.log("\nNow send one message to your bot in Telegram, then press Enter here.");
+  console.log(`\n${formatMessageCard("Telegram Pairing", ["Now send one message to your bot in Telegram, then press Enter here."])}\n`);
   await rl.question("");
 
   try {
@@ -187,10 +198,14 @@ async function handleChannelCommand(rl, config, bridgeProcessRef) {
     };
 
     console.log(
-      `Paired successfully.\nTelegram chat connected: ${paired.chatId}${paired.username ? ` (@${paired.username})` : ""}\n`,
+      `${formatKeyValueCard("Telegram Paired", [
+        ["status", "paired successfully"],
+        ["chat id", String(paired.chatId)],
+        ...(paired.username ? [["username", `@${paired.username}`]] : []),
+      ])}\n`,
     );
   } catch (error) {
-    console.log(`Pairing failed: ${error.message}\n`);
+    console.log(`${formatMessageCard("Telegram Pairing Failed", [error.message])}\n`);
   }
 }
 
@@ -210,14 +225,18 @@ async function handleCliMessage(line, cliState, config) {
 
 async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, bootstrapInfoRef) {
   const [command, ...rest] = line.trim().split(/\s+/);
-  const arg = rest.join(" ").trim();
+    const arg = rest.join(" ").trim();
 
   switch (command) {
     case "/help":
-      console.log("/channel  pair Telegram");
-      console.log("/status   show paths, model, and daemon status");
-      console.log("/where    show current CLI session");
-      console.log("/exit     quit AutoAide\n");
+      console.log(
+        `${formatListCard("Commands", [
+          "/channel  pair Telegram",
+          "/status   show paths, model, and daemon status",
+          "/where    show current CLI session",
+          "/exit     quit AutoAide",
+        ])}\n`,
+      );
       return true;
     case "/channel":
       await handleChannelCommand(rl, config, bridgeProcessRef);
@@ -229,14 +248,14 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
       console.log(`${formatCliStatus(config, bridgeProcessRef.current, cliState, bootstrapInfoRef.current)}\n`);
       return true;
     case "/where":
-      console.log(`CLI current session: ${cliState.activeSessionLabel}\n`);
+      console.log(`${formatKeyValueCard("Session", [["current session", cliState.activeSessionLabel]])}\n`);
       return true;
     case "/exit":
       rl.close();
       return "exit";
     default:
       if (command.startsWith("/")) {
-        console.log(`Unknown command: ${command}\n`);
+        console.log(`${formatMessageCard("Unknown Command", [command])}\n`);
         return true;
       }
       return false;
