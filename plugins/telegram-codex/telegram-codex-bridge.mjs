@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 
@@ -24,6 +24,8 @@ const DEFAULT_MAIN_SESSION_DISPLAY = "personal-chief-of-staff";
 const DEFAULT_CODEX_START_COMMAND = "codex exec --skip-git-repo-check --json -";
 const DEFAULT_CODEX_RESUME_TEMPLATE =
   "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -";
+const DEFAULT_UPLOAD_DIR_NAME = "inbox";
+const DEFAULT_DOWNLOAD_DIRS = ["inbox", "outbox", "exports"];
 
 function getShellSpec() {
   if (process.platform === "win32") {
@@ -73,6 +75,27 @@ function truncateTelegramText(text) {
     return text;
   }
   return `${text.slice(0, TELEGRAM_MESSAGE_LIMIT - 24)}\n\n[output truncated]`;
+}
+
+function sanitizeFilename(raw, fallback = "upload.bin") {
+  const cleaned = (raw || fallback)
+    .replace(/[\/\\?%*:|"<>]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned || fallback;
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 0) {
+    return "unknown size";
+  }
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function slugifySessionLabel(raw) {
@@ -266,6 +289,25 @@ async function telegramRequest(token, method, body) {
   return payload.result;
 }
 
+async function telegramApiGet(token, method, query = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value == null) {
+      continue;
+    }
+    params.set(key, String(value));
+  }
+  const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/${method}?${params.toString()}`);
+  if (!response.ok) {
+    throw new Error(`Telegram API ${method} failed with HTTP ${response.status}`);
+  }
+  const payload = await response.json();
+  if (!payload.ok) {
+    throw new Error(`Telegram API ${method} error: ${payload.description ?? "unknown error"}`);
+  }
+  return payload.result;
+}
+
 async function getUpdates(token, offset) {
   return await telegramRequest(token, "getUpdates", {
     offset,
@@ -283,6 +325,169 @@ async function sendMessage(token, chatId, text, replyToMessageId) {
         ? { message_id: replyToMessageId }
         : undefined,
   });
+}
+
+async function sendDocument(token, chatId, filePath, replyToMessageId, caption = "") {
+  const fileBuffer = await readFile(filePath);
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  if (caption) {
+    form.append("caption", caption);
+  }
+  if (typeof replyToMessageId === "number") {
+    form.append("reply_parameters", JSON.stringify({ message_id: replyToMessageId }));
+  }
+  form.append("document", new Blob([fileBuffer]), path.basename(filePath));
+
+  const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/sendDocument`, {
+    method: "POST",
+    body: form,
+  });
+  if (!response.ok) {
+    throw new Error(`Telegram API sendDocument failed with HTTP ${response.status}`);
+  }
+  const payload = await response.json();
+  if (!payload.ok) {
+    throw new Error(`Telegram API sendDocument error: ${payload.description ?? "unknown error"}`);
+  }
+  return payload.result;
+}
+
+async function resolveWorkspacePaths(cwd) {
+  const workspaceRoot = path.resolve(cwd);
+  const uploadDir = path.join(workspaceRoot, DEFAULT_UPLOAD_DIR_NAME);
+  const downloadRoots = DEFAULT_DOWNLOAD_DIRS.map((name) => [name, path.join(workspaceRoot, name)]);
+
+  await mkdir(uploadDir, { recursive: true });
+  for (const [, dirPath] of downloadRoots) {
+    await mkdir(dirPath, { recursive: true });
+  }
+
+  return {
+    workspaceRoot,
+    uploadDir,
+    downloadRoots: new Map(downloadRoots),
+  };
+}
+
+function toWorkspaceRelativePath(workspaceRoot, absolutePath) {
+  const relative = path.relative(workspaceRoot, absolutePath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return null;
+  }
+  return relative.split(path.sep).join("/");
+}
+
+function resolveDownloadPath(workspacePaths, rawRelativePath) {
+  const trimmed = rawRelativePath.trim().replaceAll("\\", "/");
+  if (!trimmed || trimmed.startsWith("/") || trimmed.includes("\0")) {
+    return null;
+  }
+
+  const normalized = path.posix.normalize(trimmed);
+  if (normalized.startsWith("../") || normalized === "..") {
+    return null;
+  }
+
+  const parts = normalized.split("/");
+  const rootName = parts.shift();
+  if (!rootName || !workspacePaths.downloadRoots.has(rootName)) {
+    return null;
+  }
+
+  const baseDir = workspacePaths.downloadRoots.get(rootName);
+  const resolved = path.resolve(baseDir, ...parts);
+  const allowedRoot = path.resolve(baseDir);
+  if (!resolved.startsWith(`${allowedRoot}${path.sep}`) && resolved !== allowedRoot) {
+    return null;
+  }
+
+  return resolved;
+}
+
+async function fetchTelegramFile(token, fileId) {
+  const fileInfo = await telegramApiGet(token, "getFile", { file_id: fileId });
+  if (!fileInfo?.file_path) {
+    throw new Error("Telegram did not return a downloadable file path.");
+  }
+  const response = await fetch(`${TELEGRAM_API_BASE}/file/bot${token}/${fileInfo.file_path}`);
+  if (!response.ok) {
+    throw new Error(`Telegram file download failed with HTTP ${response.status}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  return {
+    buffer: Buffer.from(arrayBuffer),
+    filePath: fileInfo.file_path,
+    fileSize: fileInfo.file_size ?? null,
+  };
+}
+
+async function saveUploadedDocument(message, token, workspacePaths) {
+  const document = message.document;
+  if (!document?.file_id) {
+    return null;
+  }
+
+  const downloaded = await fetchTelegramFile(token, document.file_id);
+  const originalName = document.file_name || path.basename(downloaded.filePath) || "upload.bin";
+  const safeName = sanitizeFilename(originalName);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const finalName = `${timestamp}-${safeName}`;
+  const absolutePath = path.join(workspacePaths.uploadDir, finalName);
+
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await writeFile(absolutePath, downloaded.buffer);
+
+  return {
+    absolutePath,
+    relativePath: toWorkspaceRelativePath(workspacePaths.workspaceRoot, absolutePath),
+    fileName: finalName,
+    originalName,
+    fileSize: document.file_size ?? downloaded.fileSize,
+    mimeType: document.mime_type ?? null,
+  };
+}
+
+async function listWorkspaceFiles(workspacePaths, requestedRoot) {
+  const rootName = requestedRoot?.trim() || DEFAULT_UPLOAD_DIR_NAME;
+  const targetRoot = workspacePaths.downloadRoots.get(rootName);
+  if (!targetRoot) {
+    return {
+      ok: false,
+      text: `Unknown directory: ${rootName}\n\nAllowed: ${DEFAULT_DOWNLOAD_DIRS.join(", ")}`,
+    };
+  }
+
+  const entries = await readdir(targetRoot, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const absolutePath = path.join(targetRoot, entry.name);
+    const fileStat = await stat(absolutePath);
+    files.push({
+      name: entry.name,
+      size: fileStat.size,
+      modifiedAt: fileStat.mtimeMs,
+    });
+  }
+
+  files.sort((a, b) => b.modifiedAt - a.modifiedAt);
+  if (!files.length) {
+    return {
+      ok: true,
+      text: `No files found in ${rootName}/.`,
+    };
+  }
+
+  return {
+    ok: true,
+    text: [
+      `Files in ${rootName}/:`,
+      ...files.slice(0, 20).map((file) => `- ${rootName}/${file.name} (${formatBytes(file.size)})`),
+    ].join("\n"),
+  };
 }
 
 function parseCodexJson(stdout) {
@@ -481,6 +686,48 @@ async function handleSlashCommand({ command, argsText, state, chatId, token, mes
     return { stateChanged: true, handled: true };
   }
 
+  if (command === "files") {
+    const listing = await listWorkspaceFiles(message.workspacePaths, argsText);
+    await sendMessage(token, message.chat.id, listing.text, message.message_id);
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "get") {
+    if (!argsText) {
+      await sendMessage(token, message.chat.id, "Usage: /get <inbox|outbox|exports/...>", message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+
+    const resolvedPath = resolveDownloadPath(message.workspacePaths, argsText);
+    if (!resolvedPath) {
+      await sendMessage(
+        token,
+        message.chat.id,
+        `Path not allowed.\n\nUse a path inside: ${DEFAULT_DOWNLOAD_DIRS.join(", ")}`,
+        message.message_id,
+      );
+      return { stateChanged: false, handled: true };
+    }
+
+    try {
+      const fileStat = await stat(resolvedPath);
+      if (!fileStat.isFile()) {
+        throw new Error("not a file");
+      }
+      const relativePath = toWorkspaceRelativePath(message.workspacePaths.workspaceRoot, resolvedPath) || argsText;
+      await sendDocument(
+        token,
+        message.chat.id,
+        resolvedPath,
+        message.message_id,
+        `Sent from workspace: ${relativePath}`,
+      );
+    } catch {
+      await sendMessage(token, message.chat.id, `File not found: ${argsText}`, message.message_id);
+    }
+    return { stateChanged: false, handled: true };
+  }
+
   return { stateChanged: false, handled: false };
 }
 
@@ -495,12 +742,14 @@ async function processUpdate(update, context) {
     return;
   }
 
+  const uploadedDocument = await saveUploadedDocument(message, context.token, context.workspacePaths);
+
   const text = getMessageText(message);
-  if (!text) {
+  if (!text && !uploadedDocument) {
     await sendMessage(
       context.token,
       message.chat.id,
-      "Only text messages are supported right now.",
+      "Only text messages and document uploads are supported right now.",
       message.message_id,
     );
     return;
@@ -517,7 +766,10 @@ async function processUpdate(update, context) {
       state,
       chatId,
       token: context.token,
-      message,
+      message: {
+        ...message,
+        workspacePaths: context.workspacePaths,
+      },
     });
     if (handled.stateChanged) {
       await writeRouterState(context.routerStatePath, state);
@@ -531,6 +783,20 @@ async function processUpdate(update, context) {
   const session = state.sessions[activeLabel];
   const mode = session.cliSessionRef ? "Codex resume" : "Codex";
 
+  if (uploadedDocument) {
+    const uploadNotice = [
+      `Saved file to ${uploadedDocument.relativePath}.`,
+      `Name: ${uploadedDocument.originalName}`,
+      `Size: ${formatBytes(uploadedDocument.fileSize)}`,
+      text ? "Running your caption against the saved file..." : "You can now ask AutoAide to process it.",
+    ].join("\n");
+    await sendMessage(context.token, message.chat.id, uploadNotice, message.message_id);
+  }
+
+  if (!text) {
+    return;
+  }
+
   await sendMessage(
     context.token,
     message.chat.id,
@@ -538,7 +804,16 @@ async function processUpdate(update, context) {
     message.message_id,
   );
 
-  const prompt = await buildWorkspacePrompt(text);
+  const promptText = uploadedDocument
+    ? [
+        `A Telegram document was uploaded and saved to workspace path: ${uploadedDocument.relativePath}.`,
+        "Treat that file as the primary input unless the user says otherwise.",
+        "",
+        `User request: ${text}`,
+      ].join("\n")
+    : text;
+
+  const prompt = await buildWorkspacePrompt(promptText);
 
   const result = session.cliSessionRef
     ? await runCodexResume(prompt, session.cliSessionRef, context.commandConfig)
@@ -566,6 +841,7 @@ async function main() {
   const allowedChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
   const commandConfig = buildCommandConfig();
   const codexCwd = process.env.CODEX_CWD?.trim() || path.join(DEFAULT_AUTOAIDE_HOME, "workspace");
+  const workspacePaths = await resolveWorkspacePaths(codexCwd);
 
   await writePidFile(pidPath);
   process.on("exit", () => {
@@ -603,6 +879,7 @@ async function main() {
             ...commandConfig,
             cwd: codexCwd,
           },
+          workspacePaths,
         });
       }
     } catch (error) {
