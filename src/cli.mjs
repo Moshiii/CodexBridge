@@ -18,14 +18,7 @@ import { buildCommandConfig, runCliTurn } from "./codex-runner.mjs";
 import { isDaemonRunning } from "./daemon.mjs";
 import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstrap.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
-
-function printBanner() {
-  console.log("AutoAide is ready.");
-  console.log(`Home: ${AUTOAIDE_HOME}`);
-  console.log(`Workspace: ${WORKSPACE_PATH}`);
-  console.log("Talk naturally, or use /channel to connect Telegram.");
-  console.log("Use /help to see commands.\n");
-}
+import { showStartupBanner } from "./ui/banner.mjs";
 
 function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
   const telegram = config.channels?.telegram;
@@ -255,7 +248,6 @@ export async function startCli() {
   const bootstrapInfoRef = {
     current: await ensureWorkspaceBootstrap(),
   };
-  const rl = createInterface({ input, output });
   const config = await readConfig();
   await autoFillTelegramChatIdIfNeeded(config);
   const cliState = await readCliState();
@@ -272,7 +264,11 @@ export async function startCli() {
     await writeCliState(cliState);
   }
 
-  printBanner();
+  await showStartupBanner({
+    model: config.model || "gpt-5.4",
+    workspacePath: WORKSPACE_PATH,
+  });
+  const rl = createInterface({ input, output });
   printBootstrapHint(bootstrapInfoRef.current);
   await runBootstrapFlow(rl, bootstrapInfoRef);
 
