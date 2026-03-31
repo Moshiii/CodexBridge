@@ -26,6 +26,7 @@ const DEFAULT_CODEX_RESUME_TEMPLATE =
   "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -";
 const DEFAULT_UPLOAD_DIR_NAME = "inbox";
 const DEFAULT_DOWNLOAD_DIRS = ["inbox", "outbox", "exports"];
+const AUTOAIDE_BIN_PATH = path.join(__dirname, "..", "..", "bin", "autoaide.mjs");
 
 function getShellSpec() {
   if (process.platform === "win32") {
@@ -112,6 +113,10 @@ function renderRunningMessage(prompt, sessionLabel, mode) {
   return `Running ${mode} on [${sessionLabel}]...`;
 }
 
+function renderStopRequestedMessage(sessionLabel) {
+  return `Stop requested for [${sessionLabel}].`;
+}
+
 function buildCommandConfig() {
   const startCommand = process.env.CODEX_START_COMMAND?.trim();
   const resumeTemplate = process.env.CODEX_RESUME_COMMAND_TEMPLATE?.trim();
@@ -177,6 +182,16 @@ async function readOffset(statePath) {
 
 async function writeOffset(statePath, offset) {
   await writeJsonFile(statePath, { offset });
+}
+
+async function readPidFile(filePath) {
+  try {
+    const raw = (await readFile(filePath, "utf8")).trim();
+    const pid = Number.parseInt(raw, 10);
+    return Number.isInteger(pid) && pid > 0 ? pid : null;
+  } catch {
+    return null;
+  }
 }
 
 function createDefaultRouterState() {
@@ -273,6 +288,20 @@ function formatWhere(state, chatId) {
   return `Current session: ${session.label}${session.isMain ? " [main]" : ""}\nBackend: ${session.backend}\n${cliState}`;
 }
 
+function formatStatus(state, chatId, runningJobs) {
+  const label = getActiveSessionLabel(state, chatId);
+  const session = state.sessions[label];
+  const job = findRunningJob(runningJobs, chatId, label);
+
+  return [
+    `Current session: ${session.label}${session.isMain ? " [main]" : ""}`,
+    `Backend: ${session.backend}`,
+    `Resume: ${session.cliSessionRef ? session.cliSessionRef : "not-started"}`,
+    `Running: ${job ? "yes" : "no"}`,
+    ...(job ? [`State: ${job.stopRequested ? "stopping" : "running"}`] : []),
+  ].join("\n");
+}
+
 async function telegramRequest(token, method, body) {
   const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/${method}`, {
     method: "POST",
@@ -351,6 +380,19 @@ async function sendDocument(token, chatId, filePath, replyToMessageId, caption =
     throw new Error(`Telegram API sendDocument error: ${payload.description ?? "unknown error"}`);
   }
   return payload.result;
+}
+
+function scheduleDaemonRestart() {
+  const shellSpec = getShellSpec();
+  const logPath = path.join(DEFAULT_AUTOAIDE_HOME, "logs", "daemon.log");
+  const command = `sleep 1; node "${AUTOAIDE_BIN_PATH}" daemon >> "${logPath}" 2>&1`;
+  const child = spawn(shellSpec.command, [...shellSpec.args, command], {
+    cwd: DEFAULT_AUTOAIDE_HOME,
+    env: process.env,
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
 }
 
 async function resolveWorkspacePaths(cwd) {
@@ -524,29 +566,34 @@ function parseCodexJson(stdout) {
   return { threadId, finalText };
 }
 
-async function runShellCommand(prompt, command, cwd) {
-  return await new Promise((resolve) => {
-    const shellSpec = getShellSpec();
-    const child = spawn(shellSpec.command, [...shellSpec.args, command], {
-      cwd,
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+function startShellCommand(prompt, command, cwd) {
+  const shellSpec = getShellSpec();
+  const child = spawn(shellSpec.command, [...shellSpec.args, command], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
 
-    let stdout = "";
-    let stderr = "";
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
 
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
+  child.stdout.on("data", (chunk) => {
+    stdout += chunk;
+  });
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
 
+  const result = new Promise((resolve) => {
     child.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       resolve({
         ok: false,
         exitCode: null,
@@ -555,38 +602,23 @@ async function runShellCommand(prompt, command, cwd) {
       });
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
       resolve({
         ok: code === 0,
         exitCode: code,
+        signal: signal ?? null,
         stdout: stdout.trim(),
         stderr: stderr.trim(),
       });
     });
-
-    child.stdin.end(prompt);
   });
-}
 
-async function runCodexStart(prompt, options) {
-  const result = await runShellCommand(prompt, options.startCommand, options.cwd);
-  const parsed = parseCodexJson(result.stdout);
-  return {
-    ...result,
-    cliSessionRef: parsed.threadId,
-    output: parsed.finalText || result.stdout,
-  };
-}
-
-async function runCodexResume(prompt, sessionRef, options) {
-  const command = options.resumeTemplate.replaceAll("__SESSION_ID__", sessionRef);
-  const result = await runShellCommand(prompt, command, options.cwd);
-  const parsed = parseCodexJson(result.stdout);
-  return {
-    ...result,
-    cliSessionRef: sessionRef,
-    output: parsed.finalText || result.stdout,
-  };
+  child.stdin.end(prompt);
+  return { child, result };
 }
 
 function renderCodexResult(result) {
@@ -610,6 +642,11 @@ function renderCodexResult(result) {
   return parts.join("\n\n");
 }
 
+function renderInterruptedResult(result) {
+  const signalText = result.signal ? ` (${result.signal})` : "";
+  return `Codex interrupted${signalText}.`;
+}
+
 function parseCommand(text) {
   if (!text.startsWith("/")) {
     return null;
@@ -622,7 +659,52 @@ function parseCommand(text) {
   };
 }
 
-async function handleSlashCommand({ command, argsText, state, chatId, token, message }) {
+function getRunningJobKey(chatId, sessionLabel) {
+  return `${chatId}:${sessionLabel}`;
+}
+
+function findRunningJob(runningJobs, chatId, sessionLabel) {
+  return runningJobs.get(getRunningJobKey(chatId, sessionLabel)) || null;
+}
+
+function registerRunningJob(runningJobs, chatId, sessionLabel, job) {
+  runningJobs.set(getRunningJobKey(chatId, sessionLabel), job);
+}
+
+function unregisterRunningJob(runningJobs, chatId, sessionLabel, job) {
+  const key = getRunningJobKey(chatId, sessionLabel);
+  const current = runningJobs.get(key);
+  if (current === job) {
+    runningJobs.delete(key);
+  }
+}
+
+function requestJobStop(job) {
+  if (!job || !job.child || job.child.exitCode != null || job.child.killed) {
+    return false;
+  }
+
+  job.stopRequested = true;
+  try {
+    job.child.kill("SIGTERM");
+  } catch {
+    return false;
+  }
+
+  setTimeout(() => {
+    if (job.child.exitCode == null && !job.child.killed) {
+      try {
+        job.child.kill("SIGKILL");
+      } catch {
+        // ignore hard-kill failures
+      }
+    }
+  }, 3000).unref?.();
+
+  return true;
+}
+
+async function handleSlashCommand({ command, argsText, state, chatId, token, message, runningJobs }) {
   ensureMainSession(state);
 
   if (command === "start" || command === "home") {
@@ -633,6 +715,68 @@ async function handleSlashCommand({ command, argsText, state, chatId, token, mes
 
   if (command === "where") {
     await sendMessage(token, message.chat.id, formatWhere(state, chatId), message.message_id);
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "help") {
+    await sendMessage(
+      token,
+      message.chat.id,
+      [
+        "Commands:",
+        "/home or /start",
+        "/new <label>",
+        "/switch <label>",
+        "/sessions",
+        "/where",
+        "/status",
+        "/stop",
+        "/restart",
+      ].join("\n"),
+      message.message_id,
+    );
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "status") {
+    await sendMessage(
+      token,
+      message.chat.id,
+      formatStatus(state, chatId, runningJobs),
+      message.message_id,
+    );
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "stop") {
+    const activeLabel = getActiveSessionLabel(state, chatId);
+    const job = findRunningJob(runningJobs, chatId, activeLabel);
+    if (!job) {
+      await sendMessage(token, message.chat.id, `No running task for ${activeLabel}.`, message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+
+    const stopped = requestJobStop(job);
+    await sendMessage(
+      token,
+      message.chat.id,
+      stopped ? renderStopRequestedMessage(activeLabel) : `Unable to stop ${activeLabel}.`,
+      message.message_id,
+    );
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "restart") {
+    await sendMessage(token, message.chat.id, "Restarting AutoAide daemon.", message.message_id);
+    const daemonPid = await readPidFile(path.join(DEFAULT_AUTOAIDE_HOME, "autoaide.pid"));
+    scheduleDaemonRestart();
+    if (daemonPid) {
+      try {
+        process.kill(daemonPid, "SIGTERM");
+      } catch {
+        // ignore daemon stop failures; scheduled restart may still recover the system
+      }
+    }
     return { stateChanged: false, handled: true };
   }
 
@@ -686,48 +830,6 @@ async function handleSlashCommand({ command, argsText, state, chatId, token, mes
     return { stateChanged: true, handled: true };
   }
 
-  if (command === "files") {
-    const listing = await listWorkspaceFiles(message.workspacePaths, argsText);
-    await sendMessage(token, message.chat.id, listing.text, message.message_id);
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "get") {
-    if (!argsText) {
-      await sendMessage(token, message.chat.id, "Usage: /get <inbox|outbox|exports/...>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-
-    const resolvedPath = resolveDownloadPath(message.workspacePaths, argsText);
-    if (!resolvedPath) {
-      await sendMessage(
-        token,
-        message.chat.id,
-        `Path not allowed.\n\nUse a path inside: ${DEFAULT_DOWNLOAD_DIRS.join(", ")}`,
-        message.message_id,
-      );
-      return { stateChanged: false, handled: true };
-    }
-
-    try {
-      const fileStat = await stat(resolvedPath);
-      if (!fileStat.isFile()) {
-        throw new Error("not a file");
-      }
-      const relativePath = toWorkspaceRelativePath(message.workspacePaths.workspaceRoot, resolvedPath) || argsText;
-      await sendDocument(
-        token,
-        message.chat.id,
-        resolvedPath,
-        message.message_id,
-        `Sent from workspace: ${relativePath}`,
-      );
-    } catch {
-      await sendMessage(token, message.chat.id, `File not found: ${argsText}`, message.message_id);
-    }
-    return { stateChanged: false, handled: true };
-  }
-
   return { stateChanged: false, handled: false };
 }
 
@@ -766,6 +868,7 @@ async function processUpdate(update, context) {
       state,
       chatId,
       token: context.token,
+      runningJobs: context.runningJobs,
       message: {
         ...message,
         workspacePaths: context.workspacePaths,
@@ -782,6 +885,17 @@ async function processUpdate(update, context) {
   const activeLabel = getActiveSessionLabel(state, chatId);
   const session = state.sessions[activeLabel];
   const mode = session.cliSessionRef ? "Codex resume" : "Codex";
+  const runningJob = findRunningJob(context.runningJobs, chatId, activeLabel);
+
+  if (runningJob) {
+    await sendMessage(
+      context.token,
+      message.chat.id,
+      `Session ${activeLabel} is already running. Use /stop before sending a new request.`,
+      message.message_id,
+    );
+    return;
+  }
 
   if (uploadedDocument) {
     const uploadNotice = [
@@ -815,22 +929,53 @@ async function processUpdate(update, context) {
 
   const prompt = await buildWorkspacePrompt(promptText);
 
-  const result = session.cliSessionRef
-    ? await runCodexResume(prompt, session.cliSessionRef, context.commandConfig)
-    : await runCodexStart(prompt, context.commandConfig);
+  const command = session.cliSessionRef
+    ? context.commandConfig.resumeTemplate.replaceAll("__SESSION_ID__", session.cliSessionRef)
+    : context.commandConfig.startCommand;
+  const started = startShellCommand(prompt, command, context.commandConfig.cwd);
+  const job = {
+    child: started.child,
+    stopRequested: false,
+    startedAt: new Date().toISOString(),
+  };
+  registerRunningJob(context.runningJobs, chatId, activeLabel, job);
 
-  if (result.ok && result.cliSessionRef) {
-    session.cliSessionRef = result.cliSessionRef;
-    session.updatedAt = new Date().toISOString();
-    await writeRouterState(context.routerStatePath, state);
-  }
+  void (async () => {
+    const result = await started.result;
+    unregisterRunningJob(context.runningJobs, chatId, activeLabel, job);
 
-  await sendMessage(
-    context.token,
-    message.chat.id,
-    renderCodexResult(result),
-    message.message_id,
-  );
+    const parsed = parseCodexJson(result.stdout);
+    const finalResult = {
+      ...result,
+      cliSessionRef: session.cliSessionRef || parsed.threadId,
+      output: parsed.finalText || result.stdout,
+    };
+
+    if (finalResult.ok && finalResult.cliSessionRef) {
+      session.cliSessionRef = finalResult.cliSessionRef;
+      session.updatedAt = new Date().toISOString();
+      await writeRouterState(context.routerStatePath, state);
+    }
+
+    const messageText = job.stopRequested && !finalResult.ok
+      ? renderInterruptedResult(finalResult)
+      : renderCodexResult(finalResult);
+
+    await sendMessage(
+      context.token,
+      message.chat.id,
+      messageText,
+      message.message_id,
+    );
+  })().catch(async (error) => {
+    unregisterRunningJob(context.runningJobs, chatId, activeLabel, job);
+    await sendMessage(
+      context.token,
+      message.chat.id,
+      `Job failed: ${error.message}`,
+      message.message_id,
+    );
+  });
 }
 
 async function main() {
@@ -842,6 +987,7 @@ async function main() {
   const commandConfig = buildCommandConfig();
   const codexCwd = process.env.CODEX_CWD?.trim() || path.join(DEFAULT_AUTOAIDE_HOME, "workspace");
   const workspacePaths = await resolveWorkspacePaths(codexCwd);
+  const runningJobs = new Map();
 
   await writePidFile(pidPath);
   process.on("exit", () => {
@@ -875,6 +1021,7 @@ async function main() {
           token,
           allowedChatIds,
           routerStatePath,
+          runningJobs,
           commandConfig: {
             ...commandConfig,
             cwd: codexCwd,

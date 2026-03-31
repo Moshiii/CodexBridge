@@ -8,7 +8,8 @@
   },
   "scripts": {
     "postinstall": "node ./scripts/postinstall.mjs",
-    "start": "node ./bin/autoaide.mjs"
+    "start": "node ./bin/autoaide.mjs",
+    "test": "node --test --test-concurrency=1"
   },
   "engines": {
     "node": ">=22"
