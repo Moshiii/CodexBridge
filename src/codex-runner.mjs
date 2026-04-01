@@ -5,7 +5,12 @@ import { WORKSPACE_PATH } from "./config.mjs";
 const DEFAULT_START_COMMAND = "codex exec --skip-git-repo-check --json -";
 const DEFAULT_RESUME_TEMPLATE = "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -";
 
-function getShellSpec() {
+function useLoginShell() {
+  const raw = process.env.AUTOAIDE_LOGIN_SHELL?.trim().toLowerCase();
+  return raw === "1" || raw === "true" || raw === "yes";
+}
+
+export function getShellSpec() {
   if (process.platform === "win32") {
     return {
       command: process.env.ComSpec || "cmd.exe",
@@ -14,7 +19,7 @@ function getShellSpec() {
   }
   return {
     command: process.env.SHELL || "zsh",
-    args: ["-lc"],
+    args: [useLoginShell() ? "-lc" : "-c"],
   };
 }
 

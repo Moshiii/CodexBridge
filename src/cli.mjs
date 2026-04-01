@@ -158,7 +158,11 @@ function renderCliResult(result) {
     return result.output || "Codex completed without output.";
   }
   if (result.signal) {
-    return `Codex interrupted (${result.signal}).`;
+    const parts = [`Codex interrupted (${result.signal}).`];
+    if (result.stderr) {
+      parts.push(`stderr:\n${result.stderr}`);
+    }
+    return parts.join("\n\n");
   }
   const parts = [`Codex failed${result.exitCode == null ? "" : ` (exit ${result.exitCode})`}.`];
   if (result.output) {
