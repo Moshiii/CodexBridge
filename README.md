@@ -25,18 +25,30 @@ It is built for one thing first:
 
 > make a strong model feel like a usable personal assistant instead of a one-off chat session
 
-What AutoAide is trying to be:
+## Quickstart
 
-- fast to start
-- calm to use
-- persistent across sessions
-- thin by design
+```bash
+git clone https://github.com/Moshiii/AutoAide.git
+cd AutoAide
+npm install
+npm link
+autoaide
+```
 
-What AutoAide is not trying to be:
+If you do not want to use `npm link`, you can run:
 
-- a giant agent platform
-- a heavy context engine
-- a full-screen terminal app
+```bash
+npx autoaide
+```
+
+What happens when you run `autoaide`:
+
+1. AutoAide ensures the single background daemon is running
+2. the daemon manages Telegram and future channels
+3. the CLI connects as an interactive shell
+
+You can open multiple `autoaide` CLI windows.
+They all reuse the same daemon and the same Telegram listener.
 
 ## Why AutoAide
 
@@ -83,30 +95,7 @@ It is designed around three ideas:
 
 The current backend is Codex CLI. The product shape is intentionally thin so the backend can later be swapped for Gemini or Claude Code.
 
-## Quickstart
 
-```bash
-git clone https://github.com/Moshiii/AutoAide.git
-cd AutoAide
-npm install
-npm link
-autoaide
-```
-
-If you do not want to use `npm link`, you can run:
-
-```bash
-npx autoaide
-```
-
-What happens when you run `autoaide`:
-
-1. AutoAide ensures the single background daemon is running
-2. the daemon manages Telegram and future channels
-3. the CLI connects as an interactive shell
-
-You can open multiple `autoaide` CLI windows.
-They all reuse the same daemon and the same Telegram listener.
 
 ## How It Works
 
