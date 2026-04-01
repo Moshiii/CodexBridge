@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
+import { open } from "node:fs/promises";
 import { readFile, unlink, writeFile } from "node:fs/promises";
 import {
   AUTOAIDE_HOME,
   DAEMON_PID_PATH,
   TELEGRAM_BRIDGE_PATH,
+  TELEGRAM_BRIDGE_LOG_PATH,
   TELEGRAM_BRIDGE_PID_PATH,
   WORKSPACE_PATH,
   ensureAutoAideHome,
@@ -63,13 +65,15 @@ async function stopChild(child) {
   }
 }
 
-function startTelegramBridge(config) {
+async function startTelegramBridge(config) {
   const telegram = config.channels?.telegram;
   if (!telegram?.enabled || !telegram.botToken || !(telegram.allowedChatIds ?? []).length) {
     return null;
   }
 
-  return spawn(
+  await ensureAutoAideHome();
+  const logHandle = await open(TELEGRAM_BRIDGE_LOG_PATH, "a");
+  const child = spawn(
     process.env.SHELL || "zsh",
     ["-lc", `node "${TELEGRAM_BRIDGE_PATH}"`],
     {
@@ -88,9 +92,11 @@ function startTelegramBridge(config) {
           process.env.CODEX_RESUME_COMMAND_TEMPLATE?.trim() ||
           "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -",
       },
-      stdio: "ignore",
+      stdio: ["ignore", logHandle.fd, logHandle.fd],
     },
   );
+  await logHandle.close();
+  return child;
 }
 
 function telegramSignature(config) {
@@ -144,10 +150,10 @@ export async function runDaemon() {
 
     if (nextSignature !== lastTelegramSignature) {
       await stopChild(bridgeProcess);
-      bridgeProcess = startTelegramBridge(config);
+      bridgeProcess = await startTelegramBridge(config);
       lastTelegramSignature = nextSignature;
     } else if (lastTelegramSignature && !isProcessAlive(bridgeProcess)) {
-      bridgeProcess = startTelegramBridge(config);
+      bridgeProcess = await startTelegramBridge(config);
     }
 
     await new Promise((resolve) => setTimeout(resolve, 2000));
