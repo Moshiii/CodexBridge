@@ -7,7 +7,9 @@ import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promi
 import { fileURLToPath } from "node:url";
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 import { buildCommandConfig as buildRunnerCommandConfig } from "../../src/codex-runner.mjs";
+import { cronMatchesDate, minuteKey, parseCronExpression } from "../../src/cron-utils.mjs";
 import { startGoalRun } from "../../src/goal-runner.mjs";
+import { parseNaturalLanguageSchedule } from "../../src/schedule-intents.mjs";
 import {
   appendGoalHistory,
   createGoalRecord,
@@ -15,6 +17,14 @@ import {
   readGoal,
   writeGoal,
 } from "../../src/goals-state.mjs";
+import {
+  createScheduleRecord,
+  getScheduleById,
+  listSchedules,
+  readSchedulesState,
+  upsertSchedule,
+  writeSchedulesState,
+} from "../../src/schedules-state.mjs";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const POLL_TIMEOUT_SECONDS = 30;
@@ -838,6 +848,125 @@ function formatGoalLog(goal) {
   ].join("\n");
 }
 
+function formatScheduleSummary(schedule) {
+  return `- ${schedule.id} [${schedule.enabled ? "enabled" : "disabled"}] ${schedule.cron}\n  ${schedule.objective}`;
+}
+
+function parseScheduleCommandArgs(argsText) {
+  const parts = String(argsText || "").trim().split(/\s+/);
+  if (parts.length < 6) {
+    throw new Error("Usage: /schedule <minute> <hour> <day> <month> <weekday> <objective>");
+  }
+  const cron = parts.slice(0, 5).join(" ");
+  const objective = parts.slice(5).join(" ").trim();
+  if (!objective) {
+    throw new Error("Usage: /schedule <minute> <hour> <day> <month> <weekday> <objective>");
+  }
+  parseCronExpression(cron);
+  return { cron, objective };
+}
+
+async function registerSchedule({ token, chatId, messageId, cron, objective }) {
+  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "local";
+  const schedule = createScheduleRecord({
+    chatId,
+    objective,
+    cron,
+    timezone,
+  });
+  await upsertSchedule(schedule);
+  await sendMessage(
+    token,
+    chatId,
+    `Schedule created: ${schedule.id}\nCron: ${schedule.cron}\nTimezone: ${schedule.timezone}\nObjective: ${schedule.objective}`,
+    messageId,
+  );
+  return schedule;
+}
+
+async function processSchedulesTick(context) {
+  const now = new Date();
+  const tickKey = minuteKey(now);
+  if (context.lastScheduleTick === tickKey) {
+    return;
+  }
+  context.lastScheduleTick = tickKey;
+
+  const state = await readSchedulesState();
+  let changed = false;
+
+  for (const schedule of state.schedules) {
+    if (!schedule.enabled) {
+      continue;
+    }
+
+    let cron;
+    try {
+      cron = parseCronExpression(schedule.cron);
+    } catch (error) {
+      schedule.lastError = error.message;
+      schedule.enabled = false;
+      schedule.updatedAt = new Date().toISOString();
+      changed = true;
+      continue;
+    }
+
+    if (!cronMatchesDate(cron, now)) {
+      continue;
+    }
+    if (schedule.lastTriggeredKey === tickKey) {
+      continue;
+    }
+    if (findRunningGoalForChat(context.runningGoals, schedule.chatId)) {
+      schedule.lastError = "Skipped trigger because another goal is already running.";
+      schedule.updatedAt = new Date().toISOString();
+      changed = true;
+      continue;
+    }
+    if (findAnyRunningJobForChat(context.runningJobs, schedule.chatId)) {
+      schedule.lastError = "Skipped trigger because a regular session task is already running.";
+      schedule.updatedAt = new Date().toISOString();
+      changed = true;
+      continue;
+    }
+
+    const goal = createGoalRecord({
+      objective: schedule.objective,
+      chatId: schedule.chatId,
+      sessionLabel: DEFAULT_MAIN_SESSION_LABEL,
+      channel: "telegram",
+    });
+    goal.status = "running";
+    goal.phase = "queued";
+    goal.scheduleId = schedule.id;
+    await writeGoal(goal);
+
+    schedule.lastTriggeredAt = now.toISOString();
+    schedule.lastTriggeredKey = tickKey;
+    schedule.lastGoalId = goal.id;
+    schedule.lastError = null;
+    schedule.updatedAt = now.toISOString();
+    changed = true;
+
+    await sendMessage(
+      context.token,
+      Number(schedule.chatId),
+      `[${schedule.id}] Schedule triggered.\nGoal: ${goal.id}\nObjective: ${goal.objective}`,
+    );
+    await launchGoal(goal, {
+      token: context.token,
+      chatId: Number(schedule.chatId),
+      messageId: undefined,
+      runningGoals: context.runningGoals,
+      goalCommandConfig: context.goalCommandConfig,
+    });
+  }
+
+  if (changed) {
+    await writeSchedulesState(state);
+  }
+}
+
 async function launchGoal(goal, context) {
   const started = startGoalRun(goal, {
     commandConfig: context.goalCommandConfig,
@@ -935,6 +1064,12 @@ async function handleSlashCommand({
         "/goal-stop <id>",
         "/goal-resume <id>",
         "/goal-log <id>",
+        "/schedule <cron> <objective>",
+        "/schedules",
+        "/schedule-stop <id>",
+        "/schedule-run <id>",
+        "Natural language:",
+        "每天9点帮我做xxx",
         "/restart",
       ].join("\n"),
       message.message_id,
@@ -1209,6 +1344,105 @@ async function handleSlashCommand({
     return { stateChanged: false, handled: true };
   }
 
+  if (command === "schedule") {
+    let parsedArgs;
+    try {
+      parsedArgs = parseScheduleCommandArgs(argsText);
+    } catch (error) {
+      await sendMessage(token, message.chat.id, error.message, message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+    await registerSchedule({
+      token,
+      chatId: message.chat.id,
+      messageId: message.message_id,
+      cron: parsedArgs.cron,
+      objective: parsedArgs.objective,
+    });
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "schedules") {
+    const schedules = await listSchedules({ chatId });
+    await sendMessage(
+      token,
+      message.chat.id,
+      schedules.length
+        ? ["Schedules:", ...schedules.map(formatScheduleSummary)].join("\n")
+        : "No schedules yet.",
+      message.message_id,
+    );
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "schedule-stop") {
+    const scheduleId = argsText.trim();
+    if (!scheduleId) {
+      await sendMessage(token, message.chat.id, "Usage: /schedule-stop <id>", message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+    const schedule = await getScheduleById(scheduleId);
+    if (!schedule || String(schedule.chatId) !== String(chatId)) {
+      await sendMessage(token, message.chat.id, `Unknown schedule: ${scheduleId}`, message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+    schedule.enabled = false;
+    await upsertSchedule(schedule);
+    await sendMessage(token, message.chat.id, `[${schedule.id}] Disabled.`, message.message_id);
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "schedule-run") {
+    const scheduleId = argsText.trim();
+    if (!scheduleId) {
+      await sendMessage(token, message.chat.id, "Usage: /schedule-run <id>", message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+    const schedule = await getScheduleById(scheduleId);
+    if (!schedule || String(schedule.chatId) !== String(chatId)) {
+      await sendMessage(token, message.chat.id, `Unknown schedule: ${scheduleId}`, message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+    if (findRunningGoalForChat(runningGoals, chatId)) {
+      await sendMessage(
+        token,
+        message.chat.id,
+        "A goal is already running for this chat. Stop it first or wait for it to finish.",
+        message.message_id,
+      );
+      return { stateChanged: false, handled: true };
+    }
+    const goal = createGoalRecord({
+      objective: schedule.objective,
+      chatId,
+      sessionLabel: getActiveSessionLabel(state, chatId),
+      channel: "telegram",
+    });
+    goal.status = "running";
+    goal.phase = "queued";
+    goal.scheduleId = schedule.id;
+    await writeGoal(goal);
+    schedule.lastTriggeredAt = new Date().toISOString();
+    schedule.lastTriggeredKey = minuteKey(new Date());
+    schedule.lastGoalId = goal.id;
+    schedule.lastError = null;
+    await upsertSchedule(schedule);
+    await sendMessage(
+      token,
+      message.chat.id,
+      `[${schedule.id}] Manual run started.\nGoal: ${goal.id}`,
+      message.message_id,
+    );
+    await launchGoal(goal, {
+      token,
+      chatId: message.chat.id,
+      messageId: message.message_id,
+      runningGoals,
+      goalCommandConfig,
+    });
+    return { stateChanged: false, handled: true };
+  }
+
   return { stateChanged: false, handled: false };
 }
 
@@ -1278,6 +1512,24 @@ async function processUpdate(update, context) {
     if (handled.handled) {
       return;
     }
+  }
+
+  const naturalLanguageSchedule = parseNaturalLanguageSchedule(text);
+  if (naturalLanguageSchedule) {
+    logBridgeEvent("telegram natural-language schedule matched", {
+      chatId,
+      messageId: message.message_id,
+      cron: naturalLanguageSchedule.cron,
+      objective: naturalLanguageSchedule.objective,
+    });
+    await registerSchedule({
+      token: context.token,
+      chatId: message.chat.id,
+      messageId: message.message_id,
+      cron: naturalLanguageSchedule.cron,
+      objective: naturalLanguageSchedule.objective,
+    });
+    return;
   }
 
   const activeLabel = getActiveSessionLabel(state, chatId);
@@ -1438,6 +1690,13 @@ async function main() {
     ...buildGoalCommandConfig(),
     cwd: codexCwd,
   };
+  const schedulerContext = {
+    token,
+    runningJobs,
+    runningGoals,
+    goalCommandConfig,
+    lastScheduleTick: null,
+  };
 
   await writePidFile(pidPath);
   let shuttingDown = false;
@@ -1497,6 +1756,7 @@ async function main() {
           workspacePaths,
         });
       }
+      await processSchedulesTick(schedulerContext);
     } catch (error) {
       console.error("poll loop error:", error);
       await new Promise((resolve) => setTimeout(resolve, 2000));

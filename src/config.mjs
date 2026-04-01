@@ -10,6 +10,7 @@ export const AUTOAIDE_HOME = process.env.AUTOAIDE_HOME?.trim() || path.join(os.h
 export const CONFIG_PATH = path.join(AUTOAIDE_HOME, "config.json");
 export const CLI_STATE_PATH = path.join(AUTOAIDE_HOME, "cli-sessions.json");
 export const BOOTSTRAP_STATE_PATH = path.join(AUTOAIDE_HOME, "bootstrap-state.json");
+export const SCHEDULES_STATE_PATH = path.join(AUTOAIDE_HOME, "schedules.json");
 export const WORKSPACE_PATH = path.join(AUTOAIDE_HOME, "workspace");
 export const GOALS_PATH = path.join(AUTOAIDE_HOME, "goals");
 export const LOGS_PATH = path.join(AUTOAIDE_HOME, "logs");
