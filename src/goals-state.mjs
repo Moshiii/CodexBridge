@@ -34,10 +34,18 @@ export function createGoalRecord({ objective, chatId, sessionLabel, channel = "t
     updatedAt: timestamp,
     lastWorkerSummary: null,
     lastEvaluatorVerdict: null,
+    finalOutput: null,
+    finalOutputAt: null,
     nextWorkerInstruction: null,
     lastUserMessage: null,
     error: null,
     artifacts: [],
+    workerMessageId: null,
+    evaluatorMessageId: null,
+    evaluatorMessageIds: [],
+    finalMessageId: null,
+    workerEvents: [],
+    evaluatorEvents: [],
     history: [],
   };
 }

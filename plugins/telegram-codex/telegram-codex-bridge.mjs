@@ -6,7 +6,7 @@ import path from "node:path";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
-import { buildCommandConfig as buildRunnerCommandConfig } from "../../src/codex-runner.mjs";
+import { buildCommandConfig as buildRunnerCommandConfig, startCliTurn } from "../../src/codex-runner.mjs";
 import { cronMatchesDate, minuteKey, parseCronExpression } from "../../src/cron-utils.mjs";
 import { startGoalRun } from "../../src/goal-runner.mjs";
 import { parseNaturalLanguageSchedule } from "../../src/schedule-intents.mjs";
@@ -342,14 +342,28 @@ async function telegramRequest(token, method, body) {
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error(`Telegram API ${method} failed with HTTP ${response.status}`);
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
   }
-  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      `Telegram API ${method} failed with HTTP ${response.status}${
+        payload?.description ? `: ${payload.description}` : ""
+      }`,
+    );
+  }
   if (!payload.ok) {
     throw new Error(`Telegram API ${method} error: ${payload.description ?? "unknown error"}`);
   }
   return payload.result;
+}
+
+function isTelegramReplyReferenceError(error) {
+  const message = String(error?.message || "").toLowerCase();
+  return message.includes("http 400") || message.includes("reply message not found");
 }
 
 async function telegramApiGet(token, method, query = {}) {
@@ -380,14 +394,59 @@ async function getUpdates(token, offset) {
 }
 
 async function sendMessage(token, chatId, text, replyToMessageId) {
-  await telegramRequest(token, "sendMessage", {
+  const payload = {
     chat_id: chatId,
     text: truncateTelegramText(text),
     reply_parameters:
       typeof replyToMessageId === "number"
         ? { message_id: replyToMessageId }
         : undefined,
-  });
+  };
+
+  try {
+    return await telegramRequest(token, "sendMessage", payload);
+  } catch (error) {
+    if (!payload.reply_parameters || !isTelegramReplyReferenceError(error)) {
+      throw error;
+    }
+    logBridgeEvent("telegram sendMessage retry without reply_parameters", {
+      chatId: String(chatId),
+      replyToMessageId,
+      error: error.message,
+    });
+    delete payload.reply_parameters;
+    return await telegramRequest(token, "sendMessage", payload);
+  }
+}
+
+async function editMessageText(token, chatId, messageId, text) {
+  try {
+    return await telegramRequest(token, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: truncateTelegramText(text),
+    });
+  } catch (error) {
+    if (String(error.message || "").includes("message is not modified")) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function deleteMessage(token, chatId, messageId) {
+  try {
+    return await telegramRequest(token, "deleteMessage", {
+      chat_id: chatId,
+      message_id: messageId,
+    });
+  } catch (error) {
+    const message = String(error?.message || "").toLowerCase();
+    if (message.includes("message to delete not found")) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 async function sendDocument(token, chatId, filePath, replyToMessageId, caption = "") {
@@ -564,95 +623,6 @@ async function listWorkspaceFiles(workspacePaths, requestedRoot) {
       ...files.slice(0, 20).map((file) => `- ${rootName}/${file.name} (${formatBytes(file.size)})`),
     ].join("\n"),
   };
-}
-
-function parseCodexJson(stdout) {
-  const events = stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-
-  let threadId = null;
-  let finalText = "";
-
-  for (const event of events) {
-    if (event.type === "thread.started" && typeof event.thread_id === "string") {
-      threadId = event.thread_id;
-    }
-    if (
-      event.type === "item.completed" &&
-      event.item &&
-      event.item.type === "agent_message" &&
-      typeof event.item.text === "string"
-    ) {
-      finalText = event.item.text;
-    }
-  }
-
-  return { threadId, finalText };
-}
-
-function startShellCommand(prompt, command, cwd) {
-  const shellSpec = getShellSpec();
-  const child = spawn(shellSpec.command, [...shellSpec.args, command], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  let stdout = "";
-  let stderr = "";
-  let settled = false;
-
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-
-  child.stdout.on("data", (chunk) => {
-    stdout += chunk;
-  });
-  child.stderr.on("data", (chunk) => {
-    stderr += chunk;
-  });
-
-  const result = new Promise((resolve) => {
-    child.on("error", (error) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve({
-        ok: false,
-        exitCode: null,
-        stdout: "",
-        stderr: `Failed to start command: ${error.message}`,
-      });
-    });
-
-    child.on("close", (code, signal) => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      resolve({
-        ok: code === 0,
-        exitCode: code,
-        signal: signal ?? null,
-        stdout: stdout.trim(),
-        stderr: stderr.trim(),
-      });
-    });
-  });
-
-  child.stdin.end(prompt);
-  return { child, result };
 }
 
 function renderCodexResult(result) {
@@ -968,13 +938,152 @@ async function processSchedulesTick(context) {
 }
 
 async function launchGoal(goal, context) {
+  let notifyChain = Promise.resolve();
+  let currentGoal = {
+    ...goal,
+    evaluatorMessageIds: Array.isArray(goal.evaluatorMessageIds) ? goal.evaluatorMessageIds : [],
+    workerEvents: Array.isArray(goal.workerEvents) ? goal.workerEvents : [],
+    evaluatorEvents: Array.isArray(goal.evaluatorEvents) ? goal.evaluatorEvents : [],
+  };
+
+  const persistGoal = async (nextGoal) => {
+    currentGoal = {
+      ...nextGoal,
+      evaluatorMessageIds: Array.isArray(nextGoal.evaluatorMessageIds) ? nextGoal.evaluatorMessageIds : [],
+      workerEvents: Array.isArray(nextGoal.workerEvents) ? nextGoal.workerEvents : [],
+      evaluatorEvents: Array.isArray(nextGoal.evaluatorEvents) ? nextGoal.evaluatorEvents : [],
+    };
+    await writeGoal(currentGoal);
+  };
+
+  const renderWorkerPanel = (activeGoal) => {
+    const phase = activeGoal.phase || "running";
+    const lines = [
+      `[${activeGoal.id}] Worker`,
+      `Status: ${activeGoal.status || "running"} / ${phase}`,
+    ];
+
+    if (activeGoal.workerEvents?.length) {
+      lines.push("", "Recent updates:");
+      for (const event of activeGoal.workerEvents.slice(-6)) {
+        lines.push(`- ${event}`);
+      }
+    }
+
+    return lines.join("\n");
+  };
+
+  const renderEvaluatorPanel = (activeGoal) => {
+    const phase = activeGoal.phase || "evaluator";
+    const lines = [
+      `[${activeGoal.id}] Evaluator`,
+      `Status: ${activeGoal.status || "running"} / ${phase}`,
+    ];
+
+    if (activeGoal.evaluatorEvents?.length) {
+      lines.push("", "Recent updates:");
+      for (const event of activeGoal.evaluatorEvents.slice(-4)) {
+        lines.push(`- ${event}`);
+      }
+    }
+
+    return lines.join("\n");
+  };
+
+  const pushWorkerEvent = async (text) => {
+    const normalized = text.trim();
+    if (
+      !normalized ||
+      normalized.startsWith("Goal started:") ||
+      normalized === "Worker: Session started" ||
+      normalized.startsWith("Worker: Running ") ||
+      normalized.startsWith("Worker: Finished ")
+    ) {
+      return;
+    }
+    currentGoal.workerEvents = [...(currentGoal.workerEvents || []), normalized].slice(-6);
+    await persistGoal(currentGoal);
+
+    if (typeof currentGoal.workerMessageId === "number") {
+      try {
+        await deleteMessage(context.token, context.chatId, currentGoal.workerMessageId);
+      } catch {
+        // ignore delete failure and replace below
+      }
+    }
+
+    const workerMessage = await sendMessage(
+      context.token,
+      context.chatId,
+      renderWorkerPanel(currentGoal),
+      typeof currentGoal.workerMessageId === "number" ? undefined : context.messageId,
+    );
+    currentGoal.workerMessageId = workerMessage?.message_id ?? null;
+    await persistGoal(currentGoal);
+  };
+
+  const sendEvaluatorUpdate = async (text) => {
+    const normalized = text.trim();
+    if (!normalized) {
+      return;
+    }
+    if (
+      normalized === "Evaluator: Session started" ||
+      normalized.startsWith("Evaluator: Running ") ||
+      normalized.startsWith("Evaluator: Finished ")
+    ) {
+      return;
+    }
+    currentGoal.evaluatorEvents = [...(currentGoal.evaluatorEvents || []), normalized].slice(-4);
+    await persistGoal(currentGoal);
+
+    if (typeof currentGoal.evaluatorMessageId === "number") {
+      try {
+        await deleteMessage(context.token, context.chatId, currentGoal.evaluatorMessageId);
+      } catch {
+        // ignore delete failure and replace below
+      }
+    }
+
+    const evaluatorMessage = await sendMessage(
+      context.token,
+      context.chatId,
+      renderEvaluatorPanel(currentGoal),
+      typeof currentGoal.evaluatorMessageId === "number" ? undefined : context.messageId,
+    );
+    if (typeof evaluatorMessage?.message_id === "number") {
+      currentGoal.evaluatorMessageId = evaluatorMessage.message_id;
+      currentGoal.evaluatorMessageIds = [...(currentGoal.evaluatorMessageIds || []), evaluatorMessage.message_id];
+      await persistGoal(currentGoal);
+    }
+  };
+
+  const enqueueNotify = async (operation) => {
+    notifyChain = notifyChain
+      .catch(() => {})
+      .then(operation);
+    await notifyChain;
+  };
+
   const started = startGoalRun(goal, {
     commandConfig: context.goalCommandConfig,
-    persistGoal: async (nextGoal) => {
-      await writeGoal(nextGoal);
-    },
+    persistGoal,
     notify: async (text) => {
-      await sendMessage(context.token, context.chatId, `[${goal.id}] ${text}`, context.messageId);
+      await enqueueNotify(async () => {
+        try {
+          if (text.startsWith("Evaluator:")) {
+            await sendEvaluatorUpdate(text);
+            return;
+          }
+          await pushWorkerEvent(text);
+        } catch (error) {
+          logBridgeEvent("goal notification failed", {
+            goalId: goal.id,
+            chatId: String(context.chatId),
+            error: error.message,
+          });
+        }
+      });
     },
   });
 
@@ -987,21 +1096,41 @@ async function launchGoal(goal, context) {
   void started.result
     .then(async ({ goal: finalGoal, userMessage }) => {
       context.runningGoals.delete(goal.id);
-      await writeGoal(finalGoal);
-      await sendMessage(context.token, context.chatId, `[${finalGoal.id}] ${userMessage}`, context.messageId);
+      currentGoal = {
+        ...currentGoal,
+        ...finalGoal,
+      };
+      currentGoal.finalOutput = userMessage;
+      currentGoal.finalOutputAt = new Date().toISOString();
+      await persistGoal(currentGoal);
+      const finalMessage = await sendMessage(
+        context.token,
+        context.chatId,
+        `[${finalGoal.id}] ${userMessage}`,
+        context.messageId,
+      );
+      if (typeof finalMessage?.message_id === "number") {
+        currentGoal.finalMessageId = finalMessage.message_id;
+        await persistGoal(currentGoal);
+      }
     })
     .catch(async (error) => {
       context.runningGoals.delete(goal.id);
-      goal.status = "failed";
-      goal.phase = "runner_failed";
-      goal.error = error.message;
-      appendGoalHistory(goal, {
+      currentGoal.status = "failed";
+      currentGoal.phase = "runner_failed";
+      currentGoal.error = error.message;
+      appendGoalHistory(currentGoal, {
         role: "system",
         type: "failure",
         message: error.message,
       });
-      await writeGoal(goal);
-      await sendMessage(context.token, context.chatId, `[${goal.id}] Goal failed.\n\n${error.message}`, context.messageId);
+      await persistGoal(currentGoal);
+      await sendMessage(
+        context.token,
+        context.chatId,
+        `[${currentGoal.id}] Goal failed.\n\n${error.message}`,
+        context.messageId,
+      );
     });
 }
 
@@ -1601,10 +1730,7 @@ async function processUpdate(update, context) {
 
   const prompt = await buildWorkspacePrompt(promptText);
 
-  const command = session.cliSessionRef
-    ? context.commandConfig.resumeTemplate.replaceAll("__SESSION_ID__", session.cliSessionRef)
-    : context.commandConfig.startCommand;
-  const started = startShellCommand(prompt, command, context.commandConfig.cwd);
+  const started = startCliTurn(prompt, session.cliSessionRef, context.commandConfig);
   const job = {
     child: started.child,
     stopRequested: false,
@@ -1620,15 +1746,8 @@ async function processUpdate(update, context) {
   });
 
   void (async () => {
-    const result = await started.result;
+    const finalResult = await started.result;
     unregisterRunningJob(context.runningJobs, chatId, activeLabel, job);
-
-    const parsed = parseCodexJson(result.stdout);
-    const finalResult = {
-      ...result,
-      cliSessionRef: session.cliSessionRef || parsed.threadId,
-      output: parsed.finalText || result.stdout,
-    };
 
     if (finalResult.ok && finalResult.cliSessionRef) {
       session.cliSessionRef = finalResult.cliSessionRef;
@@ -1764,7 +1883,11 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exitCode = 1;
-});
+if (process.argv[1] === __filename) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}
+
+export { renderRunningMessage, renderCodexResult, isTelegramReplyReferenceError };
