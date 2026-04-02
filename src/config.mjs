@@ -57,6 +57,9 @@ export function createDefaultConfig() {
         enabled: false,
         botToken: "",
         allowedChatIds: [],
+        allowedGroupChatIds: [],
+        allowedGroupUserIds: [],
+        botUsername: "",
       },
     },
   };
@@ -64,7 +67,16 @@ export function createDefaultConfig() {
 
 export async function readConfig() {
   await ensureAutoAideHome();
-  return await readJson(CONFIG_PATH, createDefaultConfig());
+  const config = await readJson(CONFIG_PATH, createDefaultConfig());
+  const telegram = config.channels?.telegram ?? {};
+  config.channels = {
+    ...(config.channels ?? {}),
+    telegram: {
+      ...createDefaultConfig().channels.telegram,
+      ...telegram,
+    },
+  };
+  return config;
 }
 
 export async function writeConfig(config) {

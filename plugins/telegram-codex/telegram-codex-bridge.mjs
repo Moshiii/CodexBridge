@@ -86,6 +86,18 @@ function parseAllowedChatIds(raw) {
   );
 }
 
+function parseAllowedUserIds(raw) {
+  if (!raw?.trim()) {
+    return null;
+  }
+  return new Set(
+    raw
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+  );
+}
+
 function getMessageText(message) {
   if (typeof message.text === "string" && message.text.trim()) {
     return message.text.trim();
@@ -94,6 +106,51 @@ function getMessageText(message) {
     return message.caption.trim();
   }
   return "";
+}
+
+function getMessageEntities(message) {
+  if (typeof message.text === "string" && message.text.trim()) {
+    return Array.isArray(message.entities) ? message.entities : [];
+  }
+  if (typeof message.caption === "string" && message.caption.trim()) {
+    return Array.isArray(message.caption_entities) ? message.caption_entities : [];
+  }
+  return [];
+}
+
+function isGroupChat(message) {
+  const chatType = message?.chat?.type;
+  return chatType === "group" || chatType === "supergroup";
+}
+
+function extractBotMention(messageText, entities, botUsername) {
+  if (!messageText || !botUsername) {
+    return null;
+  }
+  const normalizedUsername = botUsername.replace(/^@+/, "").toLowerCase();
+  for (const entity of entities || []) {
+    if (entity?.type !== "mention") {
+      continue;
+    }
+    const mentionText = messageText.slice(entity.offset, entity.offset + entity.length);
+    if (mentionText.replace(/^@+/, "").toLowerCase() === normalizedUsername) {
+      return {
+        offset: entity.offset,
+        length: entity.length,
+        text: mentionText,
+      };
+    }
+  }
+  return null;
+}
+
+function stripExplicitBotMention(messageText, mention) {
+  if (!messageText || !mention) {
+    return messageText;
+  }
+  return `${messageText.slice(0, mention.offset)} ${messageText.slice(mention.offset + mention.length)}`
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function truncateTelegramText(text) {
@@ -662,7 +719,10 @@ function parseCommand(text) {
     return null;
   }
   const [head, ...tail] = text.split(/\s+/);
-  const command = head.replace(/^\/+/, "").toLowerCase();
+  const command = head
+    .replace(/^\/+/, "")
+    .replace(/@[^@\s]+$/, "")
+    .toLowerCase();
   return {
     command,
     argsText: tail.join(" ").trim(),
@@ -1620,18 +1680,16 @@ async function processUpdate(update, context) {
   }
 
   const chatId = String(message.chat.id);
+  const senderId = message.from?.id != null ? String(message.from.id) : null;
   logBridgeEvent("telegram update received", {
     updateId: update.update_id,
     chatId,
+    senderId,
+    chatType: message.chat?.type,
     messageId: message.message_id,
     hasText: Boolean(getMessageText(message)),
     hasDocument: Boolean(message.document),
   });
-  if (context.allowedChatIds && !context.allowedChatIds.has(chatId)) {
-    logBridgeEvent("telegram update ignored: chat not allowed", { chatId });
-    return;
-  }
-
   const uploadedDocument = await saveUploadedDocument(message, context.token, context.workspacePaths);
 
   const text = getMessageText(message);
@@ -1649,11 +1707,51 @@ async function processUpdate(update, context) {
     return;
   }
 
+  if (isGroupChat(message)) {
+    if (context.allowedGroupChatIds && !context.allowedGroupChatIds.has(chatId)) {
+      logBridgeEvent("telegram group update ignored: group not allowed", {
+        chatId,
+        senderId,
+      });
+      return;
+    }
+    if (context.allowedGroupUserIds && (!senderId || !context.allowedGroupUserIds.has(senderId))) {
+      logBridgeEvent("telegram group update ignored: sender not allowed", {
+        chatId,
+        senderId,
+      });
+      return;
+    }
+
+    const entities = getMessageEntities(message);
+    const mention = extractBotMention(text, entities, context.botUsername);
+    const slashCommand = parseCommand(text);
+    const commandHead = text.split(/\s+/, 1)[0] || "";
+    const commandTargetsBot =
+      slashCommand &&
+      context.botUsername &&
+      new RegExp(`^/[^\\s@]+@${context.botUsername.replace(/^@+/, "")}$`, "i").test(commandHead);
+
+    if (!mention && !commandTargetsBot) {
+      logBridgeEvent("telegram group update ignored: bot not explicitly mentioned", {
+        chatId,
+        senderId,
+      });
+      return;
+    }
+  } else if (context.allowedChatIds && !context.allowedChatIds.has(chatId)) {
+    logBridgeEvent("telegram update ignored: chat not allowed", { chatId });
+    return;
+  }
+
   const state = await readRouterState(context.routerStatePath);
   ensureMainSession(state);
   ensureChatState(state, chatId);
 
-  const slashCommand = parseCommand(text);
+  const entities = getMessageEntities(message);
+  const mention = isGroupChat(message) ? extractBotMention(text, entities, context.botUsername) : null;
+  const normalizedText = mention ? stripExplicitBotMention(text, mention) : text;
+  const slashCommand = parseCommand(normalizedText);
   if (slashCommand) {
     logBridgeEvent("telegram slash command", {
       chatId,
@@ -1681,7 +1779,7 @@ async function processUpdate(update, context) {
     }
   }
 
-  const naturalLanguageSchedule = parseNaturalLanguageSchedule(text);
+  const naturalLanguageSchedule = parseNaturalLanguageSchedule(normalizedText);
   if (naturalLanguageSchedule) {
     logBridgeEvent("telegram natural-language schedule matched", {
       chatId,
@@ -1741,19 +1839,19 @@ async function processUpdate(update, context) {
       `Saved file to ${uploadedDocument.relativePath}.`,
       `Name: ${uploadedDocument.originalName}`,
       `Size: ${formatBytes(uploadedDocument.fileSize)}`,
-      text ? "Running your caption against the saved file..." : "You can now ask AutoAide to process it.",
+      normalizedText ? "Running your caption against the saved file..." : "You can now ask AutoAide to process it.",
     ].join("\n");
     await sendMessage(context.token, message.chat.id, uploadNotice, message.message_id);
   }
 
-  if (!text) {
+  if (!normalizedText) {
     return;
   }
 
   await sendMessage(
     context.token,
     message.chat.id,
-    renderRunningMessage(text, activeLabel, mode),
+    renderRunningMessage(normalizedText, activeLabel, mode),
     message.message_id,
   );
 
@@ -1762,9 +1860,9 @@ async function processUpdate(update, context) {
         `A Telegram document was uploaded and saved to workspace path: ${uploadedDocument.relativePath}.`,
         "Treat that file as the primary input unless the user says otherwise.",
         "",
-        `User request: ${text}`,
+        `User request: ${normalizedText}`,
       ].join("\n")
-    : text;
+    : normalizedText;
 
   const prompt = await buildWorkspacePrompt(promptText);
 
@@ -1838,6 +1936,9 @@ async function main() {
   const routerStatePath = process.env.TELEGRAM_ROUTER_STATE_FILE?.trim() || DEFAULT_ROUTER_STATE_PATH;
   const pidPath = process.env.TELEGRAM_BRIDGE_PID_FILE?.trim() || DEFAULT_PID_PATH;
   const allowedChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
+  const allowedGroupChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_GROUP_CHAT_IDS);
+  const allowedGroupUserIds = parseAllowedUserIds(process.env.TELEGRAM_ALLOWED_GROUP_USER_IDS);
+  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@+/, "") || null;
   const commandConfig = buildCommandConfig();
   const codexCwd = process.env.CODEX_CWD?.trim() || path.join(DEFAULT_AUTOAIDE_HOME, "workspace");
   const workspacePaths = await resolveWorkspacePaths(codexCwd);
@@ -1892,6 +1993,15 @@ async function main() {
   if (allowedChatIds) {
     console.log(`allowed chat ids: ${Array.from(allowedChatIds).join(", ")}`);
   }
+  if (allowedGroupChatIds) {
+    console.log(`allowed group chat ids: ${Array.from(allowedGroupChatIds).join(", ")}`);
+  }
+  if (allowedGroupUserIds) {
+    console.log(`allowed group user ids: ${Array.from(allowedGroupUserIds).join(", ")}`);
+  }
+  if (botUsername) {
+    console.log(`telegram bot username: @${botUsername}`);
+  }
 
   while (true) {
     try {
@@ -1901,7 +2011,10 @@ async function main() {
         await writeOffset(offsetPath, nextOffset);
         await processUpdate(update, {
           token,
+          botUsername,
           allowedChatIds,
+          allowedGroupChatIds,
+          allowedGroupUserIds,
           routerStatePath,
           runningJobs,
           runningGoals,
@@ -1928,4 +2041,12 @@ if (process.argv[1] === __filename) {
   });
 }
 
-export { renderRunningMessage, renderCodexResult, isTelegramReplyReferenceError };
+export {
+  extractBotMention,
+  isGroupChat,
+  isTelegramReplyReferenceError,
+  parseCommand,
+  renderCodexResult,
+  renderRunningMessage,
+  stripExplicitBotMention,
+};

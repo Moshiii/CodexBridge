@@ -82,6 +82,9 @@ async function startTelegramBridge(config) {
         ...process.env,
         TELEGRAM_BOT_TOKEN: telegram.botToken,
         TELEGRAM_ALLOWED_CHAT_IDS: telegram.allowedChatIds.join(","),
+        TELEGRAM_ALLOWED_GROUP_CHAT_IDS: (telegram.allowedGroupChatIds ?? []).join(","),
+        TELEGRAM_ALLOWED_GROUP_USER_IDS: (telegram.allowedGroupUserIds ?? []).join(","),
+        TELEGRAM_BOT_USERNAME: telegram.botUsername || "",
         AUTOAIDE_HOME,
         TELEGRAM_BRIDGE_PID_FILE: TELEGRAM_BRIDGE_PID_PATH,
         CODEX_CWD: process.env.CODEX_CWD?.trim() || WORKSPACE_PATH,
@@ -105,6 +108,9 @@ function telegramSignature(config) {
     enabled: Boolean(telegram?.enabled),
     botToken: telegram?.botToken || "",
     allowedChatIds: telegram?.allowedChatIds || [],
+    allowedGroupChatIds: telegram?.allowedGroupChatIds || [],
+    allowedGroupUserIds: telegram?.allowedGroupUserIds || [],
+    botUsername: telegram?.botUsername || "",
   });
 }
 
