@@ -19,6 +19,13 @@ import { isDaemonRunning } from "./daemon.mjs";
 import { ensureDaemonRunning } from "./launcher.mjs";
 import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstrap.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
+import {
+  formatSkillInstallResult,
+  formatSkillsList,
+  formatSkillsOverview,
+  installSkillFromPath,
+  listSkills,
+} from "./skills.mjs";
 import { formatKeyValueCard, formatListCard, formatMessageCard, showStartupBanner } from "./ui/banner.mjs";
 
 function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
@@ -341,6 +348,7 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
           "/new      create a session",
           "/switch   switch session",
           "/sessions list sessions",
+          "/skills   show skills and install new ones",
           "/stop     stop the running session job",
           "/restart  restart the AutoAide daemon",
           "/status   show paths, model, and daemon status",
@@ -357,6 +365,30 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
     case "/sessions":
       console.log(`${formatCliSessions(cliState, runningTurns)}\n`);
       return true;
+    case "/skills": {
+      const [subcommand, ...skillRest] = arg.split(/\s+/).filter(Boolean);
+      if (!subcommand || subcommand === "list") {
+        const skills = await listSkills();
+        console.log(`${formatMessageCard("Skills", [formatSkillsOverview(skills)])}\n`);
+        return true;
+      }
+      if (subcommand === "install") {
+        const source = skillRest.join(" ").trim();
+        if (!source) {
+          console.log(`${formatMessageCard("Usage", ["Use /skills install <zip-or-path>."])}\n`);
+          return true;
+        }
+        try {
+          const installed = await installSkillFromPath(source, { force: true });
+          console.log(`${formatMessageCard("Skill Installed", [formatSkillInstallResult(installed)])}\n`);
+        } catch (error) {
+          console.log(`${formatMessageCard("Skill Install Failed", [error.message])}\n`);
+        }
+        return true;
+      }
+      console.log(`${formatMessageCard("Usage", ["/skills", "/skills install <zip-or-path>"])}\n`);
+      return true;
+    }
     case "/new": {
       const label = slugifySessionLabel(arg);
       if (!label) {

@@ -11,6 +11,12 @@ import { cronMatchesDate, minuteKey, parseCronExpression } from "../../src/cron-
 import { startGoalRun } from "../../src/goal-runner.mjs";
 import { parseNaturalLanguageSchedule } from "../../src/schedule-intents.mjs";
 import {
+  formatSkillInstallResult,
+  formatSkillsOverview,
+  installSkillFromPath,
+  listSkills,
+} from "../../src/skills.mjs";
+import {
   appendGoalHistory,
   createGoalRecord,
   listGoals,
@@ -1184,6 +1190,7 @@ async function handleSlashCommand({
         "/new <label>",
         "/switch <label>",
         "/sessions",
+        "/skills",
         "/where",
         "/status",
         "/stop",
@@ -1251,6 +1258,37 @@ async function handleSlashCommand({
 
   if (command === "sessions") {
     await sendMessage(token, message.chat.id, formatSessionList(state, chatId), message.message_id);
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "skills") {
+    const parts = argsText.trim().split(/\s+/).filter(Boolean);
+    const subcommand = parts[0];
+    if (!subcommand || subcommand === "list") {
+      const skills = await listSkills();
+      await sendMessage(token, message.chat.id, formatSkillsOverview(skills), message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+    if (subcommand === "install") {
+      const source = parts.slice(1).join(" ").trim();
+      if (!source) {
+        await sendMessage(token, message.chat.id, "Usage: /skills install <zip-or-path>", message.message_id);
+        return { stateChanged: false, handled: true };
+      }
+      try {
+        const installed = await installSkillFromPath(source, { force: true });
+        await sendMessage(token, message.chat.id, formatSkillInstallResult(installed), message.message_id);
+      } catch (error) {
+        await sendMessage(token, message.chat.id, `Skill install failed: ${error.message}`, message.message_id);
+      }
+      return { stateChanged: false, handled: true };
+    }
+    await sendMessage(
+      token,
+      message.chat.id,
+      ["Skills commands:", "/skills", "/skills install <zip-or-path>"].join("\n"),
+      message.message_id,
+    );
     return { stateChanged: false, handled: true };
   }
 

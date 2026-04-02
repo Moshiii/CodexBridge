@@ -13,6 +13,7 @@ export const BOOTSTRAP_STATE_PATH = path.join(AUTOAIDE_HOME, "bootstrap-state.js
 export const SCHEDULES_STATE_PATH = path.join(AUTOAIDE_HOME, "schedules.json");
 export const WORKSPACE_PATH = path.join(AUTOAIDE_HOME, "workspace");
 export const GOALS_PATH = path.join(AUTOAIDE_HOME, "goals");
+export const SKILLS_PATH = path.join(AUTOAIDE_HOME, "skills");
 export const LOGS_PATH = path.join(AUTOAIDE_HOME, "logs");
 export const DAEMON_PID_PATH = path.join(AUTOAIDE_HOME, "autoaide.pid");
 export const DAEMON_LOG_PATH = path.join(LOGS_PATH, "daemon.log");
@@ -29,6 +30,7 @@ export const TELEGRAM_BRIDGE_PATH = path.join(
 export async function ensureAutoAideHome() {
   await mkdir(WORKSPACE_PATH, { recursive: true });
   await mkdir(GOALS_PATH, { recursive: true });
+  await mkdir(SKILLS_PATH, { recursive: true });
   await mkdir(LOGS_PATH, { recursive: true });
   await mkdir(TELEGRAM_STATE_PATH, { recursive: true });
 }
