@@ -1,462 +1,462 @@
-# AutoAide Business Plan
+# AutoAide 商业计划书
 
-> Historical draft. This document predates the current bot-scoped runtime and still contains daemon-era framing. Use `docs/current-architecture.md` for the implemented system.
+> 历史草稿。本文档早于当前按 bot 范围划分的运行时设计，仍包含守护进程时代的表述。已实现系统请参见 `docs/current-architecture.md`。
 
-> Format: one section per slide, written so it can be copied into a presentation deck with minimal rewriting.
+> 格式：每个章节对应一页幻灯片，写法尽量做到只需少量修改即可复制进演示文稿。
 
 ---
 
-## Slide 1: Cover
+## 第 1 页：封面
 
 ### AutoAide
 
-Persistent personal AI operator for people who already use strong models, but are tired of starting from zero every time.
+面向已经在使用强模型、但厌倦了每次都要从零开始的人群的持久化个人 AI 操作员。
 
-- Product: local-first persistent AI shell
-- Current surface: CLI + daemon + Telegram
-- Core idea: give Codex a home, memory, and always-on channel layer
-
----
-
-## Slide 2: Executive Summary
-
-### What AutoAide is
-
-AutoAide turns a strong model from a one-off chat tool into a persistent personal operating layer.
-
-### What problem it solves
-
-Today, advanced AI tools are powerful but temporary:
-
-- no stable home
-- no persistent working context
-- no long-running assistant behavior
-- weak continuity across sessions and channels
-
-### What we are building
-
-- a local runtime home at `~/.autoaide`
-- a persistent workspace at `~/.autoaide/workspace`
-- a single daemon for always-on channels
-- a thin orchestration layer over Codex CLI
-
-### Business thesis
-
-There is a real product category between:
-
-- raw chat interfaces
-- heavy enterprise agent platforms
-
-AutoAide targets that middle: personal, persistent, practical AI operations.
+- 产品：本地优先的持久化 AI shell
+- 当前形态：CLI + 守护进程 + Telegram
+- 核心理念：给 Codex 一个“家”、记忆，以及始终在线的通道层
 
 ---
 
-## Slide 3: Problem
+## 第 2 页：执行摘要
 
-### Users have model power, but not product continuity
+### AutoAide 是什么
 
-Strong models already work well for:
+AutoAide 将强模型从一次性的聊天工具，转变为持久化的个人操作层。
 
-- coding
-- research
-- writing
-- operations assistance
+### 它解决了什么问题
 
-But the usage model is still broken:
+今天，先进的 AI 工具很强大，但也是临时性的：
 
-- every new session loses local operating context
-- useful preferences and memory are not durable by default
-- cross-channel interaction is fragmented
-- background presence is missing
-- the user has to manually rehydrate context each time
+- 没有稳定的归属环境
+- 没有持久的工作上下文
+- 缺乏可长期运行的助手行为
+- 跨会话与跨通道的连续性很弱
 
-### Result
+### 我们正在构建什么
 
-The model is useful, but it does not yet feel like a dependable assistant.
+- 位于 `~/.autoaide` 的本地运行时主目录
+- 位于 `~/.autoaide/workspace` 的持久工作区
+- 一个用于始终在线通道的单一守护进程
+- 构建在 Codex CLI 之上的轻量编排层
 
----
+### 商业判断
 
-## Slide 4: Why Now
+在以下两类产品之间，存在一个真实的产品品类：
 
-### Timing is unusually good
+- 原始聊天界面
+- 重型企业级 agent 平台
 
-Three things are now true at the same time:
-
-1. frontier coding agents are good enough to be useful every day
-2. users are willing to delegate more persistent work to AI
-3. the current UX gap is obvious and painful
-
-### Market timing signal
-
-The next product wave is not just “better models.”
-It is “better containers for those models.”
-
-AutoAide is a container product:
-
-- persistent
-- local
-- channel-aware
-- thin enough to move fast
+AutoAide 瞄准的正是这个中间地带：个人化、持久化、实用型的 AI 运营层。
 
 ---
 
-## Slide 5: Product Vision
+## 第 3 页：问题
 
-### The product goal
+### 用户已经拥有模型能力，但没有产品连续性
 
-Make a strong model feel like a real personal operator instead of a stateless chat session.
+强模型已经很适合用于：
 
-### Desired user experience
+- 编程
+- 研究
+- 写作
+- 运营辅助
 
-- one assistant identity
-- one persistent workspace
-- one place for durable memory
-- one daemon managing always-on channels
-- the same assistant reachable from CLI and Telegram
+但当前的使用方式仍然存在问题：
 
-### Design philosophy
+- 每次新会话都会丢失本地操作上下文
+- 有价值的偏好和记忆默认不能长期保留
+- 跨通道交互是割裂的
+- 缺少后台常驻能力
+- 用户每次都得手动重新补全上下文
 
-- local-first
-- thin by design
-- backend-flexible
-- editable by the user
-- practical before magical
+### 结果
+
+模型虽然有用，但还不像一个可靠的助手。
 
 ---
 
-## Slide 6: Product Overview
+## 第 4 页：为什么是现在
 
-### What exists today
+### 时机异常成熟
 
-- CLI-first entrypoint via `autoaide`
-- runtime home creation
-- workspace bootstrap
-- persistent Markdown context model
-- Codex-backed execution with session resume
-- background daemon
-- Telegram bridge
-- session routing
-- stop/status/restart controls
+现在有三件事同时成立：
 
-### Product shape
+1. 前沿编码 agent 已经足够好，能在日常场景中真正发挥作用
+2. 用户愿意把更多持续性工作委托给 AI
+3. 当前的 UX 缺口已经很明显，而且确实令人痛苦
+
+### 市场时机信号
+
+下一波产品浪潮不只是“更好的模型”。
+而是“更好的模型容器”。
+
+AutoAide 就是一个容器型产品：
+
+- 持久
+- 本地
+- 具备通道感知能力
+- 足够轻，能够快速迭代
+
+---
+
+## 第 5 页：产品愿景
+
+### 产品目标
+
+让强模型更像一个真正的个人操作员，而不是一个无状态的聊天会话。
+
+### 理想用户体验
+
+- 一个助手身份
+- 一个持久工作区
+- 一个存放长期记忆的位置
+- 一个管理始终在线通道的守护进程
+- 同一个助手可通过 CLI 和 Telegram 触达
+
+### 设计哲学
+
+- 本地优先
+- 有意保持轻量
+- 后端可灵活切换
+- 用户可编辑
+- 先追求实用，再追求“魔法感”
+
+---
+
+## 第 6 页：产品概览
+
+### 当前已经具备的内容
+
+- 通过 `autoaide` 提供以 CLI 为主的入口
+- 运行时主目录创建
+- 工作区初始化
+- 持久化 Markdown 上下文模型
+- 基于 Codex 的执行与会话恢复
+- 后台守护进程
+- Telegram 桥接
+- 会话路由
+- stop/status/restart 控制
+
+### 产品形态
 
 ```text
-User
+用户
   -> CLI / Telegram
-  -> AutoAide daemon + shell
-  -> persistent workspace
-  -> Codex runtime
+  -> AutoAide 守护进程 + shell
+  -> 持久工作区
+  -> Codex 运行时
 ```
 
 ---
 
-## Slide 7: Why This Product Is Different
+## 第 7 页：这个产品为什么不同
 
-### AutoAide does not try to be a giant agent platform
+### AutoAide 并不试图成为一个庞大的 agent 平台
 
-Instead of rebuilding a full agent runtime, AutoAide deliberately stays thin.
+AutoAide 没有重建一整套完整的 agent 运行时，而是有意保持轻量。
 
-### Strategic advantage
+### 战略优势
 
-- reuses the capability of frontier agent backends
-- focuses on continuity, control, and product UX
-- reduces complexity compared with full orchestration stacks
-- can later switch or support multiple backends
+- 复用前沿 agent 后端的能力
+- 聚焦连续性、控制力和产品体验
+- 相比完整编排栈，复杂度更低
+- 后续可以切换或支持多个后端
 
-### Positioning
+### 定位
 
-AutoAide is not:
+AutoAide 不是：
 
-- another chatbot wrapper
-- a no-code enterprise workflow engine
-- an internal-only memory plugin
+- 另一个聊天机器人封装层
+- 无代码企业工作流引擎
+- 只面向内部使用的记忆插件
 
-AutoAide is:
+AutoAide 是：
 
-- a personal AI operating shell
-
----
-
-## Slide 8: Target Users
-
-### Primary users
-
-- developers
-- technical founders
-- power users of Codex / Claude Code / Gemini CLI style tools
-- solo operators
-- researchers and knowledge workers who live in terminal + chat workflows
-
-### Early adopter profile
-
-People who already believe AI is useful, but feel the workflow is too temporary and repetitive.
-
-### Shared traits
-
-- high tool tolerance
-- high repetition pain
-- strong need for continuity
-- willingness to run local software
+- 个人 AI 操作 shell
 
 ---
 
-## Slide 9: User Value Proposition
+## 第 8 页：目标用户
 
-### AutoAide saves time in three ways
+### 核心用户
 
-1. Less context repetition
-   - the assistant remembers workspace state and user setup
-2. Less tool friction
-   - CLI, daemon, and channel access are unified
-3. Less session restart cost
-   - the user keeps working with the same assistant instead of reopening the same task from zero
+- 开发者
+- 技术型创业者
+- Codex / Claude Code / Gemini CLI 风格工具的高级用户
+- 独立运营者
+- 以终端 + 聊天工作流为主的研究者和知识工作者
 
-### Emotional value
+### 早期采用者画像
 
-The assistant feels calmer, more dependable, and more “owned” by the user.
+这些人已经相信 AI 有用，但认为当前工作流太临时、太重复。
 
----
+### 共同特征
 
-## Slide 10: Product Architecture as Business Moat
-
-### The moat is not just model quality
-
-Model quality is upstream and compresses over time.
-The durable moat is the product layer around the model:
-
-- persistent workspace model
-- local runtime ownership
-- channel integration
-- session continuity
-- control layer for stop/status/restart
-- extensible backend abstraction
-
-### Why this matters
-
-As backends improve, AutoAide captures more value without having to invent the intelligence itself.
+- 对工具复杂度容忍度高
+- 对重复劳动的痛感强
+- 强烈需要连续性
+- 愿意运行本地软件
 
 ---
 
-## Slide 11: Go-To-Market
+## 第 9 页：用户价值主张
 
-### Phase 1: developer-led adoption
+### AutoAide 以三种方式节省时间
 
-Entry channel:
+1. 更少的上下文重复
+   - 助手能记住工作区状态和用户配置
+2. 更少的工具摩擦
+   - CLI、守护进程和通道访问被统一起来
+3. 更低的会话重启成本
+   - 用户持续与同一个助手协作，而不是每次都从零重新打开同一任务
+
+### 情绪价值
+
+这个助手会显得更沉稳、更可靠，也更像是“属于用户自己的”。
+
+---
+
+## 第 10 页：产品架构如何构成商业护城河
+
+### 护城河不只是模型质量
+
+模型质量来自上游，并且会随着时间推移不断被压缩。
+真正持久的护城河，是模型周围的产品层：
+
+- 持久工作区模型
+- 本地运行时所有权
+- 通道集成
+- 会话连续性
+- 用于 stop/status/restart 的控制层
+- 可扩展的后端抽象
+
+### 这为什么重要
+
+随着后端不断进步，AutoAide 无需自己发明智能，也能承接更多价值。
+
+---
+
+## 第 11 页：市场进入策略
+
+### 第一阶段：由开发者驱动的采用
+
+进入渠道：
 
 - GitHub
-- terminal-native distribution
-- developer communities
-- AI tooling communities
+- 原生终端分发
+- 开发者社区
+- AI 工具社区
 
-### Acquisition loop
+### 增长循环
 
-1. user installs AutoAide because they already use a strong model
-2. user experiences persistent continuity
-3. user sets up Telegram and keeps the assistant around
-4. user shares workflow screenshots / demos / repo
-5. other power users adopt
+1. 用户安装 AutoAide，因为他们本来就在使用强模型
+2. 用户体验到持久连续性
+3. 用户接入 Telegram，让助手长期在线
+4. 用户分享工作流截图、演示或仓库
+5. 其他高级用户跟进采用
 
-### Why this can work
+### 为什么这条路径可行
 
-The product is inherently demoable and easy to understand when seen in action.
-
----
-
-## Slide 12: Revenue Model
-
-### Near-term revenue options
-
-1. Open-source core + paid hosted add-ons
-   - sync
-   - managed channels
-   - premium memory / indexing features
-2. Pro local product subscription
-   - power-user workflows
-   - advanced channel management
-   - better persistence and automation features
-3. Team edition
-   - shared assistants
-   - shared policy / workspace models
-   - admin controls
-
-### Most realistic first model
-
-Open-source adoption first, paid pro features second.
-
-That matches the current user profile and reduces early distribution friction.
+这个产品天然适合演示，而且一旦看到实际效果，就很容易理解。
 
 ---
 
-## Slide 13: Market Expansion Path
+## 第 12 页：收入模式
 
-### Wedge
+### 短期收入选项
 
-Personal persistent AI assistant for technical users.
+1. 开源核心 + 付费托管增值功能
+   - 同步
+   - 托管通道
+   - 高级记忆 / 索引功能
+2. 本地专业版订阅
+   - 高级用户工作流
+   - 更强的通道管理
+   - 更好的持久化与自动化功能
+3. 团队版
+   - 共享助手
+   - 共享策略 / 工作区模型
+   - 管理控制能力
 
-### Expansion
+### 最现实的首个模式
 
-1. More channels
-   - Telegram first, then other messaging surfaces
-2. More backends
-   - Codex first, later Claude Code / Gemini-style backends
-3. Better memory and background workflows
-4. Shared and team modes
-5. operator-grade automation and approval systems
+先通过开源完成采用，再推出付费专业功能。
 
-### Long-term opportunity
-
-Own the personal AI operating layer, not just the first-use conversation.
-
----
-
-## Slide 14: Competition
-
-### Competitor groups
-
-1. raw model chat products
-   - powerful, but stateless or weakly persistent
-2. coding agents and terminal agents
-   - strong execution, weak personal product shell
-3. enterprise agent platforms
-   - heavy, expensive, not personal-first
-4. memory wrappers and prompt layers
-   - lightweight, but usually shallow and brittle
-
-### AutoAide advantage
-
-- persistent local workspace
-- always-on daemon model
-- practical channel surface
-- editable user-owned context
-- thin architecture with strong backend leverage
+这与当前用户画像一致，也能降低早期分发阻力。
 
 ---
 
-## Slide 15: Current Progress
+## 第 13 页：市场扩张路径
 
-### What has already been built
+### 切入点
 
-- runtime home model
+面向技术用户的个人持久化 AI 助手。
+
+### 扩张路径
+
+1. 更多通道
+   - 先 Telegram，再扩展到其他消息触点
+2. 更多后端
+   - 先 Codex，之后支持 Claude Code / Gemini 风格后端
+3. 更强的记忆和后台工作流
+4. 共享与团队模式
+5. 面向 operator 场景的自动化和审批系统
+
+### 长期机会
+
+占据个人 AI 操作层，而不只是首次使用时的那段对话。
+
+---
+
+## 第 14 页：竞争
+
+### 竞争对手类别
+
+1. 原始模型聊天产品
+   - 很强，但无状态或持久性很弱
+2. 编码 agent 与终端 agent
+   - 执行能力强，但缺少个人产品壳层
+3. 企业级 agent 平台
+   - 笨重、昂贵、并非以个人场景优先
+4. 记忆封装层与提示词层
+   - 轻量，但通常浅层且脆弱
+
+### AutoAide 的优势
+
+- 持久化本地工作区
+- 始终在线的守护进程模型
+- 实用的通道接入面
+- 用户可编辑、可拥有的上下文
+- 轻量架构叠加强后端杠杆
+
+---
+
+## 第 15 页：当前进展
+
+### 已经完成的内容
+
+- 运行时主目录模型
 - CLI shell
-- workspace bootstrap
-- Markdown context injection
-- Codex session resume
-- Telegram bridge
-- daemon lifecycle
-- stop/status/restart controls
-- initial automated test coverage and test plan
+- 工作区初始化
+- Markdown 上下文注入
+- Codex 会话恢复
+- Telegram 桥接
+- 守护进程生命周期
+- stop/status/restart 控制
+- 初始自动化测试覆盖与测试计划
 
-### What this proves
+### 这些进展证明了什么
 
-The concept is not just a deck.
-There is already a working product nucleus.
-
----
-
-## Slide 16: Roadmap
-
-### Next 3 months
-
-- stabilize CLI and Telegram UX
-- expand automated and integration tests
-- improve onboarding and first-task experience
-- improve status/progress visibility
-
-### Next 6 months
-
-- richer long-task orchestration
-- background heartbeat workflows
-- broader channel support
-- stronger memory maintenance
-
-### Next 12 months
-
-- backend abstraction beyond Codex
-- pro features
-- collaborative / team mode
-- stronger monetization path
+这不只是一个演示文稿。
+它已经拥有一个可运行的产品内核。
 
 ---
 
-## Slide 17: Key Risks
+## 第 16 页：路线图
 
-### Product risks
+### 接下来 3 个月
 
-- local setup friction
-- backend dependency risk
-- long-task reliability
-- channel edge-case complexity
+- 稳定 CLI 和 Telegram 的用户体验
+- 扩展自动化测试与集成测试
+- 改善 onboarding 和首个任务体验
+- 提升状态 / 进度可见性
 
-### Market risks
+### 接下来 6 个月
 
-- upstream model vendors improving persistence themselves
-- user willingness to pay still unclear in the early phase
+- 更丰富的长任务编排
+- 后台 heartbeat 工作流
+- 更广泛的通道支持
+- 更强的记忆维护能力
 
-### Mitigation
+### 接下来 12 个月
 
-- stay thin
-- move fast
-- target users with the strongest pain first
-- focus on product continuity rather than trying to outbuild the model layer
-
----
-
-## Slide 18: Financial Framing
-
-### Early-stage operating model
-
-This is a low-headcount, product-led software bet.
-
-### Cost profile
-
-- small engineering team
-- minimal infra in open-source/local-first phase
-- low fixed operating cost relative to enterprise agent platforms
-
-### Economic upside
-
-If AutoAide becomes the persistent shell that technical users keep open every day, retention and monetization can be much stronger than one-off AI tool usage.
+- 超越 Codex 的后端抽象
+- 专业版功能
+- 协作 / 团队模式
+- 更清晰的商业化路径
 
 ---
 
-## Slide 19: The Ask
+## 第 17 页：关键风险
 
-### If this is used for fundraising or internal alignment
+### 产品风险
 
-What AutoAide needs most:
+- 本地部署摩擦
+- 后端依赖风险
+- 长任务可靠性
+- 通道边界场景的复杂性
 
-- focused product iteration time
-- design and onboarding polish
-- channel expansion work
-- distribution support into technical user communities
+### 市场风险
 
-### If framed as an investor ask
+- 上游模型厂商自己增强持久化能力
+- 早期阶段用户付费意愿仍不明确
 
-Fund the bridge from:
+### 缓解方式
 
-- interesting prototype
-
-to:
-
-- category-defining personal AI operating layer
+- 保持轻量
+- 快速迭代
+- 优先服务痛点最强的用户
+- 聚焦产品连续性，而不是试图在模型层面正面超越上游
 
 ---
 
-## Slide 20: Closing
+## 第 18 页：财务框架
 
-### Core statement
+### 早期运营模型
 
-The AI market does not only need better models.
-It needs better homes for those models.
+这是一个低人数配置、产品驱动的软件型下注。
 
-AutoAide is building that home:
+### 成本结构
 
-- persistent
-- personal
-- local-first
-- channel-aware
-- operator-grade over time
+- 小型工程团队
+- 在开源 / 本地优先阶段，基础设施需求极少
+- 相比企业级 agent 平台，固定运营成本更低
 
-### Final takeaway
+### 经济上行空间
 
-AutoAide can become the layer users keep open all day, not the tool they reopen from scratch.
+如果 AutoAide 成为技术用户每天都保持开启的持久化 shell，那么它的留存与变现能力都可能显著强于一次性 AI 工具使用。
+
+---
+
+## 第 19 页：诉求
+
+### 如果这份材料用于融资或内部对齐
+
+AutoAide 当前最需要的是：
+
+- 聚焦的产品迭代时间
+- 设计与 onboarding 打磨
+- 通道扩展工作
+- 面向技术用户社区的分发支持
+
+### 如果按投资人诉求来表达
+
+为下面这段跨越提供支持：
+
+- 一个有趣的原型
+
+到：
+
+- 一个定义品类的个人 AI 操作层
+
+---
+
+## 第 20 页：结尾
+
+### 核心陈述
+
+AI 市场需要的不只是更好的模型。
+它还需要更好的模型“居所”。
+
+AutoAide 正在构建这个居所：
+
+- 持久化
+- 个人化
+- 本地优先
+- 具备通道感知能力
+- 逐步达到 operator 级别
+
+### 最终结论
+
+AutoAide 可以成为用户整天保持开启的一层，而不是那个每次都要从零重新打开的工具。

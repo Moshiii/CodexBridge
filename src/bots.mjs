@@ -12,6 +12,7 @@ import {
   getBotPath,
   getBotRuntimeLogPath,
   getBotRuntimePidPath,
+  getTelegramBridgePidPath,
   getLogsPath,
   getRegistryPath,
   getTelegramBridgeLogPath,
@@ -43,6 +44,59 @@ function isPidRunning(pid) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function listProcesses() {
+  const child = spawn("ps", ["-axo", "pid=,ppid=,command="], {
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  let stdout = "";
+  for await (const chunk of child.stdout) {
+    stdout += chunk.toString();
+  }
+  const exitCode = await new Promise((resolve) => child.once("close", resolve));
+  if (exitCode !== 0) {
+    return [];
+  }
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const match = line.match(/^(\d+)\s+(\d+)\s+(.*)$/);
+      if (!match) {
+        return null;
+      }
+      return {
+        pid: Number.parseInt(match[1], 10),
+        ppid: Number.parseInt(match[2], 10),
+        command: match[3],
+      };
+    })
+    .filter(Boolean);
+}
+
+async function terminatePid(pid, timeoutMs = 4000) {
+  if (!isPidRunning(pid)) {
+    return;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return;
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidRunning(pid)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // ignore hard-kill failures
   }
 }
 
@@ -97,7 +151,26 @@ export async function readPidFile(filePath) {
 }
 
 async function writePidFile(filePath) {
-  await writeJson(filePath, { pid: process.pid, startedAt: nowIso() });
+  await open(filePath, "wx")
+    .then(async (handle) => {
+      await handle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2)}\n`);
+      await handle.close();
+    })
+    .catch(async (error) => {
+      if (error?.code !== "EEXIST") {
+        throw error;
+      }
+
+      const existingPid = await readPidFile(filePath);
+      if (existingPid && isPidRunning(existingPid)) {
+        throw new Error(`Bot runtime already running with pid ${existingPid}`);
+      }
+
+      await clearPidFile(filePath);
+      const retryHandle = await open(filePath, "wx");
+      await retryHandle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2)}\n`);
+      await retryHandle.close();
+    });
 }
 
 async function clearPidFile(filePath) {
@@ -108,6 +181,42 @@ async function readRuntimePid(bot) {
   const raw = await readJson(getBotRuntimePidPath(bot.homePath), null);
   const pid = raw?.pid ?? null;
   return isPidRunning(pid) ? pid : null;
+}
+
+async function cleanupBotOrphans(bot) {
+  const runtimePidPath = getBotRuntimePidPath(bot.homePath);
+  const bridgePidPath = getTelegramBridgePidPath(bot.homePath);
+  const runtimePid = await readRuntimePid(bot);
+  const bridgePid = await readPidFile(bridgePidPath);
+
+  if (bridgePid && !runtimePid && isPidRunning(bridgePid)) {
+    await terminatePid(bridgePid);
+  }
+
+  if (!(await readRuntimePid(bot))) {
+    await clearPidFile(runtimePidPath);
+  }
+  if (!(bridgePid && isPidRunning(bridgePid))) {
+    await clearPidFile(bridgePidPath);
+  }
+
+  const processes = await listProcesses();
+  const runtimePattern = `${BIN_PATH} bot run ${bot.id}`;
+  const bridgePattern = `telegram-codex-bridge.mjs --bot-id ${bot.id}`;
+  const liveRuntimePid = await readRuntimePid(bot);
+  const liveBridgePid = await readPidFile(bridgePidPath);
+  const keepPids = new Set([liveRuntimePid, liveBridgePid].filter(Boolean));
+
+  const duplicates = processes.filter((proc) => {
+    if (!proc?.pid || keepPids.has(proc.pid) || proc.pid === process.pid) {
+      return false;
+    }
+    return proc.command.includes(runtimePattern) || proc.command.includes(bridgePattern);
+  });
+
+  for (const proc of duplicates) {
+    await terminatePid(proc.pid);
+  }
 }
 
 async function replaceRegistryBot(nextBot) {
@@ -292,6 +401,7 @@ export async function setActiveBot(botId) {
 
 export async function startBot(botId) {
   const bot = await getRegistryBotOrThrow(botId);
+  await cleanupBotOrphans(bot);
   const existingPid = await readRuntimePid(bot);
   if (existingPid) {
     return existingPid;
@@ -337,6 +447,7 @@ export async function startBot(botId) {
 
 export async function stopBot(botId) {
   const bot = await getRegistryBotOrThrow(botId);
+  await cleanupBotOrphans(bot);
   const pid = await readRuntimePid(bot);
   if (!pid) {
     await updateBotConfig(botId, (config) => ({
@@ -448,6 +559,7 @@ export async function runBotRuntime(botId) {
   const bot = await getRegistryBotOrThrow(botId);
   const botHome = resolveBotHome(bot.id);
   await ensureBotHome(botHome);
+  await cleanupBotOrphans(bot);
 
   const config = await readConfig(botHome);
   const telegram = config.channels?.telegram ?? {};
@@ -512,7 +624,7 @@ export async function runBotRuntime(botId) {
   });
 
   const bridgeLog = await open(getTelegramBridgeLogPath(botHome), "a");
-  const child = spawn(process.execPath, [path.join(__dirname, "..", "plugins", "telegram-codex", "telegram-codex-bridge.mjs")], {
+  const child = spawn(process.execPath, [path.join(__dirname, "..", "plugins", "telegram-codex", "telegram-codex-bridge.mjs"), "--bot-id", bot.id], {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,

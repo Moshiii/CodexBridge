@@ -47,6 +47,18 @@ export function getActiveBotStatePath() {
   return path.join(getControlHome(), "active-bot.json");
 }
 
+export function getWebRuntimePidPath() {
+  return path.join(getControlHome(), "web.pid");
+}
+
+export function getWebRuntimeStatePath() {
+  return path.join(getControlHome(), "web-state.json");
+}
+
+export function getWebRuntimeLogPath() {
+  return path.join(getSharedLogsPath(), "web-console.log");
+}
+
 export function getBotPath(botId) {
   return path.join(getBotsRoot(), botId);
 }
@@ -119,6 +131,9 @@ export const LOGS_PATH = getLogsPath();
 export const TELEGRAM_STATE_PATH = getTelegramStatePath();
 export const REGISTRY_PATH = getRegistryPath();
 export const ACTIVE_BOT_STATE_PATH = getActiveBotStatePath();
+export const WEB_RUNTIME_PID_PATH = getWebRuntimePidPath();
+export const WEB_RUNTIME_STATE_PATH = getWebRuntimeStatePath();
+export const WEB_RUNTIME_LOG_PATH = getWebRuntimeLogPath();
 
 export async function readJson(filePath, fallback) {
   try {

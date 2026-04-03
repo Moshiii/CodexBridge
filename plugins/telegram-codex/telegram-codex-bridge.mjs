@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import os from "node:os";
 import path from "node:path";
-import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
   getTelegramStatePath,
@@ -291,7 +291,32 @@ async function writeJsonFile(filePath, value) {
 
 async function writePidFile(filePath) {
   await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${process.pid}\n`, "utf8");
+  try {
+    const handle = await open(filePath, "wx");
+    await handle.writeFile(`${process.pid}\n`, "utf8");
+    await handle.close();
+  } catch (error) {
+    if (error?.code !== "EEXIST") {
+      throw error;
+    }
+
+    const existingPid = await readPidFile(filePath);
+    if (existingPid) {
+      try {
+        process.kill(existingPid, 0);
+        throw new Error(`Telegram bridge already running with pid ${existingPid}`);
+      } catch (pidError) {
+        if (pidError?.code !== "ESRCH") {
+          throw pidError;
+        }
+      }
+    }
+
+    await clearPidFile(filePath);
+    const retryHandle = await open(filePath, "wx");
+    await retryHandle.writeFile(`${process.pid}\n`, "utf8");
+    await retryHandle.close();
+  }
 }
 
 async function clearPidFile(filePath) {
@@ -1358,6 +1383,8 @@ async function handleSlashCommand({
         "/switch <label>",
         "/sessions",
         "/skills",
+        "/files [inbox|outbox|exports]",
+        "/get <relative-path>",
         "/where",
         "/status",
         "/stop",
@@ -1388,6 +1415,48 @@ async function handleSlashCommand({
       [formatStatus(state, chatId, runningJobs), `Running goal: ${runningGoal ? runningGoal.goalId : "no"}`].join("\n"),
       message.message_id,
     );
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "files") {
+    const requestedRoot = argsText.trim() || DEFAULT_UPLOAD_DIR_NAME;
+    const listing = await listWorkspaceFiles(message.workspacePaths, requestedRoot);
+    await sendMessage(token, message.chat.id, listing.text, message.message_id);
+    return { stateChanged: false, handled: true };
+  }
+
+  if (command === "get") {
+    const requestedPath = argsText.trim();
+    if (!requestedPath) {
+      await sendMessage(token, message.chat.id, "Usage: /get <relative-path>", message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+
+    const resolvedPath = resolveDownloadPath(message.workspacePaths, requestedPath);
+    if (!resolvedPath) {
+      await sendMessage(
+        token,
+        message.chat.id,
+        `Invalid path: ${requestedPath}\n\nAllowed roots: ${DEFAULT_DOWNLOAD_DIRS.join(", ")}`,
+        message.message_id,
+      );
+      return { stateChanged: false, handled: true };
+    }
+
+    let fileStat;
+    try {
+      fileStat = await stat(resolvedPath);
+    } catch {
+      await sendMessage(token, message.chat.id, `File not found: ${requestedPath}`, message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+
+    if (!fileStat.isFile()) {
+      await sendMessage(token, message.chat.id, `Not a file: ${requestedPath}`, message.message_id);
+      return { stateChanged: false, handled: true };
+    }
+
+    await sendDocument(token, message.chat.id, resolvedPath, message.message_id, requestedPath);
     return { stateChanged: false, handled: true };
   }
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { startCli } from "../src/cli.mjs";
-import { startControlPlaneWebServer } from "../src/control-plane-web.mjs";
 import {
   canaryRollout,
   createBot,
@@ -30,6 +29,13 @@ import {
   installSkillFromPath,
   listSkills,
 } from "../src/skills.mjs";
+import {
+  ensureWebRuntime,
+  getWebRuntimeStatus,
+  restartWebRuntime,
+  runWebRuntime,
+  stopWebRuntime,
+} from "../src/web-runtime.mjs";
 
 function parseFlags(values) {
   const flags = {};
@@ -96,15 +102,26 @@ if (command === "web") {
   const flags = parseFlags([subcommand, ...rest].filter(Boolean));
   const port = Number.parseInt(String(flags.port || "8787"), 10);
   const host = String(flags.host || "127.0.0.1");
-  const runtime = await startControlPlaneWebServer({ port, host });
-  console.log(`AutoAide control plane web running at http://${runtime.host}:${runtime.port}`);
-  process.on("SIGTERM", () => {
-    void runtime.close().finally(() => process.exit(0));
-  });
-  process.on("SIGINT", () => {
-    void runtime.close().finally(() => process.exit(0));
-  });
-  await new Promise(() => {});
+  if (subcommand === "run") {
+    await runWebRuntime({ port, host });
+    await new Promise(() => {});
+  }
+  if (subcommand === "status") {
+    printJson(await getWebRuntimeStatus());
+    process.exit(0);
+  }
+  if (subcommand === "stop") {
+    printJson(await stopWebRuntime());
+    process.exit(0);
+  }
+  if (subcommand === "restart") {
+    const runtime = await restartWebRuntime({ port, host });
+    console.log(`AutoAide control plane web running at ${runtime.url}`);
+    process.exit(0);
+  }
+  const runtime = await ensureWebRuntime({ port, host });
+  console.log(`AutoAide control plane web running at ${runtime.url}`);
+  process.exit(0);
 }
 
 if (command === "skills") {
