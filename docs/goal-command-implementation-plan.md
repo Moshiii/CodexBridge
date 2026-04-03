@@ -1,5 +1,7 @@
 # `/goal` Implementation Plan
 
+> Historical draft. This plan references daemon-era internals that are no longer part of the current implementation.
+
 ## Purpose
 
 This document turns the `/goal` long-task design into a practical implementation plan for the current `AutoAide` repo.

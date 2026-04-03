@@ -12,9 +12,11 @@ test("ensureAutoAideHome creates runtime directories", async () => {
     await config.ensureAutoAideHome();
 
     await Promise.all([
-      access(path.join(tempHome, "workspace")),
+      access(path.join(tempHome, "control")),
+      access(path.join(tempHome, "bots", "default", "workspace")),
+      access(path.join(tempHome, "bots", "default", "memory")),
       access(path.join(tempHome, "logs")),
-      access(path.join(tempHome, "telegram")),
+      access(path.join(tempHome, "bots", "default", "telegram")),
     ]);
   });
 });
@@ -24,12 +26,54 @@ test("readConfig returns defaults when config is missing", async () => {
     const config = await importFresh("../../src/config.mjs");
     const value = await config.readConfig();
 
-    assert.equal(value.model, "gpt-5.4");
+    assert.equal(value.runtime.model, "gpt-5.4");
     assert.deepEqual(value.channels.telegram, {
       enabled: false,
       botToken: "",
-      allowedChatIds: [],
+      botUsername: "",
+      metadata: {
+        chats: {},
+        users: {},
+      },
+      private: {
+        allowedChatIds: [],
+      },
+      groups: {
+        allowedChatIds: [],
+        allowedUserIds: [],
+        requireExplicitMention: true,
+      },
     });
+  });
+});
+
+test("normalizeBotConfig drops unused runtime backend, skills, and schedule stubs", async () => {
+  await withTempHome(async () => {
+    const config = await importFresh("../../src/config.mjs");
+    const normalized = config.normalizeBotConfig({
+      channels: {
+        telegram: {
+          enabled: false,
+        },
+      },
+      runtime: {
+        model: "gpt-5.4-mini",
+        backend: "codex",
+      },
+      skills: {
+        enabled: ["demo"],
+        isolatedStore: false,
+      },
+      schedule: {
+        enabled: false,
+      },
+    });
+
+    assert.equal(normalized.runtime.model, "gpt-5.4-mini");
+    assert.equal(normalized.enabled, false);
+    assert.equal("backend" in normalized.runtime, false);
+    assert.equal("skills" in normalized, false);
+    assert.equal("schedule" in normalized, false);
   });
 });
 
@@ -37,21 +81,39 @@ test("writeConfig persists config and readConfig reads it back", async () => {
   await withTempHome(async (tempHome) => {
     const config = await importFresh("../../src/config.mjs");
     const next = {
-      model: "gpt-5.4-mini",
+      runtime: {
+        model: "gpt-5.4-mini",
+        backend: "codex",
+      },
       channels: {
         telegram: {
           enabled: true,
           botToken: "token-123",
-          allowedChatIds: ["1", "2"],
+          botUsername: "demo_bot",
+          private: {
+            allowedChatIds: ["1", "2"],
+          },
+          groups: {
+            allowedChatIds: ["3"],
+            allowedUserIds: ["9"],
+            requireExplicitMention: true,
+          },
         },
       },
     };
 
     await config.writeConfig(next);
 
-    assert.deepEqual(await config.readConfig(), next);
-    const raw = JSON.parse(await readFile(path.join(tempHome, "config.json"), "utf8"));
-    assert.deepEqual(raw, next);
+    const persisted = await config.readConfig();
+    assert.equal(persisted.runtime.model, "gpt-5.4-mini");
+    assert.deepEqual(persisted.channels.telegram.private.allowedChatIds, ["1", "2"]);
+    assert.deepEqual(persisted.channels.telegram.groups.allowedChatIds, ["3"]);
+    const raw = JSON.parse(await readFile(path.join(tempHome, "bots", "default", "config.json"), "utf8"));
+    assert.equal(raw.runtime.model, "gpt-5.4-mini");
+    assert.equal("model" in raw, false);
+    assert.equal("backend" in raw.runtime, false);
+    assert.equal("skills" in raw, false);
+    assert.equal("schedule" in raw, false);
   });
 });
 
@@ -101,5 +163,15 @@ test("readBootstrapState returns default bootstrap state", async () => {
       completedAt: null,
       lastSeededAt: null,
     });
+  });
+});
+
+test("active bot state defaults to default and can be updated", async () => {
+  await withTempHome(async () => {
+    const config = await importFresh("../../src/config.mjs");
+
+    assert.equal(await config.readActiveBotId(), "default");
+    await config.writeActiveBotId("alpha");
+    assert.equal(await config.readActiveBotId(), "alpha");
   });
 });

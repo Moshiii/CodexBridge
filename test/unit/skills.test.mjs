@@ -7,7 +7,7 @@ import { importFresh, withTempHome } from "../helpers/module.js";
 
 test("listSkills reads SKILL.md frontmatter and formats the overview", async () => {
   await withTempHome(async (homePath) => {
-    const skillDir = path.join(homePath, "skills", "demo-skill");
+    const skillDir = path.join(homePath, "bots", "default", "skills", "demo-skill");
     await mkdir(skillDir, { recursive: true });
     await writeFile(
       path.join(skillDir, "SKILL.md"),

@@ -1,5 +1,7 @@
 # `/goal` Long-Task Design
 
+> Historical draft. This document was written for the removed daemon-based runtime and does not describe the current bot-scoped implementation.
+
 ## Purpose
 
 This document proposes how `AutoAide` should evolve from:

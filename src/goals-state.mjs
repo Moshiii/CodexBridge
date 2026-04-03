@@ -1,14 +1,14 @@
 import path from "node:path";
 import { readdir } from "node:fs/promises";
 
-import { GOALS_PATH, readJson, writeJson, ensureAutoAideHome } from "./config.mjs";
+import { getGoalsPath, readJson, writeJson, ensureBotHome } from "./config.mjs";
 
 function nowIso() {
   return new Date().toISOString();
 }
 
 export function goalFilePath(goalId) {
-  return path.join(GOALS_PATH, `${goalId}.json`);
+  return path.join(getGoalsPath(), `${goalId}.json`);
 }
 
 export function createGoalId() {
@@ -61,21 +61,22 @@ export function appendGoalHistory(goal, entry) {
 }
 
 export async function readGoal(goalId) {
-  await ensureAutoAideHome();
+  await ensureBotHome();
   return await readJson(goalFilePath(goalId), null);
 }
 
 export async function writeGoal(goal) {
-  await ensureAutoAideHome();
+  await ensureBotHome();
   goal.updatedAt = nowIso();
   await writeJson(goalFilePath(goal.id), goal);
 }
 
 export async function listGoals({ chatId = null, limit = 20 } = {}) {
-  await ensureAutoAideHome();
+  await ensureBotHome();
+  const goalsPath = getGoalsPath();
   let names = [];
   try {
-    names = await readdir(GOALS_PATH);
+    names = await readdir(goalsPath);
   } catch {
     return [];
   }
@@ -84,7 +85,7 @@ export async function listGoals({ chatId = null, limit = 20 } = {}) {
     await Promise.all(
       names
         .filter((name) => name.endsWith(".json"))
-        .map(async (name) => await readJson(path.join(GOALS_PATH, name), null)),
+        .map(async (name) => await readJson(path.join(goalsPath, name), null)),
     )
   ).filter(Boolean);
 

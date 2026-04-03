@@ -3,10 +3,10 @@ import { stdin as input, stdout as output } from "node:process";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
 import {
   AUTOAIDE_HOME,
-  BOOTSTRAP_STATE_PATH,
-  DAEMON_PID_PATH,
-  TELEGRAM_STATE_PATH,
-  WORKSPACE_PATH,
+  getBootstrapStatePath,
+  getBotRuntimePidPath,
+  getTelegramStatePath,
+  getWorkspacePath,
   ensureAutoAideHome,
   readCliState,
   readConfig,
@@ -14,11 +14,12 @@ import {
   writeConfig,
   createDefaultCliState,
 } from "./config.mjs";
+import { DEFAULT_BOT_ID } from "./config.mjs";
 import { buildCommandConfig, startCliTurn } from "./codex-runner.mjs";
-import { isDaemonRunning } from "./daemon.mjs";
-import { ensureDaemonRunning } from "./launcher.mjs";
+import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstrap.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
+import { createBot, ensureDefaultBot, getBot, listBots, restartBot, setActiveBot, startBot, stopBot, updateBotConfig } from "./bots.mjs";
 import {
   formatSkillInstallResult,
   formatSkillsList,
@@ -28,28 +29,67 @@ import {
 } from "./skills.mjs";
 import { formatKeyValueCard, formatListCard, formatMessageCard, showStartupBanner } from "./ui/banner.mjs";
 
-function formatCliStatus(config, bridgeProcess, cliState, bootstrapInfo) {
-  const telegram = config.channels?.telegram;
-  const daemonOnline = Boolean(bridgeProcess?.pid);
-  const telegramOnline = daemonOnline && telegram?.enabled;
-  const telegramChatIds = telegram?.enabled
-    ? (telegram.allowedChatIds ?? []).length
-      ? (telegram.allowedChatIds ?? []).join(", ")
-      : "(all chats, no filter)"
-    : null;
+function formatBotPrompt(botId) {
+  return `autoaide:${botId}> `;
+}
+
+function getTelegramConfigView(config) {
+  const telegram = config.channels?.telegram ?? {};
+  return {
+    ...telegram,
+    privateAllowedChatIds: telegram.private?.allowedChatIds ?? [],
+    groupAllowedChatIds: telegram.groups?.allowedChatIds ?? [],
+    groupAllowedUserIds: telegram.groups?.allowedUserIds ?? [],
+  };
+}
+
+function formatTelegramEntity(id, entry, fallbackLabel = null) {
+  if (entry?.label) {
+    return `${entry.label} (${id})`;
+  }
+  if (entry?.username) {
+    return `@${entry.username.replace(/^@+/, "")} (${id})`;
+  }
+  if (entry?.title) {
+    return `${entry.title} (${id})`;
+  }
+  return fallbackLabel ? `${fallbackLabel} (${id})` : String(id);
+}
+
+function formatTelegramEntityList(ids, metadata, kind) {
+  if (!ids?.length) {
+    return kind === "chat" ? "(all chats)" : "(none)";
+  }
+  const source = kind === "user" ? metadata?.users : metadata?.chats;
+  return ids
+    .map((id) => formatTelegramEntity(id, source?.[id]))
+    .join(", ");
+}
+
+function formatCliStatus(botContext, config, bridgeProcess, cliState, bootstrapInfo) {
+  const telegram = getTelegramConfigView(config);
+  const runtimeOnline = Boolean(bridgeProcess?.pid);
+  const telegramOnline = runtimeOnline && telegram?.enabled;
   return formatKeyValueCard("AutoAide Status", [
     ["home", AUTOAIDE_HOME],
-    ["workspace", WORKSPACE_PATH],
-    ["bootstrap state", BOOTSTRAP_STATE_PATH],
-    ["daemon pid file", DAEMON_PID_PATH],
-    ["telegram state", TELEGRAM_STATE_PATH],
-    ["model", config.model || "gpt-5.4"],
+    ["bot", botContext.botId],
+    ["workspace", getWorkspacePath(botContext.botHome)],
+    ["bootstrap state", getBootstrapStatePath(botContext.botHome)],
+    ["runtime pid file", getBotRuntimePidPath(botContext.botHome)],
+    ["telegram state", getTelegramStatePath(botContext.botHome)],
+    ["model", config.runtime?.model || "gpt-5.4"],
     ["bootstrap completed", bootstrapInfo.bootstrapPending ? "no" : "yes"],
     ["active session", cliState.activeSessionLabel],
-    ["daemon online", daemonOnline ? "yes" : "no"],
+    ["bot runtime online", runtimeOnline ? "yes" : "no"],
     ["telegram paired", telegram?.enabled ? "yes" : "no"],
-    ["telegram daemon online", telegramOnline ? "yes" : "no"],
-    ...(telegram?.enabled ? [["telegram chat ids", telegramChatIds]] : []),
+    ["telegram bridge online", telegramOnline ? "yes" : "no"],
+    ...(telegram?.enabled
+      ? [
+          ["private chats", formatTelegramEntityList(telegram.privateAllowedChatIds, telegram.metadata, "chat")],
+          ["group chats", formatTelegramEntityList(telegram.groupAllowedChatIds, telegram.metadata, "chat")],
+          ["group users", formatTelegramEntityList(telegram.groupAllowedUserIds, telegram.metadata, "user")],
+        ]
+      : []),
   ]);
 }
 
@@ -100,7 +140,7 @@ async function askBootstrapQuestion(rl, prompt, fallback = "") {
   }
 }
 
-async function runBootstrapFlow(rl, bootstrapInfoRef) {
+async function runBootstrapFlow(rl, bootstrapInfoRef, botContextRef) {
   if (!bootstrapInfoRef.current.bootstrapPending) {
     return;
   }
@@ -146,7 +186,7 @@ async function runBootstrapFlow(rl, bootstrapInfoRef) {
     vibe,
     userPreference,
     creature: "AI assistant",
-  });
+  }, botContextRef.current.botHome);
 
   console.log(
     `\n${formatListCard("Bootstrap Complete", [
@@ -181,16 +221,19 @@ function renderCliResult(result) {
   return parts.join("\n\n");
 }
 
-async function autoFillTelegramChatIdIfNeeded(config) {
-  const telegram = config.channels?.telegram;
-  if (!telegram?.enabled || !telegram.botToken || (telegram.allowedChatIds ?? []).length) {
+async function autoFillTelegramChatIdIfNeeded(config, botHome) {
+  const telegram = getTelegramConfigView(config);
+  if (!telegram.enabled || !telegram.botToken || telegram.privateAllowedChatIds.length) {
     return;
   }
 
   try {
     const paired = await pairTelegramChannel(telegram.botToken);
-    telegram.allowedChatIds = [paired.chatId];
-    await writeConfig(config);
+    config.channels.telegram.private = {
+      ...(config.channels.telegram.private ?? {}),
+      allowedChatIds: [paired.chatId],
+    };
+    await writeConfig(config, botHome);
   } catch {
     // Keep running without chat filter if we can't resolve latest private chat.
   }
@@ -206,7 +249,7 @@ function slugifySessionLabel(raw) {
   return normalized || null;
 }
 
-async function handleChannelCommand(rl, config, bridgeProcessRef) {
+async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef) {
   console.log(`${formatListCard("Available Channels", ["1. Telegram"])}\n`);
   const selection = (await rl.question("Select a channel [telegram]: ")).trim().toLowerCase();
   if (selection && selection !== "1" && selection !== "telegram") {
@@ -227,30 +270,108 @@ async function handleChannelCommand(rl, config, bridgeProcessRef) {
     return;
   }
 
+  const currentBot = await getBot(botContextRef.current.botId);
+  const currentTelegram = config.channels?.telegram ?? {};
+  const hadRunningRuntime = Boolean(currentBot.runtimePid);
+  let shouldRestoreRuntime = hadRunningRuntime;
+
+  if (hadRunningRuntime) {
+    console.log(`${formatMessageCard("Telegram Pairing", ["Pausing the current bot runtime so pairing can read Telegram updates cleanly..."])}\n`);
+    await stopBot(botContextRef.current.botId).catch(() => {});
+    bridgeProcessRef.current = { pid: null };
+  }
+
   console.log(`\n${formatMessageCard("Telegram Pairing", ["Now send one message to your bot in Telegram, then press Enter here."])}\n`);
   await rl.question("");
 
   try {
-    const paired = await pairTelegramChannel(token);
-    config.channels.telegram = {
-      enabled: true,
-      botToken: token,
-      allowedChatIds: [paired.chatId],
-    };
-    await writeConfig(config);
-    bridgeProcessRef.current = {
-      pid: await isDaemonRunning(),
-    };
+    let paired = null;
+    try {
+      paired = await pairTelegramChannel(token);
+    } catch (error) {
+      const existingChatId = currentTelegram.private?.allowedChatIds?.[0] ?? null;
+      if (currentTelegram.botToken === token && existingChatId) {
+        paired = {
+          chatId: String(existingChatId),
+          userId: String(currentTelegram.groups?.allowedUserIds?.[0] ?? currentTelegram.private?.allowedChatIds?.[0]),
+          username: currentTelegram.botUsername || null,
+        };
+      } else {
+        throw error;
+      }
+    }
+    config = await updateBotConfig(botContextRef.current.botId, (currentConfig) => {
+      const existingGroupUserIds = currentConfig.channels?.telegram?.groups?.allowedUserIds ?? [];
+      return {
+        ...currentConfig,
+        enabled: true,
+        channels: {
+          ...currentConfig.channels,
+          telegram: {
+            enabled: true,
+            botToken: token,
+            botUsername: paired.botUsername || currentConfig.channels?.telegram?.botUsername || "",
+            metadata: {
+              chats: {
+                ...(currentConfig.channels?.telegram?.metadata?.chats ?? {}),
+                [paired.chatId]: {
+                  type: "private",
+                  username: paired.userUsername ?? null,
+                  label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
+                },
+              },
+              users: {
+                ...(currentConfig.channels?.telegram?.metadata?.users ?? {}),
+                [paired.userId]: {
+                  username: paired.userUsername ?? null,
+                  label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
+                },
+              },
+            },
+            private: {
+              allowedChatIds: [paired.chatId],
+            },
+            groups: {
+              allowedChatIds: currentConfig.channels?.telegram?.groups?.allowedChatIds ?? [],
+              allowedUserIds: Array.from(new Set([...existingGroupUserIds, paired.userId])),
+              requireExplicitMention: currentConfig.channels?.telegram?.groups?.requireExplicitMention ?? true,
+            },
+          },
+        },
+      };
+    });
+    shouldRestoreRuntime = false;
+    try {
+      bridgeProcessRef.current = {
+        pid: await startBot(botContextRef.current.botId),
+      };
+    } catch {
+      bridgeProcessRef.current = {
+        pid: (await getBot(botContextRef.current.botId)).runtimePid,
+      };
+    }
 
     console.log(
       `${formatKeyValueCard("Telegram Paired", [
         ["status", "paired successfully"],
         ["chat id", String(paired.chatId)],
-        ...(paired.username ? [["username", `@${paired.username}`]] : []),
+        ...(paired.botUsername ? [["bot username", `@${paired.botUsername}`]] : []),
+        ...(paired.userUsername ? [["paired user", `@${paired.userUsername}`]] : []),
       ])}\n`,
     );
   } catch (error) {
     console.log(`${formatMessageCard("Telegram Pairing Failed", [error.message])}\n`);
+    if (shouldRestoreRuntime && currentTelegram.enabled && currentTelegram.botToken) {
+      try {
+        bridgeProcessRef.current = {
+          pid: await startBot(botContextRef.current.botId),
+        };
+      } catch {
+        bridgeProcessRef.current = {
+          pid: (await getBot(botContextRef.current.botId)).runtimePid,
+        };
+      }
+    }
   }
 }
 
@@ -276,7 +397,54 @@ function requestStop(turn) {
   return true;
 }
 
-async function startCliMessage(line, cliState, config, runningTurns) {
+async function loadCliBotContext(botId) {
+  const bot = await getBot(botId);
+  const botHome = bot.homePath;
+  let config = await readConfig(botHome);
+  config = await hydrateTelegramMetadata(botHome).catch(() => config);
+  await autoFillTelegramChatIdIfNeeded(config, botHome);
+  const cliState = await readCliState(botHome);
+  if (!cliState.sessions?.main) {
+    const fresh = createDefaultCliState();
+    cliState.sessions = fresh.sessions;
+    cliState.activeSessionLabel = fresh.activeSessionLabel;
+    await writeCliState(cliState, botHome);
+  }
+  return {
+    botId: bot.id,
+    botHome,
+    bot,
+    config: await readConfig(botHome),
+    cliState,
+    bootstrapInfo: await ensureWorkspaceBootstrap(botHome),
+    runtimePid: (await getBot(bot.id)).runtimePid,
+  };
+}
+
+async function switchCliBot(botId, botContextRef, configRef, bridgeProcessRef, cliStateRef, bootstrapInfoRef) {
+  const next = await loadCliBotContext(botId);
+  botContextRef.current = {
+    botId: next.botId,
+    botHome: next.botHome,
+  };
+  configRef.current = next.config;
+  cliStateRef.current = next.cliState;
+  bootstrapInfoRef.current = next.bootstrapInfo;
+  bridgeProcessRef.current = {
+    pid: next.runtimePid,
+  };
+  await writeActiveBotId(next.botId);
+  return next;
+}
+
+function formatBotList(bots, currentBotId) {
+  return formatListCard(
+    "Bots",
+    bots.map((bot) => `- ${bot.id} [${bot.id === currentBotId ? "current" : bot.status}] ${bot.name}`),
+  );
+}
+
+async function startCliMessage(line, botContextRef, cliState, config, runningTurns) {
   const active = cliState.sessions[cliState.activeSessionLabel];
   if (getRunningTurn(runningTurns, active.label)) {
     console.log(`${formatMessageCard("Session Busy", [`${active.label} is already running. Use /stop first.`])}\n`);
@@ -288,7 +456,7 @@ async function startCliMessage(line, cliState, config, runningTurns) {
       console.log(`[status] ${status}`);
     },
   };
-  const prompt = await buildWorkspacePrompt(line);
+  const prompt = await buildWorkspacePrompt(line, { workspacePath: getWorkspacePath(botContextRef.current.botHome) });
   console.log(`Running on [${active.label}]...\n`);
 
   const started = startCliTurn(prompt, active.cliSessionRef, commandConfig);
@@ -306,7 +474,7 @@ async function startCliMessage(line, cliState, config, runningTurns) {
       if (result.ok && result.cliSessionRef) {
         active.cliSessionRef = result.cliSessionRef;
         active.updatedAt = new Date().toISOString();
-        await writeCliState(cliState);
+        await writeCliState(cliState, botContextRef.current.botHome);
       }
       console.log(`\n${renderCliResult(result)}\n`);
     })
@@ -318,48 +486,103 @@ async function startCliMessage(line, cliState, config, runningTurns) {
     });
 }
 
-async function restartDaemon() {
-  const currentPid = await isDaemonRunning();
-  if (currentPid) {
-    process.kill(currentPid, "SIGTERM");
-
-    for (let attempt = 0; attempt < 30; attempt += 1) {
-      const pid = await isDaemonRunning();
-      if (!pid) {
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 150));
-    }
-  }
-
-  return await ensureDaemonRunning();
+async function restartBotRuntime(botId) {
+  return await restartBot(botId);
 }
 
-async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, bootstrapInfoRef, runningTurns) {
+async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProcessRef, cliStateRef, bootstrapInfoRef, runningTurns) {
   const [command, ...rest] = line.trim().split(/\s+/);
   const arg = rest.join(" ").trim();
+  const cliState = cliStateRef.current;
 
   switch (command) {
     case "/help":
       console.log(
         `${formatListCard("Commands", [
+          "/help     show commands",
+          "/bots     list bots",
+          "/bot      create, show, or use bots",
           "/channel  pair Telegram",
           "/home     switch to main session",
           "/new      create a session",
           "/switch   switch session",
           "/sessions list sessions",
           "/skills   show skills and install new ones",
-          "/stop     stop the running session job",
-          "/restart  restart the AutoAide daemon",
-          "/status   show paths, model, and daemon status",
+          "/stop     stop the current running turn",
+          "/restart  restart the current bot runtime",
+          "/status   show paths, model, and runtime status",
           "/where    show current CLI session",
           "/exit     quit AutoAide",
+          "text      run a normal Codex turn",
         ])}\n`,
       );
       return true;
+    case "/bots":
+      console.log(`${formatBotList(await listBots(), botContextRef.current.botId)}\n`);
+      return true;
+    case "/bot": {
+      const [subcommand, ...botRest] = arg.split(/\s+/).filter(Boolean);
+      if (!subcommand || subcommand === "list") {
+        console.log(`${formatBotList(await listBots(), botContextRef.current.botId)}\n`);
+        return true;
+      }
+      if (subcommand === "create") {
+        const id = botRest.shift();
+        const name = botRest.join(" ").trim() || id;
+        if (!id) {
+          console.log(`${formatMessageCard("Usage", ["/bot create <id> [name]"])}\n`);
+          return true;
+        }
+        try {
+          const created = await createBot({ id, name, enabled: false });
+          console.log(`${formatMessageCard("Bot Created", [`${created.id} at ${created.homePath}`])}\n`);
+        } catch (error) {
+          console.log(`${formatMessageCard("Bot Create Failed", [error.message])}\n`);
+        }
+        return true;
+      }
+      if (subcommand === "use") {
+        const botId = botRest[0];
+        if (!botId) {
+          console.log(`${formatMessageCard("Usage", ["/bot use <id>"])}\n`);
+          return true;
+        }
+        if (Array.from(runningTurns.values()).some(Boolean)) {
+          console.log(`${formatMessageCard("Bot Switch Failed", ["Stop running turns before switching bots."])}\n`);
+          return true;
+        }
+        try {
+          const next = await switchCliBot(botId, botContextRef, configRef, bridgeProcessRef, cliStateRef, bootstrapInfoRef);
+          console.log(`${formatMessageCard("Bot Switched", [`Current bot: ${next.botId}`])}\n`);
+        } catch (error) {
+          console.log(`${formatMessageCard("Bot Switch Failed", [error.message])}\n`);
+        }
+        return true;
+      }
+      if (subcommand === "show") {
+        const botId = botRest[0] || botContextRef.current.botId;
+        try {
+          const bot = await getBot(botId);
+          const config = await readConfig(bot.homePath);
+          console.log(`${formatKeyValueCard("Bot", [
+            ["id", bot.id],
+            ["name", bot.name],
+            ["status", bot.status],
+            ["home", bot.homePath],
+            ["enabled", bot.enabled ? "yes" : "no"],
+            ["telegram paired", config.channels?.telegram?.enabled ? "yes" : "no"],
+          ])}\n`);
+        } catch (error) {
+          console.log(`${formatMessageCard("Bot Show Failed", [error.message])}\n`);
+        }
+        return true;
+      }
+      console.log(`${formatMessageCard("Usage", ["/bots", "/bot create <id> [name]", "/bot use <id>", "/bot show [id]"])}\n`);
+      return true;
+    }
     case "/home":
       cliState.activeSessionLabel = "main";
-      await writeCliState(cliState);
+      await writeCliState(cliState, botContextRef.current.botHome);
       console.log(`${formatMessageCard("Session", ["Switched to main."])}\n`);
       return true;
     case "/sessions":
@@ -404,7 +627,7 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
         };
       }
       cliState.activeSessionLabel = label;
-      await writeCliState(cliState);
+      await writeCliState(cliState, botContextRef.current.botHome);
       console.log(`${formatMessageCard("Session", [`Switched to ${label}.`])}\n`);
       return true;
     }
@@ -419,19 +642,21 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
         return true;
       }
       cliState.activeSessionLabel = label;
-      await writeCliState(cliState);
+      await writeCliState(cliState, botContextRef.current.botHome);
       console.log(`${formatMessageCard("Session", [`Switched to ${label}.`])}\n`);
       return true;
     }
     case "/channel":
-      await handleChannelCommand(rl, config, bridgeProcessRef);
+      await handleChannelCommand(rl, botContextRef, configRef.current, bridgeProcessRef);
+      configRef.current = await readConfig(botContextRef.current.botHome);
       return true;
     case "/status":
+      configRef.current = await readConfig(botContextRef.current.botHome);
       bridgeProcessRef.current = {
-        pid: await isDaemonRunning(),
+        pid: (await getBot(botContextRef.current.botId)).runtimePid,
       };
       console.log(
-        `${formatCliStatus(config, bridgeProcessRef.current, cliState, bootstrapInfoRef.current)}\n`,
+        `${formatCliStatus(botContextRef.current, configRef.current, bridgeProcessRef.current, cliState, bootstrapInfoRef.current)}\n`,
       );
       console.log(
         `${formatKeyValueCard("Run State", [
@@ -463,12 +688,12 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
       return true;
     }
     case "/restart":
-      console.log(`${formatMessageCard("Restarting", ["Restarting the AutoAide daemon..."])}\n`);
+      console.log(`${formatMessageCard("Restarting", [`Restarting bot ${botContextRef.current.botId}...`])}\n`);
       bridgeProcessRef.current = {
-        pid: await restartDaemon(),
+        pid: await restartBotRuntime(botContextRef.current.botId),
       };
       console.log(
-        `${formatKeyValueCard("Daemon Restarted", [["daemon pid", String(bridgeProcessRef.current.pid)]])}\n`,
+        `${formatKeyValueCard("Runtime Restarted", [["runtime pid", String(bridgeProcessRef.current.pid)]])}\n`,
       );
       return true;
     case "/exit":
@@ -483,40 +708,34 @@ async function handleSlashCommand(line, rl, config, bridgeProcessRef, cliState, 
   }
 }
 
-export async function startCli() {
+export async function startCli({ botId = DEFAULT_BOT_ID } = {}) {
   await ensureAutoAideHome();
-  const bootstrapInfoRef = {
-    current: await ensureWorkspaceBootstrap(),
-  };
-  const config = await readConfig();
-  await autoFillTelegramChatIdIfNeeded(config);
-  const cliState = await readCliState();
-  const bridgeProcessRef = {
+  await ensureDefaultBot();
+  const initial = await loadCliBotContext(botId);
+  const botContextRef = {
     current: {
-      pid: await isDaemonRunning(),
+      botId: initial.botId,
+      botHome: initial.botHome,
     },
   };
+  const bootstrapInfoRef = { current: initial.bootstrapInfo };
+  const configRef = { current: initial.config };
+  const cliStateRef = { current: initial.cliState };
+  const bridgeProcessRef = { current: { pid: initial.runtimePid } };
   const runningTurns = new Map();
 
-  if (!cliState.sessions?.main) {
-    const fresh = createDefaultCliState();
-    cliState.sessions = fresh.sessions;
-    cliState.activeSessionLabel = fresh.activeSessionLabel;
-    await writeCliState(cliState);
-  }
-
   await showStartupBanner({
-    model: config.model || "gpt-5.4",
-    workspacePath: WORKSPACE_PATH,
+    model: configRef.current.runtime?.model || "gpt-5.4",
+    workspacePath: getWorkspacePath(botContextRef.current.botHome),
   });
   const rl = createInterface({ input, output });
   printBootstrapHint(bootstrapInfoRef.current);
-  await runBootstrapFlow(rl, bootstrapInfoRef);
+  await runBootstrapFlow(rl, bootstrapInfoRef, botContextRef);
 
   while (true) {
     let line;
     try {
-      line = (await rl.question("autoaide> ")).trim();
+      line = (await rl.question(formatBotPrompt(botContextRef.current.botId))).trim();
     } catch (error) {
       if (error?.code === "ERR_USE_AFTER_CLOSE") {
         return;
@@ -529,9 +748,10 @@ export async function startCli() {
     const handled = await handleSlashCommand(
       line,
       rl,
-      config,
+      botContextRef,
+      configRef,
       bridgeProcessRef,
-      cliState,
+      cliStateRef,
       bootstrapInfoRef,
       runningTurns,
     );
@@ -541,6 +761,7 @@ export async function startCli() {
     if (handled) {
       continue;
     }
-    await startCliMessage(line, cliState, config, runningTurns);
+    configRef.current = await readConfig(botContextRef.current.botHome);
+    await startCliMessage(line, botContextRef, cliStateRef.current, configRef.current, runningTurns);
   }
 }

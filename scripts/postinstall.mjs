@@ -2,35 +2,33 @@
 
 import path from "node:path";
 import os from "node:os";
-import { access, copyFile, mkdir } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { mkdir } from "node:fs/promises";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const repoRoot = path.resolve(__dirname, "..");
 const autoaideHome = process.env.AUTOAIDE_HOME?.trim() || path.join(os.homedir(), ".autoaide");
-const workspaceDir = path.join(autoaideHome, "workspace");
+const controlDir = path.join(autoaideHome, "control");
+const botsDir = path.join(autoaideHome, "bots");
+const defaultBotDir = path.join(botsDir, "default");
+const workspaceDir = path.join(defaultBotDir, "workspace");
+const memoryDir = path.join(defaultBotDir, "memory");
 const logsDir = path.join(autoaideHome, "logs");
-const telegramDir = path.join(autoaideHome, "telegram");
-const configPath = path.join(autoaideHome, "config.json");
-const legacyConfigPath = path.join(repoRoot, ".autoaide", "config.json");
+const botLogsDir = path.join(defaultBotDir, "logs");
+const telegramDir = path.join(defaultBotDir, "telegram");
+const goalsDir = path.join(defaultBotDir, "goals");
+const skillsDir = path.join(defaultBotDir, "skills");
 
+await mkdir(controlDir, { recursive: true });
+await mkdir(botsDir, { recursive: true });
+await mkdir(defaultBotDir, { recursive: true });
 await mkdir(workspaceDir, { recursive: true });
+await mkdir(memoryDir, { recursive: true });
 await mkdir(logsDir, { recursive: true });
+await mkdir(botLogsDir, { recursive: true });
 await mkdir(telegramDir, { recursive: true });
-
-try {
-  await access(configPath);
-} catch {
-  try {
-    await access(legacyConfigPath);
-    await copyFile(legacyConfigPath, configPath);
-    console.log(`Migrated config from: ${legacyConfigPath}`);
-  } catch {
-    // No legacy config to migrate.
-  }
-}
+await mkdir(goalsDir, { recursive: true });
+await mkdir(skillsDir, { recursive: true });
 
 console.log(`AutoAide home ready: ${autoaideHome}`);
-console.log(`Workspace ready: ${workspaceDir}`);
-console.log(`Telegram state ready: ${telegramDir}`);
+console.log(`Control plane ready: ${controlDir}`);
+console.log(`Default bot ready: ${defaultBotDir}`);
+console.log(`Default bot workspace ready: ${workspaceDir}`);
+console.log(`Default bot telegram state ready: ${telegramDir}`);

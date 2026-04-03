@@ -5,7 +5,7 @@
 This document defines the Markdown file system that lives under:
 
 ```text
-~/.autoaide/workspace/
+~/.autoaide/bots/default/workspace/
 ```
 
 The goal is not to build a second agent runtime.
@@ -13,7 +13,7 @@ The goal is not to build a second agent runtime.
 The goal is to give AutoAide a stable, editable, product-grade context layer:
 
 - the repo contains software
-- `~/.autoaide/workspace` contains the assistant's working memory and operating context
+- `~/.autoaide/bots/default/workspace` contains the assistant's working memory and operating context
 - Codex remains the execution core
 - Markdown files define how the assistant understands itself, the user, the environment, and its ongoing work
 
@@ -92,7 +92,7 @@ The current product already uses part of this Markdown system.
 
 Implemented now:
 
-- Codex runs with `cwd=~/.autoaide/workspace`
+- Codex runs with `cwd=~/.autoaide/bots/default/workspace`
 - Codex can therefore read `AGENTS.md` natively
 - AutoAide reads `SOUL.md`, `IDENTITY.md`, `USER.md`, and `TOOLS.md`
 - AutoAide injects those files into the prompt before calling Codex
@@ -514,7 +514,7 @@ v1 needs a stable identity and operator model more than it needs a full memory e
 On first setup, AutoAide should seed starter templates into:
 
 ```text
-~/.autoaide/workspace/
+~/.autoaide/bots/default/workspace/
 ```
 
 Recommended starter files:

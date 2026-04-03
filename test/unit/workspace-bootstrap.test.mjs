@@ -5,6 +5,10 @@ import { access, readFile, rm, writeFile } from "node:fs/promises";
 
 import { importFresh, withTempHome } from "../helpers/module.js";
 
+function workspacePath(tempHome) {
+  return path.join(tempHome, "bots", "default", "workspace");
+}
+
 test("ensureWorkspaceBootstrap seeds workspace and reports bootstrap pending", async () => {
   await withTempHome(async (tempHome) => {
     const bootstrap = await importFresh("../../src/workspace-bootstrap.mjs");
@@ -24,10 +28,10 @@ test("ensureWorkspaceBootstrap seeds workspace and reports bootstrap pending", a
       "HEARTBEAT.md",
       "BOOTSTRAP.md",
     ]) {
-      await access(path.join(tempHome, "workspace", filename));
+      await access(path.join(workspacePath(tempHome), filename));
     }
 
-    await access(path.join(tempHome, "workspace", "memory"));
+    await access(path.join(workspacePath(tempHome), "memory"));
   });
 });
 
@@ -50,9 +54,9 @@ test("completeBootstrap updates identity, user, soul, and removes BOOTSTRAP.md",
     assert.equal(result.identityReady, true);
     assert.equal(result.userReady, true);
 
-    const identity = await readFile(path.join(tempHome, "workspace", "IDENTITY.md"), "utf8");
-    const user = await readFile(path.join(tempHome, "workspace", "USER.md"), "utf8");
-    const soul = await readFile(path.join(tempHome, "workspace", "SOUL.md"), "utf8");
+    const identity = await readFile(path.join(workspacePath(tempHome), "IDENTITY.md"), "utf8");
+    const user = await readFile(path.join(workspacePath(tempHome), "USER.md"), "utf8");
+    const soul = await readFile(path.join(workspacePath(tempHome), "SOUL.md"), "utf8");
 
     assert.match(identity, /\*\*Name:\*\* Pearl/);
     assert.match(identity, /\*\*Creature:\*\* fox/);
@@ -62,7 +66,7 @@ test("completeBootstrap updates identity, user, soul, and removes BOOTSTRAP.md",
     assert.match(soul, /Preferred assistant type: chief of staff/);
     assert.match(soul, /User preference summary: keep it concise/);
 
-    await assert.rejects(access(path.join(tempHome, "workspace", "BOOTSTRAP.md")));
+    await assert.rejects(access(path.join(workspacePath(tempHome), "BOOTSTRAP.md")));
   });
 });
 
@@ -71,9 +75,9 @@ test("ensureWorkspaceBootstrap stays pending when placeholders remain", async ()
     const bootstrap = await importFresh("../../src/workspace-bootstrap.mjs");
     await bootstrap.ensureWorkspaceBootstrap();
 
-    const identityPath = path.join(tempHome, "workspace", "IDENTITY.md");
-    const userPath = path.join(tempHome, "workspace", "USER.md");
-    await rm(path.join(tempHome, "workspace", "BOOTSTRAP.md"), { force: true });
+    const identityPath = path.join(workspacePath(tempHome), "IDENTITY.md");
+    const userPath = path.join(workspacePath(tempHome), "USER.md");
+    await rm(path.join(workspacePath(tempHome), "BOOTSTRAP.md"), { force: true });
     await writeFile(
       identityPath,
       (await readFile(identityPath, "utf8")).replace(/(\*\*Name:\*\*).*/, "$1 AutoAide"),
@@ -102,7 +106,7 @@ test("ensureWorkspaceBootstrap does not overwrite edited files after completion"
       userPreference: "be brief",
     });
 
-    const identityPath = path.join(tempHome, "workspace", "IDENTITY.md");
+    const identityPath = path.join(workspacePath(tempHome), "IDENTITY.md");
     await writeFile(identityPath, "# custom identity\n", "utf8");
 
     const result = await bootstrap.ensureWorkspaceBootstrap();

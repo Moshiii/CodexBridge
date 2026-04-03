@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import path from "node:path";
 
 import { importFresh, withTempHome } from "../helpers/module.js";
 
@@ -74,5 +75,66 @@ test("stripExplicitBotMention removes the mention and preserves the request", as
       stripExplicitBotMention("@AutoAideBot summarize this", { offset: 0, length: 12 }),
       "summarize this",
     );
+  });
+});
+
+test("resolveBotRuntimeContext reads bot-scoped config from BOT_HOME", async () => {
+  await withTempHome(async (tempHome) => {
+    const botHome = `${tempHome}/bots/alpha`;
+    process.env.BOT_HOME = botHome;
+    process.env.AUTOAIDE_BOT_ID = "alpha";
+    try {
+      const configModule = await importFresh("../../src/config.mjs");
+      await configModule.writeConfig(
+        {
+          id: "alpha",
+          name: "Alpha",
+          runtime: {
+            model: "gpt-5.4-mini",
+            backend: "codex",
+          },
+          channels: {
+            telegram: {
+              enabled: true,
+              botToken: "token-alpha",
+              botUsername: "alpha_bot",
+              private: {
+                allowedChatIds: ["1"],
+              },
+              groups: {
+                allowedChatIds: ["2"],
+                allowedUserIds: ["3"],
+                requireExplicitMention: true,
+              },
+            },
+          },
+        },
+        botHome,
+      );
+
+      const { resolveBotRuntimeContext } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
+      const runtime = await resolveBotRuntimeContext();
+
+      assert.equal(runtime.botHome, botHome);
+      assert.equal(runtime.token, "token-alpha");
+      assert.equal(runtime.botUsername, "alpha_bot");
+      assert.deepEqual(Array.from(runtime.allowedChatIds), ["1"]);
+      assert.deepEqual(Array.from(runtime.allowedGroupChatIds), ["2"]);
+      assert.deepEqual(Array.from(runtime.allowedGroupUserIds), ["3"]);
+      assert.match(runtime.codexCwd, /bots\/alpha\/workspace$/);
+    } finally {
+      delete process.env.BOT_HOME;
+      delete process.env.AUTOAIDE_BOT_ID;
+    }
+  });
+});
+
+test("scheduleBotRuntimeRestart targets the current bot runtime command", async () => {
+  await withTempHome(async (tempHome) => {
+    const { buildBotRuntimeRestartCommand } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
+    const command = buildBotRuntimeRestartCommand("alpha", path.join(tempHome, "bots", "alpha"));
+
+    assert.match(command, /bot restart "alpha"/);
+    assert.match(command, /bots\/alpha\/logs\/runtime\.log/);
   });
 });

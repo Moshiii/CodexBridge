@@ -1,5 +1,7 @@
 # AutoAide Business Plan
 
+> Historical draft. This document predates the current bot-scoped runtime and still contains daemon-era framing. Use `docs/current-architecture.md` for the implemented system.
+
 > Format: one section per slide, written so it can be copied into a presentation deck with minimal rewriting.
 
 ---

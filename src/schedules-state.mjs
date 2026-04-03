@@ -1,4 +1,4 @@
-import { SCHEDULES_STATE_PATH, ensureAutoAideHome, readJson, writeJson } from "./config.mjs";
+import { ensureBotHome, getSchedulesStatePath, readJson, writeJson } from "./config.mjs";
 
 function nowIso() {
   return new Date().toISOString();
@@ -18,8 +18,8 @@ function createScheduleId() {
 }
 
 export async function readSchedulesState() {
-  await ensureAutoAideHome();
-  const state = await readJson(SCHEDULES_STATE_PATH, createState());
+  await ensureBotHome();
+  const state = await readJson(getSchedulesStatePath(), createState());
   if (!Array.isArray(state.schedules)) {
     state.schedules = [];
   }
@@ -27,8 +27,8 @@ export async function readSchedulesState() {
 }
 
 export async function writeSchedulesState(state) {
-  await ensureAutoAideHome();
-  await writeJson(SCHEDULES_STATE_PATH, state);
+  await ensureBotHome();
+  await writeJson(getSchedulesStatePath(), state);
 }
 
 export function createScheduleRecord({ chatId, objective, cron, timezone }) {

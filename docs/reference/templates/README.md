@@ -3,7 +3,7 @@
 These are starter templates for the runtime workspace:
 
 ```text
-~/.autoaide/workspace/
+~/.autoaide/bots/default/workspace/
 ```
 
 Recommended v1 seed set:

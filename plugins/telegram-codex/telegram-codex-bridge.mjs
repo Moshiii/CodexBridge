@@ -5,6 +5,14 @@ import os from "node:os";
 import path from "node:path";
 import { mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import {
+  getTelegramStatePath,
+  getTelegramBridgePidPath,
+  getWorkspacePath,
+  readConfig,
+  resolveBotHome,
+  writeConfig,
+} from "../../src/config.mjs";
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 import { buildCommandConfig as buildRunnerCommandConfig, startCliTurn } from "../../src/codex-runner.mjs";
 import { cronMatchesDate, minuteKey, parseCronExpression } from "../../src/cron-utils.mjs";
@@ -37,13 +45,11 @@ const POLL_TIMEOUT_SECONDS = 30;
 const TELEGRAM_MESSAGE_LIMIT = 4096;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const DEFAULT_AUTOAIDE_HOME = process.env.AUTOAIDE_HOME?.trim() || path.join(os.homedir(), ".autoaide");
-const DEFAULT_STATE_DIR = process.env.AUTOAIDE_HOME?.trim()
-  ? path.join(process.env.AUTOAIDE_HOME.trim(), "telegram")
-  : path.join(DEFAULT_AUTOAIDE_HOME, "telegram");
+const DEFAULT_BOT_HOME = resolveBotHome();
+const DEFAULT_STATE_DIR = getTelegramStatePath(DEFAULT_BOT_HOME);
 const DEFAULT_OFFSET_PATH = path.join(DEFAULT_STATE_DIR, "offset.json");
 const DEFAULT_ROUTER_STATE_PATH = path.join(DEFAULT_STATE_DIR, "sessions.json");
-const DEFAULT_PID_PATH = path.join(DEFAULT_STATE_DIR, "bridge.pid");
+const DEFAULT_PID_PATH = getTelegramBridgePidPath(DEFAULT_BOT_HOME);
 const DEFAULT_MAIN_SESSION_LABEL = "main";
 const DEFAULT_MAIN_SESSION_DISPLAY = "personal-chief-of-staff";
 const DEFAULT_CODEX_START_COMMAND = "codex exec --skip-git-repo-check --json -";
@@ -64,6 +70,21 @@ function getShellSpec() {
     command: process.env.SHELL || "zsh",
     args: ["-lc"],
   };
+}
+
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'\"'\"'`)}'`;
+}
+
+function commandHasModel(command) {
+  return /(^|\s)(-m|--model)\s/.test(command) || /(^|\s)(-c|--config)\s+model=/.test(command);
+}
+
+function applyModelToCommand(command, model) {
+  if (!model || commandHasModel(command)) {
+    return command;
+  }
+  return `${command} --model ${shellQuote(model)}`;
 }
 
 function requireEnv(name) {
@@ -208,31 +229,20 @@ function logBridgeEvent(message, details = null) {
   console.log(`[${timestamp}] ${message}`, details);
 }
 
-function buildCommandConfig() {
+function buildCommandConfig(model = "gpt-5.4") {
   const startCommand = process.env.CODEX_START_COMMAND?.trim();
   const resumeTemplate = process.env.CODEX_RESUME_COMMAND_TEMPLATE?.trim();
-  const legacyStart = process.env.CODEX_COMMAND?.trim();
 
   if (startCommand) {
     return {
-      startCommand,
-      resumeTemplate: resumeTemplate || DEFAULT_CODEX_RESUME_TEMPLATE,
-    };
-  }
-
-  if (legacyStart) {
-    const derivedStart = legacyStart.includes(" --json")
-      ? legacyStart
-      : legacyStart.replace(/\s+-\s*$/, " --json -");
-    return {
-      startCommand: derivedStart,
-      resumeTemplate: resumeTemplate || DEFAULT_CODEX_RESUME_TEMPLATE,
+      startCommand: applyModelToCommand(startCommand, model),
+      resumeTemplate: applyModelToCommand(resumeTemplate || DEFAULT_CODEX_RESUME_TEMPLATE, model),
     };
   }
 
   return {
-    startCommand: DEFAULT_CODEX_START_COMMAND,
-    resumeTemplate: DEFAULT_CODEX_RESUME_TEMPLATE,
+    startCommand: applyModelToCommand(DEFAULT_CODEX_START_COMMAND, model),
+    resumeTemplate: applyModelToCommand(DEFAULT_CODEX_RESUME_TEMPLATE, model),
   };
 }
 
@@ -240,6 +250,29 @@ function buildGoalCommandConfig() {
   return buildRunnerCommandConfig({
     model: process.env.AUTOAIDE_MODEL?.trim() || "gpt-5.4",
   });
+}
+
+async function resolveBotRuntimeContext() {
+  const botHome = resolveBotHome();
+  const config = await readConfig(botHome);
+  const telegram = config.channels?.telegram ?? {};
+  return {
+    botHome,
+    token: telegram.botToken || process.env.TELEGRAM_BOT_TOKEN?.trim() || "",
+    botUsername: (telegram.botUsername || process.env.TELEGRAM_BOT_USERNAME?.trim() || "")
+      .replace(/^@+/, "") || null,
+    allowedChatIds:
+      parseAllowedChatIds((telegram.private?.allowedChatIds ?? []).join(",")) ||
+      parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS),
+    allowedGroupChatIds:
+      parseAllowedChatIds((telegram.groups?.allowedChatIds ?? []).join(",")) ||
+      parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_GROUP_CHAT_IDS),
+    allowedGroupUserIds:
+      parseAllowedUserIds((telegram.groups?.allowedUserIds ?? []).join(",")) ||
+      parseAllowedUserIds(process.env.TELEGRAM_ALLOWED_GROUP_USER_IDS),
+    codexCwd: getWorkspacePath(botHome),
+    model: process.env.AUTOAIDE_MODEL?.trim() || config.runtime?.model || "gpt-5.4",
+  };
 }
 
 async function readJsonFile(filePath, fallback) {
@@ -339,6 +372,76 @@ function ensureChatState(state, chatId) {
     };
   }
   return state.chats[chatId];
+}
+
+async function captureTelegramMetadata(botHome, message) {
+  const chatId = String(message?.chat?.id ?? "");
+  const senderId = message?.from?.id != null ? String(message.from.id) : null;
+  if (!chatId) {
+    return;
+  }
+
+  const nextChatMeta = {
+    type: message.chat?.type || null,
+    title: message.chat?.title || null,
+    username: message.chat?.username || null,
+    label:
+      message.chat?.title ||
+      (message.chat?.username ? `@${message.chat.username.replace(/^@+/, "")}` : null),
+  };
+  const nextUserMeta = senderId
+    ? {
+        username: message.from?.username || null,
+        label: message.from?.username ? `@${message.from.username.replace(/^@+/, "")}` : null,
+      }
+    : null;
+
+  const config = await readConfig(botHome);
+  const telegram = config.channels?.telegram ?? {};
+  const chats = telegram.metadata?.chats ?? {};
+  const users = telegram.metadata?.users ?? {};
+  const currentChatMeta = chats[chatId] ?? {};
+  const currentUserMeta = senderId ? users[senderId] ?? {} : null;
+  const chatChanged =
+    currentChatMeta.label !== nextChatMeta.label ||
+    currentChatMeta.title !== nextChatMeta.title ||
+    currentChatMeta.username !== nextChatMeta.username ||
+    currentChatMeta.type !== nextChatMeta.type;
+  const userChanged =
+    senderId &&
+    (currentUserMeta.label !== nextUserMeta.label || currentUserMeta.username !== nextUserMeta.username);
+
+  if (!chatChanged && !userChanged) {
+    return;
+  }
+
+  await writeConfig({
+    ...config,
+    channels: {
+      ...config.channels,
+      telegram: {
+        ...telegram,
+        metadata: {
+          chats: {
+            ...chats,
+            [chatId]: {
+              ...currentChatMeta,
+              ...nextChatMeta,
+            },
+          },
+          users: senderId
+            ? {
+                ...users,
+                [senderId]: {
+                  ...currentUserMeta,
+                  ...nextUserMeta,
+                },
+              }
+            : users,
+        },
+      },
+    },
+  }, botHome);
 }
 
 function ensureMainSession(state) {
@@ -538,12 +641,16 @@ async function sendDocument(token, chatId, filePath, replyToMessageId, caption =
   return payload.result;
 }
 
-function scheduleDaemonRestart() {
+export function buildBotRuntimeRestartCommand(botId, botHome) {
+  const logPath = path.join(botHome, "logs", "runtime.log");
+  return `sleep 1; node "${AUTOAIDE_BIN_PATH}" bot restart "${botId}" >> "${logPath}" 2>&1`;
+}
+
+export function scheduleBotRuntimeRestart(botId, botHome) {
   const shellSpec = getShellSpec();
-  const logPath = path.join(DEFAULT_AUTOAIDE_HOME, "logs", "daemon.log");
-  const command = `sleep 1; node "${AUTOAIDE_BIN_PATH}" daemon >> "${logPath}" 2>&1`;
+  const command = buildBotRuntimeRestartCommand(botId, botHome);
   const child = spawn(shellSpec.command, [...shellSpec.args, command], {
-    cwd: DEFAULT_AUTOAIDE_HOME,
+    cwd: botHome,
     env: process.env,
     detached: true,
     stdio: "ignore",
@@ -1303,15 +1410,14 @@ async function handleSlashCommand({
   }
 
   if (command === "restart") {
-    await sendMessage(token, message.chat.id, "Restarting AutoAide daemon.", message.message_id);
-    const daemonPid = await readPidFile(path.join(DEFAULT_AUTOAIDE_HOME, "autoaide.pid"));
-    scheduleDaemonRestart();
-    if (daemonPid) {
-      try {
-        process.kill(daemonPid, "SIGTERM");
-      } catch {
-        // ignore daemon stop failures; scheduled restart may still recover the system
-      }
+    const botId = process.env.AUTOAIDE_BOT_ID?.trim() || "default";
+    const botHome = process.env.BOT_HOME?.trim() || DEFAULT_BOT_HOME;
+    await sendMessage(token, message.chat.id, `Restarting bot runtime for ${botId}.`, message.message_id);
+    scheduleBotRuntimeRestart(botId, botHome);
+    try {
+      process.kill(process.ppid, "SIGTERM");
+    } catch {
+      process.exit(0);
     }
     return { stateChanged: false, handled: true };
   }
@@ -1690,6 +1796,7 @@ async function processUpdate(update, context) {
     hasText: Boolean(getMessageText(message)),
     hasDocument: Boolean(message.document),
   });
+  await captureTelegramMetadata(context.botHome, message);
   const uploadedDocument = await saveUploadedDocument(message, context.token, context.workspacePaths);
 
   const text = getMessageText(message);
@@ -1931,21 +2038,26 @@ async function processUpdate(update, context) {
 }
 
 async function main() {
-  const token = requireEnv("TELEGRAM_BOT_TOKEN");
+  const runtimeContext = await resolveBotRuntimeContext();
+  const token = runtimeContext.token;
+  if (!token) {
+    throw new Error("Telegram bridge cannot start: bot-scoped Telegram token is missing.");
+  }
   const offsetPath = process.env.TELEGRAM_OFFSET_FILE?.trim() || DEFAULT_OFFSET_PATH;
   const routerStatePath = process.env.TELEGRAM_ROUTER_STATE_FILE?.trim() || DEFAULT_ROUTER_STATE_PATH;
   const pidPath = process.env.TELEGRAM_BRIDGE_PID_FILE?.trim() || DEFAULT_PID_PATH;
-  const allowedChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_CHAT_IDS);
-  const allowedGroupChatIds = parseAllowedChatIds(process.env.TELEGRAM_ALLOWED_GROUP_CHAT_IDS);
-  const allowedGroupUserIds = parseAllowedUserIds(process.env.TELEGRAM_ALLOWED_GROUP_USER_IDS);
-  const botUsername = process.env.TELEGRAM_BOT_USERNAME?.trim().replace(/^@+/, "") || null;
-  const commandConfig = buildCommandConfig();
-  const codexCwd = process.env.CODEX_CWD?.trim() || path.join(DEFAULT_AUTOAIDE_HOME, "workspace");
+  const allowedChatIds = runtimeContext.allowedChatIds;
+  const allowedGroupChatIds = runtimeContext.allowedGroupChatIds;
+  const allowedGroupUserIds = runtimeContext.allowedGroupUserIds;
+  const botUsername = runtimeContext.botUsername;
+  const commandConfig = buildCommandConfig(runtimeContext.model);
+  const codexCwd = runtimeContext.codexCwd;
   const workspacePaths = await resolveWorkspacePaths(codexCwd);
   const runningJobs = new Map();
   const runningGoals = new Map();
   const goalCommandConfig = {
     ...buildGoalCommandConfig(),
+    model: runtimeContext.model,
     cwd: codexCwd,
   };
   const schedulerContext = {
@@ -1986,6 +2098,7 @@ async function main() {
   let nextOffset = await readOffset(offsetPath);
 
   console.log("telegram bridge started");
+  console.log(`bot home: ${runtimeContext.botHome}`);
   console.log(`codex cwd: ${codexCwd}`);
   console.log(`codex start: ${commandConfig.startCommand}`);
   console.log(`codex resume: ${commandConfig.resumeTemplate}`);
@@ -2046,6 +2159,7 @@ export {
   isGroupChat,
   isTelegramReplyReferenceError,
   parseCommand,
+  resolveBotRuntimeContext,
   renderCodexResult,
   renderRunningMessage,
   stripExplicitBotMention,

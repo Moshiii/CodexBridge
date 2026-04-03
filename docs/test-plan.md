@@ -1,5 +1,7 @@
 # AutoAide Test Plan
 
+> Historical draft. Parts of this plan assume the removed single-daemon architecture. Treat it as archive material, not the current test contract.
+
 ## 1. Purpose
 
 This document defines a practical test strategy for the current AutoAide project.

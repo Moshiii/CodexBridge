@@ -38,28 +38,26 @@ This is a thin mapping layer, not a custom session runtime.
 ## Optional Environment Variables
 
 - `CODEX_CWD`
-  - default: `~/.autoaide/workspace`
+  - default: `~/.autoaide/bots/<bot-id>/workspace`
 - `TELEGRAM_ALLOWED_CHAT_IDS`
   - comma-separated list like `123456789,-1009876543210`
   - if unset, all chats that can reach the bot are accepted
 - `TELEGRAM_OFFSET_FILE`
-  - default: `~/.autoaide/telegram/offset.json`
+  - default: `~/.autoaide/bots/<bot-id>/telegram/offset.json`
 - `TELEGRAM_ROUTER_STATE_FILE`
-  - default: `~/.autoaide/telegram/sessions.json`
+  - default: `~/.autoaide/bots/<bot-id>/telegram/sessions.json`
 - `CODEX_START_COMMAND`
   - default: `codex exec --skip-git-repo-check --json -`
 - `CODEX_RESUME_COMMAND_TEMPLATE`
   - default: `codex exec resume --skip-git-repo-check --json __SESSION_ID__ -`
-- `CODEX_COMMAND`
-  - legacy fallback
-  - if set, it is used as the start command base and the bridge tries to derive a resume command from it
 
 ## Recommended First Run
 
 ```bash
 export TELEGRAM_BOT_TOKEN="123456:abc..."
 export TELEGRAM_ALLOWED_CHAT_IDS="123456789"
-export CODEX_CWD="$HOME/.autoaide/workspace"
+export BOT_HOME="$HOME/.autoaide/bots/default"
+export CODEX_CWD="$HOME/.autoaide/bots/default/workspace"
 
 node plugins/telegram-codex/telegram-codex-bridge.mjs
 ```

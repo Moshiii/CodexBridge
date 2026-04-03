@@ -3,7 +3,7 @@ import os from "node:os";
 import { cp, mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 
-import { SKILLS_PATH, ensureAutoAideHome } from "./config.mjs";
+import { ensureBotHome, getSkillsPath } from "./config.mjs";
 
 function slugifySkillId(raw) {
   const normalized = String(raw || "")
@@ -197,8 +197,9 @@ async function inspectSkillSource(sourcePath) {
 }
 
 export async function installSkillFromPath(sourcePath, options = {}) {
-  await ensureAutoAideHome();
+  await ensureBotHome();
   const source = path.resolve(sourcePath);
+  const skillsPath = getSkillsPath();
   let installSource = source;
   let tempDir = null;
 
@@ -215,7 +216,7 @@ export async function installSkillFromPath(sourcePath, options = {}) {
   }
 
   const inspected = await inspectSkillSource(installSource);
-  const destination = path.join(SKILLS_PATH, inspected.id);
+  const destination = path.join(skillsPath, inspected.id);
 
   if (options.force) {
     await rm(destination, { recursive: true, force: true });
@@ -247,10 +248,11 @@ export function formatSkillSources() {
 }
 
 export async function listSkills() {
-  await ensureAutoAideHome();
+  await ensureBotHome();
+  const skillsPath = getSkillsPath();
   let entries = [];
   try {
-    entries = await readdir(SKILLS_PATH, { withFileTypes: true });
+    entries = await readdir(skillsPath, { withFileTypes: true });
   } catch {
     return [];
   }
@@ -260,7 +262,7 @@ export async function listSkills() {
       entries
         .filter((entry) => entry.isDirectory())
         .map(async (entry) => {
-          const skillPath = path.join(SKILLS_PATH, entry.name, "SKILL.md");
+          const skillPath = path.join(skillsPath, entry.name, "SKILL.md");
           let raw;
           try {
             raw = await readFile(skillPath, "utf8");
@@ -303,14 +305,14 @@ export function formatSkillSummary(skill) {
 
 export function formatSkillsList(skills) {
   if (!skills.length) {
-    return `No skills installed yet.\n\nLocal path: ${SKILLS_PATH}`;
+    return `No skills installed yet.\n\nLocal path: ${getSkillsPath()}`;
   }
 
   return [
     `Installed skills (${skills.length}):`,
     ...skills.map(formatSkillSummary),
     "",
-    `Local path: ${SKILLS_PATH}`,
+    `Local path: ${getSkillsPath()}`,
   ].join("\n");
 }
 

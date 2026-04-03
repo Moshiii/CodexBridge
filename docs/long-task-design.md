@@ -1,5 +1,7 @@
 # AutoAide 长任务机制设计
 
+> Historical draft. This document predates the current bot-scoped runtime and still references the removed daemon model.
+
 ## 1. 目标
 
 这个设计解决的问题是：

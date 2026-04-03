@@ -1,11 +1,11 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { WORKSPACE_PATH } from "./config.mjs";
+import { getWorkspacePath } from "./config.mjs";
 
 const DEFAULT_PRIVATE_FILES = ["SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"];
 
-async function readWorkspaceFile(filename) {
-  const filePath = path.join(WORKSPACE_PATH, filename);
+async function readWorkspaceFile(filename, workspacePath) {
+  const filePath = path.join(workspacePath, filename);
   try {
     const content = (await readFile(filePath, "utf8")).trim();
     return content ? { filename, content } : null;
@@ -34,7 +34,8 @@ function renderBootstrapContext(files) {
 
 export async function buildWorkspacePrompt(userMessage, options = {}) {
   const filenames = options.files || DEFAULT_PRIVATE_FILES;
-  const files = (await Promise.all(filenames.map(readWorkspaceFile))).filter(Boolean);
+  const workspacePath = options.workspacePath || getWorkspacePath(options.botHome);
+  const files = (await Promise.all(filenames.map((filename) => readWorkspaceFile(filename, workspacePath)))).filter(Boolean);
   const prefix = renderBootstrapContext(files);
 
   if (!prefix) {

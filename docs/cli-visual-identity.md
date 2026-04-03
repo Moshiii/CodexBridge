@@ -71,7 +71,7 @@
 │ personal AI shell                         │
 │                                           │
 │ model:     gpt-5.4                        │
-│ workspace: ~/.autoaide/workspace          │
+│ workspace: ~/.autoaide/bots/default/workspace │
 ╰───────────────────────────────────────────╯
 
 booting local operator layer

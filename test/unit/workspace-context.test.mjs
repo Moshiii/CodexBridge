@@ -5,6 +5,10 @@ import { mkdir, writeFile } from "node:fs/promises";
 
 import { importFresh, withTempHome } from "../helpers/module.js";
 
+function workspacePath(tempHome) {
+  return path.join(tempHome, "bots", "default", "workspace");
+}
+
 test("buildWorkspacePrompt returns raw user input when no context files exist", async () => {
   await withTempHome(async () => {
     const { buildWorkspacePrompt } = await importFresh("../../src/workspace-context.mjs");
@@ -15,7 +19,7 @@ test("buildWorkspacePrompt returns raw user input when no context files exist", 
 
 test("buildWorkspacePrompt injects default workspace files in stable order", async () => {
   await withTempHome(async (tempHome) => {
-    const workspace = path.join(tempHome, "workspace");
+    const workspace = workspacePath(tempHome);
     await mkdir(workspace, { recursive: true });
     await writeFile(path.join(workspace, "SOUL.md"), "Soul", "utf8");
     await writeFile(path.join(workspace, "IDENTITY.md"), "Identity", "utf8");
@@ -40,7 +44,7 @@ test("buildWorkspacePrompt injects default workspace files in stable order", asy
 
 test("buildWorkspacePrompt ignores empty files and missing files", async () => {
   await withTempHome(async (tempHome) => {
-    const workspace = path.join(tempHome, "workspace");
+    const workspace = workspacePath(tempHome);
     await mkdir(workspace, { recursive: true });
     await writeFile(path.join(workspace, "SOUL.md"), "  ", "utf8");
     await writeFile(path.join(workspace, "USER.md"), "User notes", "utf8");
@@ -55,7 +59,7 @@ test("buildWorkspacePrompt ignores empty files and missing files", async () => {
 
 test("buildWorkspacePrompt honors explicit file selection", async () => {
   await withTempHome(async (tempHome) => {
-    const workspace = path.join(tempHome, "workspace");
+    const workspace = workspacePath(tempHome);
     await mkdir(workspace, { recursive: true });
     await writeFile(path.join(workspace, "SOUL.md"), "Soul", "utf8");
     await writeFile(path.join(workspace, "USER.md"), "User", "utf8");

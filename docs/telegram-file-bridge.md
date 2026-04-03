@@ -7,7 +7,7 @@ Add a minimal but useful file bridge between Telegram and the AutoAide workspace
 The MVP flow is:
 
 1. user uploads a file to the Telegram bot
-2. AutoAide downloads it into `~/.autoaide/workspace/inbox/`
+2. AutoAide downloads it into `~/.autoaide/bots/default/workspace/inbox/`
 3. the user can ask AutoAide to process it
 4. AutoAide can send a file back from a safe workspace directory
 

@@ -2,8 +2,8 @@ import path from "node:path";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import {
-  WORKSPACE_PATH,
   createDefaultBootstrapState,
+  getWorkspacePath,
   readBootstrapState,
   writeBootstrapState,
 } from "./config.mjs";
@@ -30,8 +30,8 @@ async function fileExists(filePath) {
   }
 }
 
-async function seedFileIfMissing(filename) {
-  const destinationPath = path.join(WORKSPACE_PATH, filename);
+async function seedFileIfMissing(filename, workspacePath) {
+  const destinationPath = path.join(workspacePath, filename);
   if (await fileExists(destinationPath)) {
     return false;
   }
@@ -60,19 +60,20 @@ function replaceBoldBullet(content, label, value) {
   return content.replace(pattern, `$1 ${value}`);
 }
 
-export async function ensureWorkspaceBootstrap() {
-  await mkdir(WORKSPACE_PATH, { recursive: true });
-  await mkdir(path.join(WORKSPACE_PATH, "memory"), { recursive: true });
+export async function ensureWorkspaceBootstrap(botHome = undefined) {
+  const workspacePath = getWorkspacePath(botHome);
+  await mkdir(workspacePath, { recursive: true });
+  await mkdir(path.join(workspacePath, "memory"), { recursive: true });
 
   const state = {
     ...createDefaultBootstrapState(),
-    ...(await readBootstrapState()),
+    ...(await readBootstrapState(botHome)),
   };
 
   let seededAny = false;
   const seedFiles = state.completed === true ? CORE_SEED_FILES : [...CORE_SEED_FILES, "BOOTSTRAP.md"];
   for (const filename of seedFiles) {
-    const seeded = await seedFileIfMissing(filename);
+    const seeded = await seedFileIfMissing(filename, workspacePath);
     seededAny = seededAny || seeded;
   }
 
@@ -82,12 +83,12 @@ export async function ensureWorkspaceBootstrap() {
       state.completed = false;
       state.completedAt = null;
     }
-    await writeBootstrapState(state);
+    await writeBootstrapState(state, botHome);
   }
 
-  const bootstrapPath = path.join(WORKSPACE_PATH, "BOOTSTRAP.md");
-  const identityPath = path.join(WORKSPACE_PATH, "IDENTITY.md");
-  const userPath = path.join(WORKSPACE_PATH, "USER.md");
+  const bootstrapPath = path.join(workspacePath, "BOOTSTRAP.md");
+  const identityPath = path.join(workspacePath, "IDENTITY.md");
+  const userPath = path.join(workspacePath, "USER.md");
 
   const bootstrapExists = await fileExists(bootstrapPath);
   const identityContent = await readFile(identityPath, "utf8").catch(() => "");
@@ -104,7 +105,7 @@ export async function ensureWorkspaceBootstrap() {
       completed,
       completedAt: completed ? state.completedAt || new Date().toISOString() : null,
     };
-    await writeBootstrapState(nextState);
+    await writeBootstrapState(nextState, botHome);
     return {
       seededAny,
       bootstrapPending: !completed,
@@ -125,11 +126,12 @@ export async function ensureWorkspaceBootstrap() {
   };
 }
 
-export async function completeBootstrap(answers) {
-  const identityPath = path.join(WORKSPACE_PATH, "IDENTITY.md");
-  const userPath = path.join(WORKSPACE_PATH, "USER.md");
-  const soulPath = path.join(WORKSPACE_PATH, "SOUL.md");
-  const bootstrapPath = path.join(WORKSPACE_PATH, "BOOTSTRAP.md");
+export async function completeBootstrap(answers, botHome = undefined) {
+  const workspacePath = getWorkspacePath(botHome);
+  const identityPath = path.join(workspacePath, "IDENTITY.md");
+  const userPath = path.join(workspacePath, "USER.md");
+  const soulPath = path.join(workspacePath, "SOUL.md");
+  const bootstrapPath = path.join(workspacePath, "BOOTSTRAP.md");
 
   const identityContent = await readFile(identityPath, "utf8");
   const userContent = await readFile(userPath, "utf8");
@@ -185,11 +187,11 @@ export async function completeBootstrap(answers) {
 
   const nextState = {
     ...createDefaultBootstrapState(),
-    ...(await readBootstrapState()),
+    ...(await readBootstrapState(botHome)),
     completed: true,
     completedAt: new Date().toISOString(),
   };
-  await writeBootstrapState(nextState);
+  await writeBootstrapState(nextState, botHome);
 
-  return await ensureWorkspaceBootstrap();
+  return await ensureWorkspaceBootstrap(botHome);
 }

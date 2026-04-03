@@ -1,5 +1,7 @@
 # Telegram + Codex 全天候专属 AI 助理设计草案
 
+> Historical draft. This design contains pre-runtime-refactor assumptions and should not be treated as the current implementation contract.
+
 ## 1. 目标
 
 你要做的不是再造一个新的 agent 内核，而是给 Codex 套一个“全天候编排壳”。

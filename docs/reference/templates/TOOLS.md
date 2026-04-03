@@ -7,9 +7,10 @@ It is not a skills registry.
 ## Local Paths
 
 - AutoAide home: `~/.autoaide`
-- Workspace: `~/.autoaide/workspace`
-- Telegram state: `~/.autoaide/telegram`
-- Logs: `~/.autoaide/logs`
+- Default bot home: `~/.autoaide/bots/default`
+- Workspace: `~/.autoaide/bots/default/workspace`
+- Telegram state: `~/.autoaide/bots/default/telegram`
+- Logs: `~/.autoaide/bots/default/logs`
 
 ## Runtime Notes
 
@@ -24,7 +25,7 @@ Write machine-specific notes here, for example:
 ## Current Defaults
 
 - AutoAide runs from the CLI entrypoint: `autoaide`
-- Codex is the current backend
+- Codex is the current execution engine
 - Telegram is the first supported external channel
 
 Update this file when local operational reality changes.

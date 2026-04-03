@@ -5,6 +5,21 @@ import { WORKSPACE_PATH } from "./config.mjs";
 const DEFAULT_START_COMMAND = "codex exec --skip-git-repo-check --json -";
 const DEFAULT_RESUME_TEMPLATE = "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -";
 
+function shellQuote(value) {
+  return `'${String(value).replaceAll("'", `'\"'\"'`)}'`;
+}
+
+function commandHasModel(command) {
+  return /(^|\s)(-m|--model)\s/.test(command) || /(^|\s)(-c|--config)\s+model=/.test(command);
+}
+
+function applyModelToCommand(command, model) {
+  if (!model || commandHasModel(command)) {
+    return command;
+  }
+  return `${command} --model ${shellQuote(model)}`;
+}
+
 function useLoginShell() {
   const raw = process.env.AUTOAIDE_LOGIN_SHELL?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
@@ -24,12 +39,15 @@ export function getShellSpec() {
 }
 
 export function buildCommandConfig(config) {
+  const model = config.runtime?.model || "gpt-5.4";
   return {
     cwd: process.env.CODEX_CWD?.trim() || WORKSPACE_PATH,
-    startCommand: process.env.CODEX_START_COMMAND?.trim() || DEFAULT_START_COMMAND,
-    resumeTemplate:
+    startCommand: applyModelToCommand(process.env.CODEX_START_COMMAND?.trim() || DEFAULT_START_COMMAND, model),
+    resumeTemplate: applyModelToCommand(
       process.env.CODEX_RESUME_COMMAND_TEMPLATE?.trim() || DEFAULT_RESUME_TEMPLATE,
-    model: config.model || "gpt-5.4",
+      model,
+    ),
+    model,
   };
 }
 
