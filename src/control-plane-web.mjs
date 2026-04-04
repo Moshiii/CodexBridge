@@ -1,4 +1,6 @@
 import http from "node:http";
+import path from "node:path";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { URL } from "node:url";
 
 import {
@@ -18,8 +20,36 @@ import {
   stopBot,
   updateBotConfig,
 } from "./bots.mjs";
-import { readActiveBotId } from "./config.mjs";
+import {
+  getSkillsPath,
+  getTelegramBridgeLogPath,
+  getWorkspacePath,
+  readActiveBotId,
+  readCliState,
+  readConfig,
+  writeCliState,
+} from "./config.mjs";
+import { buildCommandConfig, startCliTurn } from "./codex-runner.mjs";
+import { startGoalRun } from "./goal-runner.mjs";
+import { createGoalRecord, listGoals, readGoal, writeGoal } from "./goals-state.mjs";
+import { createScheduleRecord, getScheduleById, listSchedules, upsertSchedule } from "./schedules-state.mjs";
+import { installSkillFromPath } from "./skills.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
+import { pairTelegramChannel } from "./telegram-pairing.mjs";
+import { buildWorkspacePrompt } from "./workspace-context.mjs";
+
+const PLACEHOLDER_TOKEN_PATTERNS = [
+  /^token-\d+$/i,
+  /^your[-_\s]?telegram[-_\s]?token$/i,
+  /^your[-_\s]?token[-_\s]?here$/i,
+  /^placeholder$/i,
+  /^changeme$/i,
+  /^example/i,
+  /^test[-_\s]?token/i,
+];
+const DEFAULT_WEB_CHAT_POLL_MS = 500;
+const activeChatRuns = new Map();
+const activeGoalRuns = new Map();
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -59,6 +89,469 @@ async function readJsonBody(request) {
   }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
   return raw ? JSON.parse(raw) : {};
+}
+
+function nowIso() {
+  return new Date().toISOString();
+}
+
+function isPlaceholderToken(value) {
+  const token = String(value || "").trim();
+  if (!token) {
+    return false;
+  }
+  return PLACEHOLDER_TOKEN_PATTERNS.some((pattern) => pattern.test(token));
+}
+
+function assertSafeTelegramToken(token) {
+  if (isPlaceholderToken(token)) {
+    throw new Error("Refusing to save placeholder Telegram token.");
+  }
+}
+
+function getRunKey(botId, sessionLabel) {
+  return `${botId}:${sessionLabel}`;
+}
+
+async function getBotHome(botId) {
+  const detail = await inspectBot(botId);
+  return detail.bot.homePath;
+}
+
+async function withBotHome(botHome, work) {
+  const previousBotHome = process.env.BOT_HOME;
+  process.env.BOT_HOME = botHome;
+  try {
+    return await work();
+  } finally {
+    if (previousBotHome == null) {
+      delete process.env.BOT_HOME;
+    } else {
+      process.env.BOT_HOME = previousBotHome;
+    }
+  }
+}
+
+async function readBridgeLogs(botId, lines = 200) {
+  const detail = await inspectBot(botId);
+  const logPath = getTelegramBridgeLogPath(detail.bot.homePath);
+  const raw = await readFile(logPath, "utf8").catch(() => "");
+  const chunks = raw.trimEnd().split(/\r?\n/).filter(Boolean);
+  return {
+    logPath,
+    content: chunks.slice(-lines).join("\n"),
+  };
+}
+
+async function readBotSessions(botId) {
+  const botHome = await getBotHome(botId);
+  const cliState = await readCliState(botHome);
+  const sessions = Object.values(cliState.sessions ?? {}).sort((a, b) => a.label.localeCompare(b.label));
+  return {
+    activeSessionLabel: cliState.activeSessionLabel,
+    sessions,
+  };
+}
+
+async function createBotSession(botId, label) {
+  const nextLabel = String(label || "").trim();
+  if (!nextLabel) {
+    throw new Error("Session label is required.");
+  }
+  const botHome = await getBotHome(botId);
+  const cliState = await readCliState(botHome);
+  if (!cliState.sessions[nextLabel]) {
+    const timestamp = nowIso();
+    cliState.sessions[nextLabel] = {
+      label: nextLabel,
+      cliSessionRef: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }
+  cliState.activeSessionLabel = nextLabel;
+  cliState.sessions[nextLabel].updatedAt = nowIso();
+  await writeCliState(cliState, botHome);
+  return await readBotSessions(botId);
+}
+
+async function activateBotSession(botId, label) {
+  const nextLabel = String(label || "").trim();
+  if (!nextLabel) {
+    throw new Error("Session label is required.");
+  }
+  const botHome = await getBotHome(botId);
+  const cliState = await readCliState(botHome);
+  if (!cliState.sessions[nextLabel]) {
+    throw new Error(`Unknown session: ${nextLabel}`);
+  }
+  cliState.activeSessionLabel = nextLabel;
+  cliState.sessions[nextLabel].updatedAt = nowIso();
+  await writeCliState(cliState, botHome);
+  return await readBotSessions(botId);
+}
+
+function summarizeRun(run) {
+  if (!run) {
+    return {
+      running: false,
+      status: "idle",
+      prompt: "",
+      output: "",
+      error: null,
+      sessionLabel: null,
+      startedAt: null,
+      finishedAt: null,
+    };
+  }
+  return {
+    running: run.status === "running",
+    status: run.status,
+    prompt: run.prompt,
+    output: run.output,
+    error: run.error,
+    sessionLabel: run.sessionLabel,
+    startedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+  };
+}
+
+async function readChatStatus(botId, sessionLabel = null) {
+  const sessions = await readBotSessions(botId);
+  const label = sessionLabel || sessions.activeSessionLabel || "main";
+  const run = activeChatRuns.get(getRunKey(botId, label));
+  return {
+    ...summarizeRun(run),
+    sessionLabel: label,
+    activeSessionLabel: sessions.activeSessionLabel,
+  };
+}
+
+async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
+  const nextPrompt = String(prompt || "").trim();
+  if (!nextPrompt) {
+    throw new Error("Prompt is required.");
+  }
+  const botHome = await getBotHome(botId);
+  const config = await readConfig(botHome);
+  const cliState = await readCliState(botHome);
+  const label = sessionLabel || cliState.activeSessionLabel || "main";
+  if (!cliState.sessions[label]) {
+    const timestamp = nowIso();
+    cliState.sessions[label] = {
+      label,
+      cliSessionRef: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+  }
+  cliState.activeSessionLabel = label;
+  await writeCliState(cliState, botHome);
+
+  const key = getRunKey(botId, label);
+  const existing = activeChatRuns.get(key);
+  if (existing?.status === "running") {
+    throw new Error(`Session ${label} is already running.`);
+  }
+
+  const session = cliState.sessions[label];
+  const commandConfig = {
+    ...buildCommandConfig(config),
+    cwd: getWorkspacePath(botHome),
+  };
+  const run = {
+    botId,
+    sessionLabel: label,
+    prompt: nextPrompt,
+    startedAt: nowIso(),
+    finishedAt: null,
+    status: "running",
+    output: "",
+    error: null,
+    child: null,
+  };
+  activeChatRuns.set(key, run);
+
+  const started = startCliTurn(await buildWorkspacePrompt(nextPrompt, { botHome }), session.cliSessionRef, commandConfig);
+  run.child = started.child;
+  void started.result.then(async (result) => {
+    const latestState = await readCliState(botHome);
+    latestState.sessions[label] = {
+      ...(latestState.sessions[label] ?? session),
+      label,
+      cliSessionRef: result.cliSessionRef || latestState.sessions[label]?.cliSessionRef || null,
+      createdAt: latestState.sessions[label]?.createdAt || session.createdAt || nowIso(),
+      updatedAt: nowIso(),
+    };
+    latestState.activeSessionLabel = label;
+    await writeCliState(latestState, botHome);
+    run.finishedAt = nowIso();
+    run.child = null;
+    if (result.ok) {
+      run.status = "completed";
+      run.output = result.output || "";
+      return;
+    }
+    run.status = result.signal ? "stopped" : "failed";
+    run.error = [result.output, result.stderr].filter(Boolean).join("\n\n") || "Chat run failed.";
+  }).catch((error) => {
+    run.finishedAt = nowIso();
+    run.child = null;
+    run.status = "failed";
+    run.error = error.message;
+  });
+
+  return await readChatStatus(botId, label);
+}
+
+async function stopBotChat(botId, sessionLabel = null) {
+  const status = await readChatStatus(botId, sessionLabel);
+  const run = activeChatRuns.get(getRunKey(botId, status.sessionLabel));
+  if (!run || run.status !== "running" || !run.child) {
+    return status;
+  }
+  run.child.kill("SIGINT");
+  return await readChatStatus(botId, status.sessionLabel);
+}
+
+function listWorkspaceFilesFrom(entries, prefix = "") {
+  return entries.flatMap((entry) => {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      return [{ path: relative, type: "dir" }];
+    }
+    return [{ path: relative, type: "file" }];
+  });
+}
+
+async function listWorkspaceFiles(botId) {
+  const botHome = await getBotHome(botId);
+  const workspacePath = getWorkspacePath(botHome);
+  const entries = await readdir(workspacePath, { withFileTypes: true }).catch(() => []);
+  return listWorkspaceFilesFrom(entries)
+    .filter((entry) => entry.path !== "memory")
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+async function readWorkspaceFileForBot(botId, relativePath) {
+  const botHome = await getBotHome(botId);
+  const workspacePath = getWorkspacePath(botHome);
+  const sanitized = path.normalize(String(relativePath || "")).replace(/^(\.\.(\/|\\|$))+/, "");
+  if (!sanitized || sanitized.startsWith("..")) {
+    throw new Error("Workspace file path is required.");
+  }
+  const filePath = path.join(workspacePath, sanitized);
+  const content = await readFile(filePath, "utf8");
+  return {
+    path: sanitized,
+    content,
+  };
+}
+
+async function writeWorkspaceFileForBot(botId, relativePath, content) {
+  const botHome = await getBotHome(botId);
+  const workspacePath = getWorkspacePath(botHome);
+  const sanitized = path.normalize(String(relativePath || "")).replace(/^(\.\.(\/|\\|$))+/, "");
+  if (!sanitized || sanitized.startsWith("..")) {
+    throw new Error("Workspace file path is required.");
+  }
+  const filePath = path.join(workspacePath, sanitized);
+  await writeFile(filePath, String(content ?? ""), "utf8");
+  return {
+    path: sanitized,
+    content: await readFile(filePath, "utf8"),
+  };
+}
+
+async function listBotSkills(botId) {
+  const botHome = await getBotHome(botId);
+  const skillsPath = getSkillsPath(botHome);
+  let entries = [];
+  try {
+    entries = await readdir(skillsPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const skills = (
+    await Promise.all(
+      entries
+        .filter((entry) => entry.isDirectory())
+        .map(async (entry) => {
+          const skillPath = path.join(skillsPath, entry.name, "SKILL.md");
+          const raw = await readFile(skillPath, "utf8").catch(() => "");
+          const matchName = raw.match(/^name:\s*(.+)$/m);
+          const matchDescription = raw.match(/^description:\s*(.+)$/m);
+          return {
+            id: entry.name,
+            name: matchName?.[1]?.trim() || entry.name,
+            description: matchDescription?.[1]?.trim() || "No description.",
+            path: skillPath,
+          };
+        }),
+    )
+  ).filter(Boolean);
+  return skills.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+async function installSkillForBot(botId, sourcePath) {
+  const botHome = await getBotHome(botId);
+  return await withBotHome(botHome, async () => await installSkillFromPath(sourcePath, { force: true }));
+}
+
+async function pairTelegramForBot(botId, token) {
+  const nextToken = String(token || "").trim();
+  if (!nextToken) {
+    throw new Error("Telegram token is required.");
+  }
+  assertSafeTelegramToken(nextToken);
+  const botHome = await getBotHome(botId);
+  const paired = await pairTelegramChannel(nextToken);
+  await updateBotConfig(botId, (currentConfig) => {
+    const existingGroupUserIds = currentConfig.channels?.telegram?.groups?.allowedUserIds ?? [];
+    return {
+      ...currentConfig,
+      enabled: true,
+      channels: {
+        ...currentConfig.channels,
+        telegram: {
+          ...(currentConfig.channels?.telegram ?? {}),
+          enabled: true,
+          botToken: nextToken,
+          botUsername: paired.botUsername || currentConfig.channels?.telegram?.botUsername || "",
+          metadata: {
+            chats: {
+              ...(currentConfig.channels?.telegram?.metadata?.chats ?? {}),
+              [paired.chatId]: {
+                type: "private",
+                username: paired.userUsername ?? null,
+                label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
+              },
+            },
+            users: {
+              ...(currentConfig.channels?.telegram?.metadata?.users ?? {}),
+              [paired.userId]: {
+                username: paired.userUsername ?? null,
+                label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
+              },
+            },
+          },
+          private: {
+            allowedChatIds: [paired.chatId],
+          },
+          groups: {
+            allowedChatIds: currentConfig.channels?.telegram?.groups?.allowedChatIds ?? [],
+            allowedUserIds: Array.from(new Set([...existingGroupUserIds, paired.userId])),
+            requireExplicitMention: currentConfig.channels?.telegram?.groups?.requireExplicitMention ?? true,
+          },
+        },
+      },
+    };
+  });
+  const detail = await getBotControlPlaneDetail(botId);
+  return {
+    chatId: paired.chatId,
+    userId: paired.userId,
+    botUsername: paired.botUsername,
+    detail,
+  };
+}
+
+function applySafeConfigPatch(currentConfig, patch) {
+  const nextConfig = deepMergeConfig(currentConfig, patch);
+  const nextToken = nextConfig.channels?.telegram?.botToken;
+  const currentToken = currentConfig.channels?.telegram?.botToken || "";
+  if (typeof nextToken === "string" && nextToken.trim() !== currentToken.trim()) {
+    if (!nextToken.trim()) {
+      return nextConfig;
+    }
+    assertSafeTelegramToken(nextToken);
+  }
+  return nextConfig;
+}
+
+async function listBotGoals(botId) {
+  const botHome = await getBotHome(botId);
+  return await withBotHome(botHome, async () => await listGoals({ limit: 40 }));
+}
+
+async function startGoalForBot(botId, { objective, sessionLabel = null } = {}) {
+  const nextObjective = String(objective || "").trim();
+  if (!nextObjective) {
+    throw new Error("Goal objective is required.");
+  }
+  const botHome = await getBotHome(botId);
+  const sessions = await readCliState(botHome);
+  const label = sessionLabel || sessions.activeSessionLabel || "main";
+  const goal = createGoalRecord({
+    objective: nextObjective,
+    chatId: botId,
+    sessionLabel: label,
+    channel: "web",
+  });
+  await withBotHome(botHome, async () => await writeGoal(goal));
+  const config = await readConfig(botHome);
+  const commandConfig = {
+    ...buildCommandConfig(config),
+    cwd: getWorkspacePath(botHome),
+  };
+  const run = startGoalRun(goal, {
+    commandConfig,
+    persistGoal: async (nextGoal) => await withBotHome(botHome, async () => await writeGoal(nextGoal)),
+    notify: async () => {},
+    onGoalStarted: (startedGoal, controller) => {
+      activeGoalRuns.set(startedGoal.id, { controller, botId });
+    },
+  });
+  void run.result.finally(() => activeGoalRuns.delete(goal.id));
+  return goal;
+}
+
+async function stopGoalForBot(botId, goalId) {
+  const botHome = await getBotHome(botId);
+  const active = activeGoalRuns.get(goalId);
+  if (active?.botId !== botId) {
+    return await withBotHome(botHome, async () => await readGoal(goalId));
+  }
+  active.controller.stopRequested = true;
+  active.controller.activeChild?.kill("SIGINT");
+  return await withBotHome(botHome, async () => await readGoal(goalId));
+}
+
+async function listBotSchedules(botId) {
+  const botHome = await getBotHome(botId);
+  return await withBotHome(botHome, async () => await listSchedules());
+}
+
+async function createScheduleForBot(botId, { objective, cron, timezone } = {}) {
+  const nextObjective = String(objective || "").trim();
+  const nextCron = String(cron || "").trim();
+  const nextTimezone = String(timezone || "").trim() || "Asia/Shanghai";
+  if (!nextObjective || !nextCron) {
+    throw new Error("Schedule objective and cron are required.");
+  }
+  const botHome = await getBotHome(botId);
+  return await withBotHome(botHome, async () => {
+    const schedule = createScheduleRecord({
+      chatId: botId,
+      objective: nextObjective,
+      cron: nextCron,
+      timezone: nextTimezone,
+    });
+    return await upsertSchedule(schedule);
+  });
+}
+
+async function toggleScheduleForBot(botId, scheduleId, enabled) {
+  const botHome = await getBotHome(botId);
+  return await withBotHome(botHome, async () => {
+    const schedule = await getScheduleById(scheduleId);
+    if (!schedule) {
+      throw new Error(`Unknown schedule: ${scheduleId}`);
+    }
+    schedule.enabled = enabled;
+    schedule.updatedAt = nowIso();
+    return await upsertSchedule(schedule);
+  });
 }
 
 export async function getControlPlaneSnapshot() {
@@ -116,159 +609,300 @@ function renderHtmlPage() {
     <title>AutoAide Control Plane</title>
     <style>
       :root {
-        --bg: #f3efe7;
-        --bg-accent: #e7dcc7;
-        --panel: #fffaf2;
-        --panel-strong: #fffdf8;
-        --line: #d9ccb7;
-        --text: #1d1a16;
-        --muted: #685f52;
-        --accent: #0d6b52;
-        --accent-soft: #d7efe7;
-        --danger: #9d2f2f;
-        --warn: #8a5a18;
-        --shadow: 0 10px 30px rgba(29, 26, 22, 0.07);
+        --bg-0: #09100e;
+        --bg-1: #0d1512;
+        --bg-2: #111a17;
+        --panel-0: rgba(18, 29, 25, 0.92);
+        --panel-1: rgba(22, 35, 31, 0.94);
+        --panel-2: rgba(26, 41, 36, 0.96);
+        --line-0: #20332d;
+        --line-1: #2a433b;
+        --text-0: #e4f2ec;
+        --text-1: #b8cbc3;
+        --text-2: #7e958d;
+        --accent-0: #37f3c8;
+        --accent-1: #7cff5b;
+        --warn-0: #f6b73c;
+        --danger-0: #e85d4f;
+        --shadow-soft: 0 18px 48px rgba(0, 0, 0, 0.35);
+        --glow-accent: 0 0 18px rgba(55, 243, 200, 0.14);
       }
       * { box-sizing: border-box; }
+      html { color-scheme: dark; }
       body {
         margin: 0;
-        font-family: Georgia, "Iowan Old Style", serif;
+        color: var(--text-0);
+        font-family: "IBM Plex Sans Condensed", "Rajdhani", "Segoe UI", sans-serif;
         background:
-          radial-gradient(circle at top left, #fffdf7, transparent 28%),
-          linear-gradient(135deg, var(--bg), var(--bg-accent));
-        color: var(--text);
+          radial-gradient(circle at top left, rgba(55, 243, 200, 0.06), transparent 26%),
+          radial-gradient(circle at top right, rgba(124, 255, 91, 0.05), transparent 24%),
+          linear-gradient(180deg, var(--bg-0), var(--bg-1) 34%, var(--bg-2));
+        min-height: 100vh;
+        position: relative;
+      }
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background:
+          linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+        background-size: 100% 28px, 28px 100%;
+        opacity: 0.18;
+      }
+      body::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background: linear-gradient(180deg, rgba(255,255,255,0.035), transparent 12%, transparent 88%, rgba(255,255,255,0.03));
+        mix-blend-mode: soft-light;
+        opacity: 0.3;
       }
       main {
-        max-width: 1480px;
+        max-width: 1680px;
         margin: 0 auto;
-        padding: 24px 18px 40px;
+        padding: 18px 18px 26px;
+        position: relative;
+        z-index: 1;
       }
       h1, h2, h3 { margin: 0; }
-      .subtle { color: var(--muted); }
-      .app-shell {
-        display: grid;
-        grid-template-columns: 280px 1fr;
-        gap: 18px;
-        margin-top: 18px;
+      h1, h2, h3, .metric-value, .tab {
+        font-family: "Rajdhani", "IBM Plex Sans Condensed", sans-serif;
+        letter-spacing: 0.03em;
+      }
+      .subtle { color: var(--text-2); }
+      .panel,
+      .card,
+      .metric,
+      .list-item,
+      pre,
+      textarea,
+      input,
+      select,
+      .modal {
+        backdrop-filter: blur(10px);
       }
       .panel {
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 20px;
-        padding: 18px;
-        box-shadow: var(--shadow);
+        background: linear-gradient(180deg, rgba(25, 38, 34, 0.92), rgba(16, 26, 22, 0.94));
+        border: 1px solid var(--line-0);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: var(--shadow-soft);
+        position: relative;
+        overflow: hidden;
+      }
+      .panel::before,
+      .card::before,
+      .metric::before,
+      .list-item::before,
+      .modal::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        border-radius: inherit;
+        pointer-events: none;
+        border: 1px solid rgba(255,255,255,0.03);
       }
       .topbar {
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: 1.1fr auto;
         gap: 16px;
-        align-items: center;
+        align-items: start;
+        min-height: 110px;
       }
       .headline {
         display: flex;
         flex-direction: column;
-        gap: 6px;
+        gap: 10px;
+      }
+      .eyebrow {
+        color: var(--accent-0);
+        text-transform: uppercase;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+      }
+      .headline h1 {
+        font-size: 36px;
+        line-height: 0.95;
       }
       .status-strip {
         display: flex;
         flex-wrap: wrap;
         gap: 8px;
+        justify-content: flex-end;
       }
       .pill {
-        display: inline-block;
-        padding: 4px 10px;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 11px;
         border-radius: 999px;
-        border: 1px solid var(--line);
+        border: 1px solid var(--line-1);
         font-size: 12px;
-        background: #fff;
+        color: var(--text-1);
+        background: rgba(7, 14, 12, 0.75);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+      .pill::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 999px;
+        background: var(--text-2);
+        box-shadow: 0 0 8px rgba(255,255,255,0.08);
       }
       .pill.accent {
-        background: var(--accent-soft);
-        border-color: #b5d9ce;
-        color: #124d3f;
+        color: var(--accent-0);
+        border-color: rgba(55, 243, 200, 0.38);
+        box-shadow: inset 0 0 0 1px rgba(55, 243, 200, 0.08), var(--glow-accent);
+      }
+      .pill.accent::before {
+        background: var(--accent-0);
+        box-shadow: 0 0 10px rgba(55, 243, 200, 0.5);
       }
       .pill.danger {
-        color: var(--danger);
-        border-color: #e1b9b9;
-        background: #fff3f3;
+        color: var(--danger-0);
+        border-color: rgba(232, 93, 79, 0.38);
+      }
+      .pill.danger::before {
+        background: var(--danger-0);
+        box-shadow: 0 0 10px rgba(232, 93, 79, 0.38);
       }
       button {
-        border: 1px solid var(--line);
-        background: white;
-        color: var(--text);
-        border-radius: 999px;
-        padding: 8px 14px;
+        appearance: none;
+        border: 1px solid var(--line-1);
+        background: linear-gradient(180deg, rgba(17, 28, 24, 0.94), rgba(10, 17, 15, 0.96));
+        color: var(--text-0);
+        border-radius: 12px;
+        padding: 10px 14px;
         cursor: pointer;
-        margin-right: 8px;
-        margin-bottom: 8px;
         font: inherit;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        transition: border-color 140ms ease, transform 140ms ease, box-shadow 140ms ease, color 140ms ease;
+      }
+      button:hover {
+        border-color: rgba(55, 243, 200, 0.35);
+        box-shadow: var(--glow-accent);
+        transform: translateY(-1px);
       }
       button.primary {
-        background: var(--accent);
-        color: white;
-        border-color: var(--accent);
+        color: #03110d;
+        border-color: rgba(55, 243, 200, 0.62);
+        background: linear-gradient(180deg, var(--accent-0), #1fcba5);
+        box-shadow: 0 0 16px rgba(55, 243, 200, 0.22);
       }
       button.danger {
-        color: var(--danger);
+        color: var(--danger-0);
       }
       button.ghost {
         background: transparent;
       }
       pre {
-        background: #f7f2e9;
-        border: 1px solid var(--line);
-        border-radius: 12px;
-        padding: 12px;
+        background: linear-gradient(180deg, rgba(9, 15, 13, 0.96), rgba(12, 19, 16, 0.98));
+        border: 1px solid var(--line-0);
+        border-radius: 14px;
+        padding: 13px 14px;
         overflow: auto;
         white-space: pre-wrap;
+        color: var(--text-1);
+        font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+        font-size: 12px;
+        line-height: 1.55;
       }
       textarea, input, select {
         width: 100%;
-        border: 1px solid var(--line);
+        border: 1px solid var(--line-0);
         border-radius: 12px;
         padding: 10px 12px;
-        background: var(--panel-strong);
-        color: var(--text);
+        background: linear-gradient(180deg, rgba(11, 18, 16, 0.96), rgba(14, 23, 20, 0.96));
+        color: var(--text-0);
         font: inherit;
       }
       textarea {
-        min-height: 180px;
+        min-height: 220px;
         resize: vertical;
+        font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+        line-height: 1.5;
       }
-      .fleet-rail {
+      input::placeholder,
+      textarea::placeholder {
+        color: #5f776f;
+      }
+      .app-shell {
+        display: grid;
+        grid-template-columns: 300px minmax(0, 1fr) 340px;
+        gap: 16px;
+        margin-top: 16px;
+        align-items: start;
+      }
+      .fleet-rail,
+      .main-panel,
+      .side-panel {
         display: flex;
         flex-direction: column;
         gap: 14px;
       }
-      .fleet-list {
+      .fleet-list,
+      .list {
         display: flex;
         flex-direction: column;
         gap: 10px;
       }
-      .bot-row {
-        border: 1px solid var(--line);
-        border-radius: 16px;
+      .bot-row,
+      .list-item {
+        border: 1px solid var(--line-0);
+        border-radius: 14px;
         padding: 12px;
-        background: #fffdf8;
+        background: linear-gradient(180deg, rgba(15, 24, 21, 0.98), rgba(10, 16, 14, 0.98));
+        position: relative;
+      }
+      .bot-row {
         cursor: pointer;
       }
       .bot-row.current {
-        border-color: #0d6b52;
-        box-shadow: inset 0 0 0 1px #0d6b52;
+        border-color: rgba(55, 243, 200, 0.5);
+        box-shadow: inset 0 0 0 1px rgba(55, 243, 200, 0.14), var(--glow-accent);
       }
-      .main-panel {
+      .muted-box {
+        border: 1px dashed var(--line-1);
+        border-radius: 14px;
+        padding: 13px;
+        color: var(--text-2);
+        background: rgba(7, 14, 12, 0.52);
+        line-height: 1.55;
+      }
+      .section-title {
         display: flex;
-        flex-direction: column;
-        gap: 18px;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .section-kicker {
+        color: var(--accent-0);
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        margin-bottom: 6px;
       }
       .bot-hero {
         display: grid;
         grid-template-columns: 1fr auto;
-        gap: 16px;
+        gap: 18px;
         align-items: start;
       }
       .hero-actions {
-        text-align: right;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+        min-width: 260px;
+      }
+      .mode-panel {
+        padding: 12px;
       }
       .tabs {
         display: flex;
@@ -276,16 +910,19 @@ function renderHtmlPage() {
         gap: 8px;
       }
       .tab {
-        padding: 9px 14px;
-        border-radius: 999px;
-        border: 1px solid var(--line);
-        background: #fff;
+        padding: 8px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line-0);
+        background: rgba(11, 18, 16, 0.9);
         cursor: pointer;
+        color: var(--text-1);
+        text-transform: uppercase;
+        font-size: 13px;
       }
       .tab.active {
-        background: var(--accent);
-        color: white;
-        border-color: var(--accent);
+        color: var(--accent-0);
+        border-color: rgba(55, 243, 200, 0.45);
+        box-shadow: inset 0 0 0 1px rgba(55, 243, 200, 0.11), var(--glow-accent);
       }
       .tab-panel {
         display: none;
@@ -293,83 +930,65 @@ function renderHtmlPage() {
       .tab-panel.active {
         display: block;
       }
-      .card-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-      }
       .overview-metrics {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 14px;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
         margin-bottom: 14px;
       }
       .metric {
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 14px 16px;
-        background: linear-gradient(180deg, #fffdf8, #fbf5eb);
+        border: 1px solid var(--line-0);
+        border-radius: 14px;
+        padding: 14px;
+        background: linear-gradient(180deg, rgba(15, 24, 21, 0.96), rgba(10, 16, 14, 0.98));
+        position: relative;
       }
       .metric-label {
-        font-size: 12px;
-        color: var(--muted);
+        font-size: 11px;
+        color: var(--text-2);
         text-transform: uppercase;
-        letter-spacing: 0.06em;
+        letter-spacing: 0.16em;
       }
       .metric-value {
-        margin-top: 8px;
-        font-size: 24px;
-        line-height: 1.1;
+        margin-top: 10px;
+        font-size: 26px;
+        line-height: 1;
+      }
+      .card-grid,
+      .two-col,
+      .chat-shell {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .chat-shell {
+        grid-template-columns: 280px 1fr;
       }
       .card {
-        border: 1px solid var(--line);
-        border-radius: 16px;
-        padding: 16px;
-        background: #fffdf8;
+        border: 1px solid var(--line-0);
+        border-radius: 14px;
+        padding: 14px;
+        background: linear-gradient(180deg, rgba(15, 24, 21, 0.98), rgba(10, 16, 14, 0.98));
         min-width: 0;
+        position: relative;
       }
       .kv {
         display: grid;
-        grid-template-columns: 160px 1fr;
-        gap: 8px 14px;
+        grid-template-columns: 132px 1fr;
+        gap: 8px 12px;
         margin-top: 10px;
         min-width: 0;
       }
       .kv div:nth-child(odd) {
-        color: var(--muted);
+        color: var(--text-2);
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.12em;
       }
       .kv div:nth-child(even) {
         min-width: 0;
         overflow-wrap: anywhere;
         word-break: break-word;
-      }
-      .two-col {
-        display: grid;
-        grid-template-columns: 1.15fr 0.85fr;
-        gap: 14px;
-      }
-      .chat-shell {
-        display: grid;
-        grid-template-columns: 260px 1fr;
-        gap: 14px;
-      }
-      .list {
-        display: flex;
-        flex-direction: column;
-        gap: 10px;
-      }
-      .list-item {
-        border: 1px solid var(--line);
-        border-radius: 14px;
-        padding: 12px;
-        background: #fff;
-      }
-      .muted-box {
-        border: 1px dashed var(--line);
-        border-radius: 14px;
-        padding: 14px;
-        color: var(--muted);
-        background: rgba(255,255,255,0.45);
       }
       .toolbar {
         display: flex;
@@ -377,21 +996,40 @@ function renderHtmlPage() {
         gap: 8px;
         margin-top: 12px;
       }
-      .section-title {
+      .badge-row {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 12px;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .inspector-stack {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .compact-card h3 {
+        margin-bottom: 10px;
+      }
+      .diagnostics {
+        margin-top: 16px;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+      .log-panel pre {
+        min-height: 260px;
+        margin: 0;
       }
       .toast {
         position: fixed;
         right: 18px;
         bottom: 18px;
-        background: #1d1a16;
-        color: white;
+        background: rgba(7, 15, 13, 0.96);
+        color: var(--text-0);
+        border: 1px solid rgba(55, 243, 200, 0.35);
+        box-shadow: var(--glow-accent), var(--shadow-soft);
         padding: 12px 14px;
         border-radius: 14px;
-        box-shadow: var(--shadow);
         max-width: 360px;
         display: none;
         z-index: 20;
@@ -399,7 +1037,7 @@ function renderHtmlPage() {
       .modal-backdrop {
         position: fixed;
         inset: 0;
-        background: rgba(22, 18, 14, 0.35);
+        background: rgba(2, 7, 6, 0.72);
         display: none;
         align-items: center;
         justify-content: center;
@@ -408,34 +1046,54 @@ function renderHtmlPage() {
       }
       .modal {
         width: min(560px, 100%);
-        background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: 20px;
+        background: linear-gradient(180deg, rgba(18, 29, 25, 0.98), rgba(11, 18, 16, 0.98));
+        border: 1px solid var(--line-0);
+        border-radius: 18px;
         padding: 18px;
-        box-shadow: var(--shadow);
+        box-shadow: var(--shadow-soft);
+        position: relative;
       }
       .modal-grid {
         display: grid;
         gap: 12px;
         margin-top: 12px;
       }
-      .badge-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 8px;
+      .divider-title {
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.16em;
+        color: var(--accent-0);
+        margin-bottom: 10px;
+      }
+      @media (max-width: 1320px) {
+        .app-shell {
+          grid-template-columns: 280px 1fr;
+        }
+        .side-panel {
+          grid-column: 1 / -1;
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+        }
       }
       @media (max-width: 1120px) {
         .app-shell,
+        .diagnostics,
         .chat-shell,
         .two-col,
         .card-grid,
+        .topbar,
         .bot-hero,
-        .overview-metrics {
+        .overview-metrics,
+        .side-panel {
           grid-template-columns: 1fr;
         }
         .hero-actions {
-          text-align: left;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          min-width: 0;
+        }
+        .status-strip {
+          justify-content: flex-start;
         }
       }
     </style>
@@ -444,8 +1102,9 @@ function renderHtmlPage() {
     <main>
       <section class="panel topbar">
         <div class="headline">
+          <div class="eyebrow">Autonomous Operations Console</div>
           <h1>AutoAide Web Console</h1>
-          <p class="subtle">Multi-bot operations desktop. Phase-complete UI mock for demos, with current control-plane actions still wired where available.</p>
+          <p class="subtle">Hard-sci-fi local control room for bots, sessions, goals, schedules, workspace files, and live Telegram runtime state.</p>
         </div>
         <div class="status-strip">
           <span class="pill accent" id="top-current-bot">current bot: loading</span>
@@ -456,29 +1115,47 @@ function renderHtmlPage() {
       </section>
 
       <div class="app-shell">
-        <aside class="panel fleet-rail">
-          <div class="section-title">
-            <h2>Fleet</h2>
-            <button class="primary" id="open-create-bot">+ New Bot</button>
-          </div>
-          <div class="muted-box">
-            Phase 1 live:
-            start, stop, restart, config, logs.
-            Phase 2-5 UI below is demo-clickable for stakeholder review.
-          </div>
-          <div id="bots" class="fleet-list">Loading...</div>
-          <div class="toolbar">
-            <button id="demo-current">Set Current</button>
-            <button id="demo-delete" class="danger">Delete</button>
-          </div>
+        <aside class="fleet-rail">
+          <section class="panel">
+            <div class="section-kicker">Fleet</div>
+            <div class="section-title">
+              <h2>Bot Rail</h2>
+              <button class="primary" id="open-create-bot">+ New Bot</button>
+            </div>
+            <div class="muted-box">
+              Canonical bot config stays bot-scoped. Placeholder Telegram tokens are rejected on write.
+            </div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h3>Fleet Nodes</h3>
+            </div>
+            <div id="bots" class="fleet-list">Loading...</div>
+          </section>
+
+          <section class="panel">
+            <div class="section-title">
+              <h3>Global Actions</h3>
+            </div>
+            <div class="toolbar">
+              <button id="fleet-set-current">Set Current</button>
+              <button id="fleet-delete" class="danger">Delete</button>
+            </div>
+          </section>
         </aside>
 
         <section class="main-panel">
+          <div class="section-title">
+            <div>
+              <div class="section-kicker">Current Bot</div>
+              <h2 id="bot-title">Select a bot</h2>
+            </div>
+            <div class="badge-row" id="bot-badges"></div>
+          </div>
           <section class="panel bot-hero">
             <div>
-              <h2 id="bot-title">Select a bot</h2>
               <p class="subtle" id="bot-subtitle">No bot selected.</p>
-              <div class="badge-row" id="bot-badges"></div>
             </div>
             <div class="hero-actions">
               <button class="primary" id="action-start">Start</button>
@@ -489,7 +1166,8 @@ function renderHtmlPage() {
             </div>
           </section>
 
-          <section class="panel">
+          <section class="panel mode-panel">
+            <div class="section-kicker">Work Surface</div>
             <div class="tabs" id="tabs">
               <button class="tab active" data-tab="overview">Overview</button>
               <button class="tab" data-tab="telegram">Telegram</button>
@@ -499,47 +1177,39 @@ function renderHtmlPage() {
               <button class="tab" data-tab="schedules">Schedules</button>
               <button class="tab" data-tab="workspace">Workspace</button>
               <button class="tab" data-tab="skills">Skills</button>
-              <button class="tab" data-tab="logs">Logs</button>
               <button class="tab" data-tab="config">Config</button>
-              <button class="tab" data-tab="rollout">Rollout</button>
             </div>
           </section>
 
           <section class="panel tab-panel active" id="tab-overview">
-            <div class="overview-metrics">
-              <div class="metric">
-                <div class="metric-label">Current Bot</div>
-                <div class="metric-value" id="metric-bot">-</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">Runtime</div>
-                <div class="metric-value" id="metric-runtime">-</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">Telegram</div>
-                <div class="metric-value" id="metric-telegram">-</div>
-              </div>
-              <div class="metric">
-                <div class="metric-label">Model</div>
-                <div class="metric-value" id="metric-model">-</div>
-              </div>
-            </div>
             <div class="card-grid">
               <div class="card">
-                <h3>Runtime</h3>
-                <div class="kv" id="overview-runtime"></div>
+                <div class="section-kicker">Overview</div>
+                <h3>Control Room</h3>
+                <p class="subtle">Use the left rail to switch bots, the center surface to operate on sessions, goals, schedules, workspace, and skills, and the right inspector for system state.</p>
               </div>
               <div class="card">
-                <h3>Telegram</h3>
-                <div class="kv" id="overview-telegram"></div>
+                <div class="section-kicker">Workflow</div>
+                <h3>Recommended Sequence</h3>
+                <pre>1. Select bot
+2. Verify runtime + Telegram state
+3. Open session or create goal
+4. Use diagnostics strip for live faults</pre>
               </div>
               <div class="card">
-                <h3>Workspace</h3>
-                <div class="kv" id="overview-workspace"></div>
+                <div class="section-kicker">Modes</div>
+                <h3>Work Surface</h3>
+                <pre>Sessions: manage session refs
+Chat: run prompt turns
+Goals: long-running work
+Schedules: timed automation
+Workspace: persistent files
+Skills: installed capabilities</pre>
               </div>
               <div class="card">
-                <h3>Recent Error</h3>
-                <pre id="overview-error">No error.</pre>
+                <div class="section-kicker">Diagnostics</div>
+                <h3>Live Console</h3>
+                <p class="subtle">Runtime and bridge logs stay pinned at the bottom so debugging never requires leaving the current work mode.</p>
               </div>
             </div>
           </section>
@@ -554,7 +1224,8 @@ function renderHtmlPage() {
                     <button id="telegram-refresh-meta">Refresh Metadata</button>
                   </div>
                 </div>
-                <div class="kv" id="telegram-pairing"></div>
+                <label>Telegram Bot Token<input id="telegram-token-input" type="password" placeholder="Paste a real BotFather token only" /></label>
+                <div class="kv" id="telegram-pairing-panel"></div>
               </div>
               <div class="card">
                 <h3>Troubleshooting</h3>
@@ -576,15 +1247,13 @@ function renderHtmlPage() {
               </div>
               <div class="card">
                 <div class="section-title">
-                  <h3>Seen Chats</h3>
-                  <button id="demo-seen-chat">Allow Selected</button>
+                  <h3>Known Chats</h3>
                 </div>
                 <div class="list" id="telegram-seen-chats"></div>
               </div>
               <div class="card">
                 <div class="section-title">
-                  <h3>Seen Users</h3>
-                  <button id="demo-seen-user">Allow Selected</button>
+                  <h3>Known Users</h3>
                 </div>
                 <div class="list" id="telegram-seen-users"></div>
               </div>
@@ -594,7 +1263,10 @@ function renderHtmlPage() {
           <section class="panel tab-panel" id="tab-sessions">
             <div class="section-title">
               <h3>Sessions</h3>
-              <button class="primary" id="demo-create-session">Create Session</button>
+              <div class="toolbar" style="margin-top:0;">
+                <input id="session-label-input" placeholder="research-plan" />
+                <button class="primary" id="create-session">Create Session</button>
+              </div>
             </div>
             <div class="list" id="sessions-list"></div>
           </section>
@@ -605,22 +1277,22 @@ function renderHtmlPage() {
                 <h3>Session Context</h3>
                 <div class="kv">
                   <div>Bot</div><div id="chat-bot-name">-</div>
-                  <div>Session</div><div>main</div>
-                  <div>Run state</div><div>idle</div>
+                  <div>Session</div><div id="chat-session-label">main</div>
+                  <div>Run state</div><div id="chat-run-state">idle</div>
                 </div>
                 <div class="toolbar">
-                  <button class="primary" id="demo-run-chat">Run Prompt</button>
-                  <button id="demo-stop-chat">Stop Turn</button>
+                  <button class="primary" id="run-chat">Run Prompt</button>
+                  <button id="stop-chat">Stop Turn</button>
                 </div>
               </div>
               <div class="card">
                 <h3>Composer</h3>
                 <textarea id="chat-input">Summarize the current repo and propose next steps.</textarea>
                 <div class="toolbar">
-                  <button class="primary" id="demo-send-chat">Send</button>
+                  <button class="primary" id="send-chat">Send</button>
                 </div>
                 <h3 style="margin-top:16px;">Output</h3>
-                <pre id="chat-output">Phase 2 UI demo. Hook this to real session execution later.</pre>
+                <pre id="chat-output">No run yet.</pre>
               </div>
             </div>
           </section>
@@ -628,7 +1300,10 @@ function renderHtmlPage() {
           <section class="panel tab-panel" id="tab-goals">
             <div class="section-title">
               <h3>Goals</h3>
-              <button class="primary" id="demo-create-goal">Create Goal</button>
+              <div class="toolbar" style="margin-top:0;">
+                <input id="goal-objective-input" placeholder="Create a research brief for today's market open" />
+                <button class="primary" id="create-goal">Create Goal</button>
+              </div>
             </div>
             <div class="list" id="goals-list"></div>
           </section>
@@ -636,7 +1311,12 @@ function renderHtmlPage() {
           <section class="panel tab-panel" id="tab-schedules">
             <div class="section-title">
               <h3>Schedules</h3>
-              <button class="primary" id="demo-create-schedule">Create Schedule</button>
+              <div class="toolbar" style="margin-top:0;">
+                <input id="schedule-cron-input" placeholder="0 30 9 * * 1-5" />
+                <input id="schedule-timezone-input" placeholder="Asia/Shanghai" value="Asia/Shanghai" />
+                <input id="schedule-objective-input" placeholder="Summarize market open drivers" />
+                <button class="primary" id="create-schedule">Create Schedule</button>
+              </div>
             </div>
             <div class="list" id="schedules-list"></div>
           </section>
@@ -649,9 +1329,11 @@ function renderHtmlPage() {
               </div>
               <div class="card">
                 <h3>Editor</h3>
-                <textarea id="workspace-editor"># IDENTITY.md\n\nPhase 5 UI demo editor.</textarea>
+                <label>Selected File<input id="workspace-file-path" value="IDENTITY.md" /></label>
+                <textarea id="workspace-editor">Loading...</textarea>
                 <div class="toolbar">
-                  <button class="primary" id="demo-save-workspace">Save File</button>
+                  <button id="workspace-open">Open File</button>
+                  <button class="primary" id="save-workspace">Save File</button>
                 </div>
               </div>
             </div>
@@ -660,25 +1342,12 @@ function renderHtmlPage() {
           <section class="panel tab-panel" id="tab-skills">
             <div class="section-title">
               <h3>Skills</h3>
-              <button class="primary" id="demo-install-skill">Install Skill</button>
+              <div class="toolbar" style="margin-top:0;">
+                <input id="skill-source-input" placeholder="/path/to/skill-or-zip" />
+                <button class="primary" id="install-skill">Install Skill</button>
+              </div>
             </div>
             <div class="list" id="skills-list"></div>
-          </section>
-
-          <section class="panel tab-panel" id="tab-logs">
-            <div class="two-col">
-              <div class="card">
-                <div class="section-title">
-                  <h3>Runtime Log</h3>
-                  <button id="logs-refresh">Refresh</button>
-                </div>
-                <pre id="runtime-log">Loading...</pre>
-              </div>
-              <div class="card">
-                <h3>Bridge Notes</h3>
-                <pre id="bridge-log">Phase 1 live log hooked to existing runtime log source. Separate bridge log UI can be connected later.</pre>
-              </div>
-            </div>
           </section>
 
           <section class="panel tab-panel" id="tab-config">
@@ -704,28 +1373,82 @@ function renderHtmlPage() {
               </div>
             </div>
           </section>
+        </section>
 
-          <section class="panel tab-panel" id="tab-rollout">
-            <div class="section-title">
-              <h3>Rollout</h3>
-              <div>
-                <button class="primary" id="demo-restart-all">Restart All</button>
-                <button id="demo-canary">Canary</button>
-                <button id="demo-rollback">Rollback</button>
+        <aside class="side-panel">
+          <section class="panel compact-card">
+            <div class="section-kicker">Inspector</div>
+            <h3>Runtime State</h3>
+            <div class="overview-metrics">
+              <div class="metric">
+                <div class="metric-label">Current Bot</div>
+                <div class="metric-value" id="metric-bot">-</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Runtime</div>
+                <div class="metric-value" id="metric-runtime">-</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Telegram</div>
+                <div class="metric-value" id="metric-telegram">-</div>
+              </div>
+              <div class="metric">
+                <div class="metric-label">Model</div>
+                <div class="metric-value" id="metric-model">-</div>
               </div>
             </div>
-            <div class="card-grid">
-              <div class="card">
-                <h3>Fleet Restart</h3>
-                <p class="subtle">Phase 5 mock surface for restart-all and fleet orchestration.</p>
-              </div>
-              <div class="card">
-                <h3>Canary / Rollback</h3>
-                <p class="subtle">Phase 5 mock surface for staged rollout and rollback coordination.</p>
-              </div>
+            <div class="divider-title">Recent Error</div>
+            <pre id="overview-error">No error.</pre>
+          </section>
+
+          <section class="panel compact-card">
+            <div class="section-kicker">System Summary</div>
+            <h3>Runtime Bus</h3>
+            <div class="kv" id="overview-runtime"></div>
+            <div class="divider-title" style="margin-top:16px;">Workspace Paths</div>
+            <div class="kv" id="overview-workspace"></div>
+          </section>
+
+          <section class="panel compact-card">
+            <div class="section-kicker">Telegram</div>
+            <h3>Access Matrix</h3>
+            <div class="kv" id="overview-telegram"></div>
+            <div class="divider-title" style="margin-top:16px;">Pairing State</div>
+            <div class="kv" id="telegram-pairing-inspector"></div>
+          </section>
+
+          <section class="panel compact-card">
+            <div class="section-kicker">Rollout</div>
+            <h3>Version Control</h3>
+            <div class="modal-grid">
+              <label>Desired Version<input id="rollout-version-input" value="v1" /></label>
+            </div>
+            <div class="toolbar">
+              <button class="primary" id="restart-all">Restart All</button>
+              <button id="run-canary">Canary</button>
+              <button id="run-rollback">Rollback</button>
             </div>
           </section>
-        </section>
+        </aside>
+      </section>
+
+      <section class="diagnostics">
+        <div class="panel log-panel">
+          <div class="section-kicker">Diagnostics</div>
+          <div class="section-title">
+            <h3>Runtime Log</h3>
+            <button id="logs-refresh">Refresh</button>
+          </div>
+          <pre id="runtime-log">Loading...</pre>
+        </div>
+        <div class="panel log-panel">
+          <div class="section-kicker">Diagnostics</div>
+          <div class="section-title">
+            <h3>Bridge Log</h3>
+            <button id="bridge-logs-refresh">Refresh</button>
+          </div>
+          <pre id="bridge-log">Loading...</pre>
+        </div>
       </div>
 
       <div class="toast" id="toast"></div>
@@ -759,7 +1482,7 @@ function renderHtmlPage() {
             <button class="ghost" id="close-demo-modal">Close</button>
           </div>
           <p class="subtle" id="demo-modal-body">This Phase UI is present for demo review and not fully wired yet.</p>
-        </section>
+        </div>
       </div>
     </main>
     <script>
@@ -856,12 +1579,30 @@ function renderHtmlPage() {
         });
       }
 
-      function demoList(items, actionLabel) {
-        return items.map((item) => {
-          return '<div class="list-item"><strong>' + item.title + '</strong><div class="subtle">' + item.meta + '</div>' +
-            (actionLabel ? '<div class="toolbar"><button onclick="window.__demoClick(\\'' + actionLabel + '\\')">' + actionLabel + '</button></div>' : '') +
-            '</div>';
-        }).join("");
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function renderList(items, emptyText) {
+        if (!items.length) {
+          return '<div class="list-item subtle">' + escapeHtml(emptyText) + '</div>';
+        }
+        return items.join("");
+      }
+
+      function renderBotItem(title, meta, buttons = []) {
+        return [
+          '<div class="list-item">',
+          '<strong>' + escapeHtml(title) + '</strong>',
+          '<div class="subtle">' + escapeHtml(meta) + '</div>',
+          buttons.length ? '<div class="toolbar">' + buttons.join("") + '</div>' : '',
+          '</div>',
+        ].join("");
       }
 
       async function loadBots() {
@@ -897,6 +1638,7 @@ function renderHtmlPage() {
         document.getElementById("config-model").value = config.runtime?.model || "";
         document.getElementById("config-bot-username").value = config.channels?.telegram?.botUsername || "";
         document.getElementById("config-mention-required").value = String(config.channels?.telegram?.groups?.requireExplicitMention ?? true);
+        document.getElementById("telegram-token-input").value = "";
       }
 
       async function saveConfig(botId) {
@@ -941,6 +1683,110 @@ function renderHtmlPage() {
         await loadDetail(botId);
       }
 
+      async function loadSessions(botId) {
+        const payload = await request('/api/bots/' + botId + '/sessions');
+        document.getElementById("chat-session-label").textContent = payload.activeSessionLabel || "main";
+        document.getElementById("sessions-list").innerHTML = renderList(
+          payload.sessions.map((session) => renderBotItem(
+            session.label,
+            [
+              session.label === payload.activeSessionLabel ? "active" : "inactive",
+              session.cliSessionRef ? "started" : "empty",
+              session.updatedAt ? ("updated " + session.updatedAt) : null,
+            ].filter(Boolean).join(" | "),
+            [
+              "<button onclick=\\\"window.__useSession(decodeURIComponent('" + encodeURIComponent(session.label) + "'))\\\">Use</button>",
+            ],
+          )),
+          "No sessions yet."
+        );
+      }
+
+      async function loadChatStatus(botId) {
+        const sessionLabel = document.getElementById("chat-session-label").textContent.trim();
+        const payload = await request('/api/bots/' + botId + '/chat?sessionLabel=' + encodeURIComponent(sessionLabel));
+        document.getElementById("chat-run-state").textContent = payload.status || "idle";
+        document.getElementById("chat-output").textContent =
+          payload.error ? payload.error : (payload.output || (payload.running ? "Running..." : "No run yet."));
+        if (payload.running) {
+          clearTimeout(loadChatStatus._timer);
+          loadChatStatus._timer = setTimeout(() => {
+            if (state.selectedBotId === botId) {
+              void loadChatStatus(botId);
+            }
+          }, ${DEFAULT_WEB_CHAT_POLL_MS});
+        }
+      }
+
+      async function loadGoals(botId) {
+        const payload = await request('/api/bots/' + botId + '/goals');
+        document.getElementById("goals-list").innerHTML = renderList(
+          payload.map((goal) => renderBotItem(
+            goal.id,
+            [goal.status, goal.phase, goal.objective].filter(Boolean).join(" | "),
+            goal.status === "running"
+              ? ["<button onclick=\\\"window.__stopGoal(decodeURIComponent('" + encodeURIComponent(goal.id) + "'))\\\">Stop</button>"]
+              : [],
+          )),
+          "No goals yet."
+        );
+      }
+
+      async function loadSchedules(botId) {
+        const payload = await request('/api/bots/' + botId + '/schedules');
+        document.getElementById("schedules-list").innerHTML = renderList(
+          payload.map((schedule) => renderBotItem(
+            schedule.id,
+            [schedule.cron, schedule.timezone, schedule.enabled ? "enabled" : "disabled", schedule.objective].join(" | "),
+            [
+              "<button onclick=\\\"window.__toggleSchedule(decodeURIComponent('" + encodeURIComponent(schedule.id) + "'), '" + (schedule.enabled ? "disable" : "enable") + "')\\\">" + (schedule.enabled ? "Disable" : "Enable") + "</button>",
+            ],
+          )),
+          "No schedules yet."
+        );
+      }
+
+      async function loadWorkspace(botId) {
+        const files = await request('/api/bots/' + botId + '/workspace');
+        document.getElementById("workspace-tree").innerHTML = renderList(
+          files.map((entry) => renderBotItem(
+            entry.path,
+            entry.type,
+            entry.type === "file"
+              ? ["<button onclick=\\\"window.__openWorkspaceFile(decodeURIComponent('" + encodeURIComponent(entry.path) + "'))\\\">Open</button>"]
+              : [],
+          )),
+          "Workspace is empty."
+        );
+        const currentPath = document.getElementById("workspace-file-path").value.trim();
+        if (currentPath) {
+          await openWorkspaceFile(botId, currentPath).catch(() => {});
+        }
+      }
+
+      async function openWorkspaceFile(botId, filePath) {
+        const payload = await request('/api/bots/' + botId + '/workspace/file?path=' + encodeURIComponent(filePath));
+        document.getElementById("workspace-file-path").value = payload.path;
+        document.getElementById("workspace-editor").value = payload.content;
+      }
+
+      async function loadSkills(botId) {
+        const payload = await request('/api/bots/' + botId + '/skills');
+        document.getElementById("skills-list").innerHTML = renderList(
+          payload.map((skill) => renderBotItem(skill.id, skill.description || skill.path || "")),
+          "No skills installed yet."
+        );
+      }
+
+      async function loadLogs(botId) {
+        const [runtimeLogs, bridgeLogs] = await Promise.all([
+          request('/api/bots/' + botId + '/logs'),
+          request('/api/bots/' + botId + '/bridge-logs'),
+        ]);
+        document.getElementById("runtime-log").textContent = runtimeLogs.content || 'No logs yet.';
+        document.getElementById("bridge-log").textContent = bridgeLogs.content || 'No bridge logs yet.';
+      }
+
       async function loadDetail(botId) {
         const payload = await request('/api/bots/' + botId);
         state.detail = payload;
@@ -976,56 +1822,42 @@ function renderHtmlPage() {
           ["bridge log", compactPath(payload.detail.paths.bridgeLogPath)],
         ]);
         document.getElementById("overview-error").textContent = payload.health.lastError || "No error.";
-        renderKV("telegram-pairing", [
+        const telegramPairingRows = [
           ["paired", config.channels?.telegram?.enabled ? "yes" : "no"],
           ["bot username", config.channels?.telegram?.botUsername ? "@" + config.channels.telegram.botUsername : "none"],
           ["token present", config.channels?.telegram?.botToken ? "yes" : "no"],
           ["mention required", String(config.channels?.telegram?.groups?.requireExplicitMention ?? true)],
-        ]);
+        ];
+        renderKV("telegram-pairing-panel", telegramPairingRows);
+        renderKV("telegram-pairing-inspector", telegramPairingRows);
         document.getElementById("telegram-private-access").textContent = JSON.stringify(payload.access.privateChats || [], null, 2);
         document.getElementById("telegram-group-access").textContent = JSON.stringify({
           groupChats: payload.access.groupChats || [],
           groupUsers: payload.access.groupUsers || [],
           mentionRequired: config.channels?.telegram?.groups?.requireExplicitMention ?? true,
         }, null, 2);
-        document.getElementById("telegram-seen-chats").innerHTML = demoList([
-          { title: "Astock Research Group", meta: "recently seen group, can be promoted into allow list" },
-          { title: "Trading Ops", meta: "recently seen group, demo data for Phase 3" },
-        ], "Allow");
-        document.getElementById("telegram-seen-users").innerHTML = demoList([
-          { title: "@moshiwei", meta: "recently seen sender, can be promoted into allow list" },
-          { title: "@analyst_user", meta: "demo sender entity" },
-        ], "Allow");
-        document.getElementById("sessions-list").innerHTML = demoList([
-          { title: "main", meta: "active, started, resume ref present" },
-          { title: "research-plan", meta: "secondary session, idle" },
-          { title: "ops-draft", meta: "secondary session, not started" },
-        ], "Use");
-        document.getElementById("goals-list").innerHTML = demoList([
-          { title: "goal_20260403_001", meta: "running | objective: summarize market open drivers" },
-          { title: "goal_20260402_004", meta: "completed | objective: produce weekly recap" },
-        ], "Inspect");
-        document.getElementById("schedules-list").innerHTML = demoList([
-          { title: "sched_daily_open", meta: "0 30 9 * * 1-5 | Asia/Shanghai | enabled" },
-          { title: "sched_weekly_wrap", meta: "0 0 18 * * 5 | Asia/Shanghai | enabled" },
-        ], "Run Now");
-        document.getElementById("workspace-tree").innerHTML = demoList([
-          { title: "AGENTS.md", meta: "core operating rules" },
-          { title: "IDENTITY.md", meta: "assistant identity" },
-          { title: "USER.md", meta: "user profile" },
-          { title: "SOUL.md", meta: "style and stance" },
-          { title: "TOOLS.md", meta: "machine-specific notes" },
-        ], "Open");
-        document.getElementById("skills-list").innerHTML = demoList([
-          { title: "akshare-a-share-daily", meta: "installed | finance workflow skill" },
-          { title: "wechat-ocr-guarded", meta: "installed | GUI workflow skill" },
-        ], "Inspect");
-        document.getElementById("runtime-log").textContent = payload.logs.content || 'No logs yet.';
-        document.getElementById("bridge-log").textContent =
-          "Bridge log panel placeholder for Phase 1.\\n\\nCurrent implementation still uses existing runtime log source.\\nAdd dedicated bridge log endpoint later.";
+        const chats = config.channels?.telegram?.metadata?.chats || {};
+        const users = config.channels?.telegram?.metadata?.users || {};
+        document.getElementById("telegram-seen-chats").innerHTML = renderList(
+          Object.entries(chats).map(([id, entry]) => renderBotItem(entry.label || entry.title || entry.username || id, id)),
+          "No known chats yet."
+        );
+        document.getElementById("telegram-seen-users").innerHTML = renderList(
+          Object.entries(users).map(([id, entry]) => renderBotItem(entry.label || entry.username || id, id)),
+          "No known users yet."
+        );
         document.getElementById("config-editor").value = JSON.stringify(payload.detail.config, null, 2);
         applyFormFromConfig(payload.detail.config);
         document.getElementById("chat-bot-name").textContent = bot.name;
+        await Promise.all([
+          loadSessions(botId),
+          loadGoals(botId),
+          loadSchedules(botId),
+          loadWorkspace(botId),
+          loadSkills(botId),
+          loadLogs(botId),
+          loadChatStatus(botId),
+        ]);
       }
 
       document.getElementById('save-config').onclick = async () => {
@@ -1042,30 +1874,178 @@ function renderHtmlPage() {
       document.getElementById('action-start').onclick = async () => state.selectedBotId && mutateBot(state.selectedBotId, 'start');
       document.getElementById('action-stop').onclick = async () => state.selectedBotId && mutateBot(state.selectedBotId, 'stop');
       document.getElementById('action-restart').onclick = async () => state.selectedBotId && mutateBot(state.selectedBotId, 'restart');
-      document.getElementById('action-enable').onclick = async () => openDemoModal("Enable / Disable", "Phase 1 backend endpoint can be wired here next. UI is ready for demo.");
-      document.getElementById('action-use').onclick = async () => openDemoModal("Set Current", "Current bot switching UI is present for demo. Wire /api/bots/:id/use next.");
-      document.getElementById('demo-current').onclick = () => openDemoModal("Set Current", "Fleet-level current bot action is prepared for demo.");
-      document.getElementById('demo-delete').onclick = () => openDemoModal("Delete Bot", "Delete flow UI is prepared for demo with confirm modal support.");
-      document.getElementById('telegram-repair').onclick = () => openDemoModal("Telegram Pairing", "Full pairing wizard UI belongs to Phase 3. Current button exists for demo review.");
-      document.getElementById('telegram-refresh-meta').onclick = () => showToast("Metadata refresh UI demo");
-      document.getElementById('logs-refresh').onclick = async () => state.selectedBotId && loadDetail(state.selectedBotId);
-      document.getElementById('demo-create-session').onclick = () => openDemoModal("Create Session", "Session creation UI is mocked for Phase 2.");
-      document.getElementById('demo-run-chat').onclick = () => showToast("Phase 2 run flow mock");
-      document.getElementById('demo-stop-chat').onclick = () => showToast("Phase 2 stop flow mock");
-      document.getElementById('demo-send-chat').onclick = () => {
-        document.getElementById('chat-output').textContent =
-          "Demo output:\\n\\nThis is where browser-native bot interaction will appear in Phase 2.";
-        showToast("Sent demo prompt");
+      document.getElementById('action-enable').onclick = async () => {
+        if (!state.selectedBotId || !state.detail) return;
+        const action = state.detail.detail.bot.enabled ? 'disable' : 'enable';
+        await mutateBot(state.selectedBotId, action);
       };
-      document.getElementById('demo-create-goal').onclick = () => openDemoModal("Create Goal", "Goal creation UI is mocked for Phase 4.");
-      document.getElementById('demo-create-schedule').onclick = () => openDemoModal("Create Schedule", "Schedule creation UI is mocked for Phase 4.");
-      document.getElementById('demo-save-workspace').onclick = () => showToast("Workspace save UI mock");
-      document.getElementById('demo-install-skill').onclick = () => openDemoModal("Install Skill", "Skill installation UI is mocked for Phase 5.");
-      document.getElementById('demo-restart-all').onclick = () => openDemoModal("Restart All", "Fleet rollout controls are mocked for Phase 5.");
-      document.getElementById('demo-canary').onclick = () => openDemoModal("Canary Rollout", "Canary rollout UI is mocked for Phase 5.");
-      document.getElementById('demo-rollback').onclick = () => openDemoModal("Rollback", "Rollback UI is mocked for Phase 5.");
-      document.getElementById('demo-seen-chat').onclick = () => showToast("Seen chat allow-list action demo");
-      document.getElementById('demo-seen-user').onclick = () => showToast("Seen user allow-list action demo");
+      document.getElementById('action-use').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/use', { method: 'POST' });
+        showToast('Current bot set to ' + state.selectedBotId);
+        await loadBots();
+        await loadDetail(state.selectedBotId);
+      };
+      document.getElementById('fleet-set-current').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/use', { method: 'POST' });
+        showToast('Current bot set to ' + state.selectedBotId);
+        await loadBots();
+        await loadDetail(state.selectedBotId);
+      };
+      document.getElementById('fleet-delete').onclick = async () => {
+        if (!state.selectedBotId) return;
+        if (!confirm('Delete bot ' + state.selectedBotId + '?')) return;
+        await request('/api/bots/' + state.selectedBotId, { method: 'DELETE' });
+        showToast('Deleted bot ' + state.selectedBotId);
+        state.selectedBotId = null;
+        await loadBots();
+        if (state.currentBotId) {
+          await loadDetail(state.currentBotId);
+        }
+      };
+      document.getElementById('telegram-repair').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const token = document.getElementById('telegram-token-input').value.trim();
+        if (!token) {
+          showToast('Paste a real Telegram token first.');
+          return;
+        }
+        document.getElementById("chat-output").textContent = "Send one Telegram message to the bot, then click Pair / Re-pair again if needed.";
+        await request('/api/bots/' + state.selectedBotId + '/telegram/pair', {
+          method: 'POST',
+          body: JSON.stringify({ token }),
+        });
+        showToast('Telegram pairing complete');
+        await loadBots();
+        await loadDetail(state.selectedBotId);
+      };
+      document.getElementById('telegram-refresh-meta').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/telegram/refresh', { method: 'POST' });
+        showToast('Telegram metadata refreshed');
+        await loadDetail(state.selectedBotId);
+      };
+      document.getElementById('logs-refresh').onclick = async () => state.selectedBotId && loadDetail(state.selectedBotId);
+      document.getElementById('bridge-logs-refresh').onclick = async () => state.selectedBotId && loadLogs(state.selectedBotId);
+      document.getElementById('create-session').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const label = document.getElementById('session-label-input').value.trim();
+        await request('/api/bots/' + state.selectedBotId + '/sessions', {
+          method: 'POST',
+          body: JSON.stringify({ label }),
+        });
+        showToast('Session ready: ' + label);
+        document.getElementById('session-label-input').value = '';
+        await loadSessions(state.selectedBotId);
+      };
+      document.getElementById('run-chat').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const prompt = document.getElementById('chat-input').value;
+        const sessionLabel = document.getElementById('chat-session-label').textContent.trim();
+        await request('/api/bots/' + state.selectedBotId + '/chat', {
+          method: 'POST',
+          body: JSON.stringify({ prompt, sessionLabel }),
+        });
+        showToast('Chat run started');
+        await loadChatStatus(state.selectedBotId);
+      };
+      document.getElementById('stop-chat').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const sessionLabel = document.getElementById('chat-session-label').textContent.trim();
+        await request('/api/bots/' + state.selectedBotId + '/chat/stop', {
+          method: 'POST',
+          body: JSON.stringify({ sessionLabel }),
+        });
+        showToast('Stop requested');
+        await loadChatStatus(state.selectedBotId);
+      };
+      document.getElementById('send-chat').onclick = async () => {
+        document.getElementById('run-chat').click();
+      };
+      document.getElementById('create-goal').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const objective = document.getElementById('goal-objective-input').value.trim();
+        await request('/api/bots/' + state.selectedBotId + '/goals', {
+          method: 'POST',
+          body: JSON.stringify({ objective, sessionLabel: document.getElementById('chat-session-label').textContent.trim() }),
+        });
+        showToast('Goal started');
+        document.getElementById('goal-objective-input').value = '';
+        await loadGoals(state.selectedBotId);
+      };
+      document.getElementById('create-schedule').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/schedules', {
+          method: 'POST',
+          body: JSON.stringify({
+            cron: document.getElementById('schedule-cron-input').value.trim(),
+            timezone: document.getElementById('schedule-timezone-input').value.trim(),
+            objective: document.getElementById('schedule-objective-input').value.trim(),
+          }),
+        });
+        showToast('Schedule created');
+        document.getElementById('schedule-objective-input').value = '';
+        await loadSchedules(state.selectedBotId);
+      };
+      document.getElementById('workspace-open').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await openWorkspaceFile(state.selectedBotId, document.getElementById('workspace-file-path').value.trim());
+      };
+      document.getElementById('save-workspace').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/workspace/file', {
+          method: 'POST',
+          body: JSON.stringify({
+            path: document.getElementById('workspace-file-path').value.trim(),
+            content: document.getElementById('workspace-editor').value,
+          }),
+        });
+        showToast('Workspace file saved');
+        await loadWorkspace(state.selectedBotId);
+      };
+      document.getElementById('install-skill').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const sourcePath = document.getElementById('skill-source-input').value.trim();
+        await request('/api/bots/' + state.selectedBotId + '/skills', {
+          method: 'POST',
+          body: JSON.stringify({ sourcePath }),
+        });
+        showToast('Skill installed');
+        document.getElementById('skill-source-input').value = '';
+        await loadSkills(state.selectedBotId);
+      };
+      document.getElementById('restart-all').onclick = async () => {
+        const result = await request('/api/rollout/restart-all', { method: 'POST' });
+        document.getElementById('chat-output').textContent = JSON.stringify(result, null, 2);
+        showToast('Restart all complete');
+        await loadBots();
+        state.selectedBotId && await loadDetail(state.selectedBotId);
+      };
+      document.getElementById('run-canary').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const desiredVersion = document.getElementById('rollout-version-input').value.trim() || 'v1';
+        const result = await request('/api/rollout/canary', {
+          method: 'POST',
+          body: JSON.stringify({ botIds: [state.selectedBotId], desiredVersion }),
+        });
+        document.getElementById('chat-output').textContent = JSON.stringify(result, null, 2);
+        showToast('Canary complete');
+        await loadBots();
+        await loadDetail(state.selectedBotId);
+      };
+      document.getElementById('run-rollback').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const version = document.getElementById('rollout-version-input').value.trim() || 'v1';
+        const result = await request('/api/rollout/rollback/' + state.selectedBotId, {
+          method: 'POST',
+          body: JSON.stringify({ version }),
+        });
+        document.getElementById('chat-output').textContent = JSON.stringify(result, null, 2);
+        showToast('Rollback complete');
+        await loadBots();
+        await loadDetail(state.selectedBotId);
+      };
       document.getElementById('open-create-bot').onclick = () => { createBotModal.style.display = 'flex'; };
       document.getElementById('close-create-bot').onclick = () => { createBotModal.style.display = 'none'; };
       document.getElementById('close-demo-modal').onclick = () => { demoModal.style.display = 'none'; };
@@ -1105,8 +2085,31 @@ function renderHtmlPage() {
         button.onclick = () => setSelectedTab(button.dataset.tab);
       });
 
-      window.__demoClick = (label) => {
-        showToast(label + " action is mocked for demo");
+      window.__useSession = async (label) => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/sessions/' + encodeURIComponent(label) + '/use', { method: 'POST' });
+        showToast('Using session ' + label);
+        await loadSessions(state.selectedBotId);
+        await loadChatStatus(state.selectedBotId);
+      };
+
+      window.__openWorkspaceFile = async (filePath) => {
+        if (!state.selectedBotId) return;
+        await openWorkspaceFile(state.selectedBotId, filePath);
+      };
+
+      window.__stopGoal = async (goalId) => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/goals/' + encodeURIComponent(goalId) + '/stop', { method: 'POST' });
+        showToast('Stop requested for ' + goalId);
+        await loadGoals(state.selectedBotId);
+      };
+
+      window.__toggleSchedule = async (scheduleId, action) => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/schedules/' + encodeURIComponent(scheduleId) + '/' + action, { method: 'POST' });
+        showToast('Schedule ' + action + 'd');
+        await loadSchedules(state.selectedBotId);
       };
 
       void loadBots().then(async () => {
@@ -1120,6 +2123,10 @@ function renderHtmlPage() {
 }
 
 async function handleApi(request, response, pathname) {
+  if (request.method === "GET" && pathname === "/api/current-bot") {
+    return json(response, 200, { currentBotId: await readActiveBotId() });
+  }
+
   if (request.method === "GET" && pathname === "/api/bots") {
     return json(response, 200, await getControlPlaneSnapshot());
   }
@@ -1168,6 +2175,11 @@ async function handleApi(request, response, pathname) {
     return json(response, 200, await readBotLogs(decodeURIComponent(botLogsMatch[1]), 200));
   }
 
+  const botBridgeLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/bridge-logs$/);
+  if (request.method === "GET" && botBridgeLogsMatch) {
+    return json(response, 200, await readBridgeLogs(decodeURIComponent(botBridgeLogsMatch[1]), 200));
+  }
+
   const botActionMatch = pathname.match(/^\/api\/bots\/([^/]+)\/(start|stop|restart)$/);
   if (request.method === "POST" && botActionMatch) {
     const botId = decodeURIComponent(botActionMatch[1]);
@@ -1185,11 +2197,138 @@ async function handleApi(request, response, pathname) {
   if (request.method === "POST" && botConfigMatch) {
     const botId = decodeURIComponent(botConfigMatch[1]);
     const body = await readJsonBody(request);
+    const currentConfig = (await inspectBot(botId)).config;
     return json(
       response,
       200,
-      await updateBotConfig(botId, (config) => deepMergeConfig(config, body)),
+      await updateBotConfig(botId, () => applySafeConfigPatch(currentConfig, body)),
     );
+  }
+
+  const botSessionsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/sessions$/);
+  if (request.method === "GET" && botSessionsMatch) {
+    return json(response, 200, await readBotSessions(decodeURIComponent(botSessionsMatch[1])));
+  }
+  if (request.method === "POST" && botSessionsMatch) {
+    const botId = decodeURIComponent(botSessionsMatch[1]);
+    const body = await readJsonBody(request);
+    return json(response, 200, await createBotSession(botId, body.label));
+  }
+
+  const botSessionUseMatch = pathname.match(/^\/api\/bots\/([^/]+)\/sessions\/([^/]+)\/use$/);
+  if (request.method === "POST" && botSessionUseMatch) {
+    return json(
+      response,
+      200,
+      await activateBotSession(decodeURIComponent(botSessionUseMatch[1]), decodeURIComponent(botSessionUseMatch[2])),
+    );
+  }
+
+  const botChatMatch = pathname.match(/^\/api\/bots\/([^/]+)\/chat$/);
+  if (request.method === "GET" && botChatMatch) {
+    const botId = decodeURIComponent(botChatMatch[1]);
+    const url = new URL(request.url || "/", "http://localhost");
+    return json(response, 200, await readChatStatus(botId, url.searchParams.get("sessionLabel")));
+  }
+  if (request.method === "POST" && botChatMatch) {
+    const botId = decodeURIComponent(botChatMatch[1]);
+    const body = await readJsonBody(request);
+    return json(response, 200, await startBotChat(botId, body));
+  }
+
+  const botChatStopMatch = pathname.match(/^\/api\/bots\/([^/]+)\/chat\/stop$/);
+  if (request.method === "POST" && botChatStopMatch) {
+    const botId = decodeURIComponent(botChatStopMatch[1]);
+    const body = await readJsonBody(request);
+    return json(response, 200, await stopBotChat(botId, body.sessionLabel));
+  }
+
+  const botTelegramPairMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/pair$/);
+  if (request.method === "POST" && botTelegramPairMatch) {
+    const body = await readJsonBody(request);
+    return json(response, 200, await pairTelegramForBot(decodeURIComponent(botTelegramPairMatch[1]), body.token));
+  }
+
+  const botTelegramRefreshMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/refresh$/);
+  if (request.method === "POST" && botTelegramRefreshMatch) {
+    const botId = decodeURIComponent(botTelegramRefreshMatch[1]);
+    const detail = await inspectBot(botId);
+    await hydrateTelegramMetadata(detail.bot.homePath);
+    return json(response, 200, await getBotControlPlaneDetail(botId));
+  }
+
+  const botGoalsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/goals$/);
+  if (request.method === "GET" && botGoalsMatch) {
+    return json(response, 200, await listBotGoals(decodeURIComponent(botGoalsMatch[1])));
+  }
+  if (request.method === "POST" && botGoalsMatch) {
+    const botId = decodeURIComponent(botGoalsMatch[1]);
+    const body = await readJsonBody(request);
+    return json(response, 200, await startGoalForBot(botId, body));
+  }
+
+  const botGoalStopMatch = pathname.match(/^\/api\/bots\/([^/]+)\/goals\/([^/]+)\/stop$/);
+  if (request.method === "POST" && botGoalStopMatch) {
+    return json(
+      response,
+      200,
+      await stopGoalForBot(decodeURIComponent(botGoalStopMatch[1]), decodeURIComponent(botGoalStopMatch[2])),
+    );
+  }
+
+  const botSchedulesMatch = pathname.match(/^\/api\/bots\/([^/]+)\/schedules$/);
+  if (request.method === "GET" && botSchedulesMatch) {
+    return json(response, 200, await listBotSchedules(decodeURIComponent(botSchedulesMatch[1])));
+  }
+  if (request.method === "POST" && botSchedulesMatch) {
+    const botId = decodeURIComponent(botSchedulesMatch[1]);
+    const body = await readJsonBody(request);
+    return json(response, 200, await createScheduleForBot(botId, body));
+  }
+
+  const botScheduleToggleMatch = pathname.match(/^\/api\/bots\/([^/]+)\/schedules\/([^/]+)\/(enable|disable)$/);
+  if (request.method === "POST" && botScheduleToggleMatch) {
+    return json(
+      response,
+      200,
+      await toggleScheduleForBot(
+        decodeURIComponent(botScheduleToggleMatch[1]),
+        decodeURIComponent(botScheduleToggleMatch[2]),
+        botScheduleToggleMatch[3] === "enable",
+      ),
+    );
+  }
+
+  const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);
+  if (request.method === "GET" && botWorkspaceMatch) {
+    return json(response, 200, await listWorkspaceFiles(decodeURIComponent(botWorkspaceMatch[1])));
+  }
+
+  const botWorkspaceFileMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace\/file$/);
+  if (request.method === "GET" && botWorkspaceFileMatch) {
+    const url = new URL(request.url || "/", "http://localhost");
+    return json(
+      response,
+      200,
+      await readWorkspaceFileForBot(decodeURIComponent(botWorkspaceFileMatch[1]), url.searchParams.get("path")),
+    );
+  }
+  if (request.method === "POST" && botWorkspaceFileMatch) {
+    const body = await readJsonBody(request);
+    return json(
+      response,
+      200,
+      await writeWorkspaceFileForBot(decodeURIComponent(botWorkspaceFileMatch[1]), body.path, body.content),
+    );
+  }
+
+  const botSkillsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/skills$/);
+  if (request.method === "GET" && botSkillsMatch) {
+    return json(response, 200, await listBotSkills(decodeURIComponent(botSkillsMatch[1])));
+  }
+  if (request.method === "POST" && botSkillsMatch) {
+    const body = await readJsonBody(request);
+    return json(response, 200, await installSkillForBot(decodeURIComponent(botSkillsMatch[1]), body.sourcePath));
   }
 
   if (request.method === "POST" && pathname === "/api/rollout/restart-all") {

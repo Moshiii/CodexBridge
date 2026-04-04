@@ -180,3 +180,98 @@ test("bot set-config style nested patch should preserve sibling telegram fields"
     assert.deepEqual(delta.channels.telegram.groups.allowedUserIds, ["300"]);
   });
 });
+
+test("web config update rejects placeholder telegram tokens", async () => {
+  await withTempHome(async (tempHome) => {
+    const { createBot } = await importFresh("../../src/bots.mjs");
+    const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+    const { readConfig } = await importFresh("../../src/config.mjs");
+
+    await createBot({
+      id: "epsilon",
+      name: "Epsilon",
+      config: {
+        channels: {
+          telegram: {
+            enabled: true,
+            botToken: "real-token",
+            botUsername: "epsilon_bot",
+          },
+        },
+      },
+    });
+
+    const runtime = await startControlPlaneWebServer({ port: 0 });
+    try {
+      const response = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/epsilon/config`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channels: {
+            telegram: {
+              botToken: "token-123",
+            },
+          },
+        }),
+      });
+
+      assert.equal(response.status, 500);
+      const payload = await response.json();
+      assert.match(payload.error, /placeholder Telegram token/i);
+
+      const persisted = await readConfig(path.join(tempHome, "bots", "epsilon"));
+      assert.equal(persisted.channels.telegram.botToken, "real-token");
+    } finally {
+      await runtime.close();
+    }
+  });
+});
+
+test("web console sessions and workspace endpoints are usable", async () => {
+  await withTempHome(async (tempHome) => {
+    const { createBot } = await importFresh("../../src/bots.mjs");
+    const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+    const { readFile } = await import("node:fs/promises");
+
+    await createBot({ id: "zeta", name: "Zeta" });
+    const runtime = await startControlPlaneWebServer({ port: 0 });
+    try {
+      const sessionResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/zeta/sessions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ label: "research" }),
+      });
+      assert.equal(sessionResponse.status, 200);
+      const sessionsPayload = await sessionResponse.json();
+      assert.equal(sessionsPayload.activeSessionLabel, "research");
+
+      const workspaceWriteResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/zeta/workspace/file`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          path: "NOTES.md",
+          content: "# notes\n",
+        }),
+      });
+      assert.equal(workspaceWriteResponse.status, 200);
+
+      const workspaceReadResponse = await fetch(
+        `http://${runtime.host}:${runtime.port}/api/bots/zeta/workspace/file?path=${encodeURIComponent("NOTES.md")}`,
+      );
+      assert.equal(workspaceReadResponse.status, 200);
+      const workspacePayload = await workspaceReadResponse.json();
+      assert.equal(workspacePayload.content, "# notes\n");
+
+      const raw = await readFile(path.join(tempHome, "bots", "zeta", "workspace", "NOTES.md"), "utf8");
+      assert.equal(raw, "# notes\n");
+    } finally {
+      await runtime.close();
+    }
+  });
+});
