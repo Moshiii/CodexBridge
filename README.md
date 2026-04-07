@@ -257,18 +257,34 @@ Bootstrap completion is tracked separately in:
 
 - `~/.autoaide/bots/default/bootstrap-state.json`
 
-## Telegram
+## Channels
 
-Telegram is currently the main external channel.
+Telegram is currently the most complete external channel.
+
+Feishu is now available as an experimental channel using the official Node SDK in long connection mode.
 
 Inside the CLI:
 
-- `/channel` starts Telegram pairing
+- `/channel` can configure Telegram or Feishu
 - `/status` shows runtime paths, model, and Telegram status
 - `/where` shows the current CLI session
 - `/skills` lists or installs bot-scoped skills
 
-When Telegram is paired, AutoAide runs the Telegram bridge under the default bot runtime instead of a global daemon.
+When a channel is configured, AutoAide runs the channel bridge under the bot runtime instead of a global daemon.
+
+Current Feishu scope:
+
+- receives plain text messages through `im.message.receive_v1`
+- runs a normal Codex turn per chat
+- sends plain text replies back to the chat
+- keeps per-chat session continuity
+
+Not yet mirrored from Telegram:
+
+- `/goal`
+- schedules
+- file bridge
+- rich control commands beyond `/where`
 
 ## Architecture
 

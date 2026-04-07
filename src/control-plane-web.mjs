@@ -22,7 +22,7 @@ import {
 } from "./bots.mjs";
 import {
   getSkillsPath,
-  getTelegramBridgeLogPath,
+  getChannelBridgeLogPath,
   getWorkspacePath,
   readActiveBotId,
   readCliState,
@@ -30,7 +30,7 @@ import {
   writeCliState,
 } from "./config.mjs";
 import { buildCommandConfig, startCliTurn } from "./codex-runner.mjs";
-import { startGoalRun } from "./goal-runner.mjs";
+import { launchGoal } from "./goal-controller.mjs";
 import { createGoalRecord, listGoals, readGoal, writeGoal } from "./goals-state.mjs";
 import { createScheduleRecord, getScheduleById, listSchedules, upsertSchedule } from "./schedules-state.mjs";
 import { installSkillFromPath } from "./skills.mjs";
@@ -134,7 +134,7 @@ async function withBotHome(botHome, work) {
 
 async function readBridgeLogs(botId, lines = 200) {
   const detail = await inspectBot(botId);
-  const logPath = getTelegramBridgeLogPath(detail.bot.homePath);
+  const logPath = getChannelBridgeLogPath(detail.bot.channel, detail.bot.homePath);
   const raw = await readFile(logPath, "utf8").catch(() => "");
   const chunks = raw.trimEnd().split(/\r?\n/).filter(Boolean);
   return {
@@ -306,6 +306,13 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
 
 async function stopBotChat(botId, sessionLabel = null) {
   const status = await readChatStatus(botId, sessionLabel);
+  for (const active of activeGoalRuns.values()) {
+    if (active?.botId === botId && active?.sessionLabel === status.sessionLabel) {
+      active.controller.stopRequested = true;
+      active.controller.activeChild?.kill("SIGINT");
+      return await readChatStatus(botId, status.sessionLabel);
+    }
+  }
   const run = activeChatRuns.get(getRunKey(botId, status.sessionLabel));
   if (!run || run.status !== "running" || !run.child) {
     return status;
@@ -488,33 +495,41 @@ async function startGoalForBot(botId, { objective, sessionLabel = null } = {}) {
     sessionLabel: label,
     channel: "web",
   });
+  goal.conversationSessionRef = sessions.sessions?.[label]?.cliSessionRef || null;
   await withBotHome(botHome, async () => await writeGoal(goal));
   const config = await readConfig(botHome);
   const commandConfig = {
     ...buildCommandConfig(config),
     cwd: getWorkspacePath(botHome),
   };
-  const run = startGoalRun(goal, {
+  await launchGoal(goal, {
+    runningGoals: activeGoalRuns,
     commandConfig,
+    registration: {
+      chatId: botId,
+      sessionLabel: goal.sessionLabel,
+    },
     persistGoal: async (nextGoal) => await withBotHome(botHome, async () => await writeGoal(nextGoal)),
     notify: async () => {},
-    onGoalStarted: (startedGoal, controller) => {
-      activeGoalRuns.set(startedGoal.id, { controller, botId });
+    onGoalStarted: (_startedGoal, entry) => {
+      activeGoalRuns.set(goal.id, { ...entry, botId, sessionLabel: goal.sessionLabel });
+    },
+    onGoalFinished: async ({ goal: finalGoal }) => {
+      await withBotHome(botHome, async () => await writeGoal(finalGoal));
+    },
+    onGoalFailed: async ({ goal: failedGoal, error }) => {
+      await withBotHome(botHome, async () => {
+        const nextGoal = {
+          ...failedGoal,
+          status: "failed",
+          phase: "runner_failed",
+          error: error.message,
+        };
+        await writeGoal(nextGoal);
+      });
     },
   });
-  void run.result.finally(() => activeGoalRuns.delete(goal.id));
   return goal;
-}
-
-async function stopGoalForBot(botId, goalId) {
-  const botHome = await getBotHome(botId);
-  const active = activeGoalRuns.get(goalId);
-  if (active?.botId !== botId) {
-    return await withBotHome(botHome, async () => await readGoal(goalId));
-  }
-  active.controller.stopRequested = true;
-  active.controller.activeChild?.kill("SIGINT");
-  return await withBotHome(botHome, async () => await readGoal(goalId));
 }
 
 async function listBotSchedules(botId) {
@@ -1725,7 +1740,7 @@ Skills: installed capabilities</pre>
             goal.id,
             [goal.status, goal.phase, goal.objective].filter(Boolean).join(" | "),
             goal.status === "running"
-              ? ["<button onclick=\\\"window.__stopGoal(decodeURIComponent('" + encodeURIComponent(goal.id) + "'))\\\">Stop</button>"]
+              ? ["<button onclick=\\\"window.__stopFlow(decodeURIComponent('" + encodeURIComponent(goal.sessionLabel || "main") + "'))\\\">Stop</button>"]
               : [],
           )),
           "No goals yet."
@@ -2098,11 +2113,15 @@ Skills: installed capabilities</pre>
         await openWorkspaceFile(state.selectedBotId, filePath);
       };
 
-      window.__stopGoal = async (goalId) => {
+      window.__stopFlow = async (sessionLabel) => {
         if (!state.selectedBotId) return;
-        await request('/api/bots/' + state.selectedBotId + '/goals/' + encodeURIComponent(goalId) + '/stop', { method: 'POST' });
-        showToast('Stop requested for ' + goalId);
+        await request('/api/bots/' + state.selectedBotId + '/chat/stop', {
+          method: 'POST',
+          body: JSON.stringify({ sessionLabel }),
+        });
+        showToast('Stop requested');
         await loadGoals(state.selectedBotId);
+        await loadChatStatus(state.selectedBotId);
       };
 
       window.__toggleSchedule = async (scheduleId, action) => {
@@ -2265,15 +2284,6 @@ async function handleApi(request, response, pathname) {
     const botId = decodeURIComponent(botGoalsMatch[1]);
     const body = await readJsonBody(request);
     return json(response, 200, await startGoalForBot(botId, body));
-  }
-
-  const botGoalStopMatch = pathname.match(/^\/api\/bots\/([^/]+)\/goals\/([^/]+)\/stop$/);
-  if (request.method === "POST" && botGoalStopMatch) {
-    return json(
-      response,
-      200,
-      await stopGoalForBot(decodeURIComponent(botGoalStopMatch[1]), decodeURIComponent(botGoalStopMatch[2])),
-    );
   }
 
   const botSchedulesMatch = pathname.match(/^\/api\/bots\/([^/]+)\/schedules$/);

@@ -7,6 +7,59 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function ensureArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeGoalRecord(goal = {}) {
+  if (!goal || typeof goal !== "object") {
+    return goal;
+  }
+
+  const conversationSessionRef = goal.conversationSessionRef ?? goal.workerSessionRef ?? null;
+  const supervisorSessionRef = goal.supervisorSessionRef ?? goal.evaluatorSessionRef ?? null;
+  const lastGoalDelta = goal.lastGoalDelta ?? goal.nextWorkerInstruction ?? null;
+  const lastSupervisorVerdict = goal.lastSupervisorVerdict ?? goal.lastEvaluatorVerdict ?? null;
+  const conversationEvents = ensureArray(goal.conversationEvents).length
+    ? ensureArray(goal.conversationEvents)
+    : ensureArray(goal.workerEvents);
+  const supervisorEvents = ensureArray(goal.supervisorEvents).length
+    ? ensureArray(goal.supervisorEvents)
+    : ensureArray(goal.evaluatorEvents);
+  const conversationMessageId = goal.conversationMessageId ?? goal.workerMessageId ?? null;
+  const supervisorMessageId = goal.supervisorMessageId ?? goal.evaluatorMessageId ?? null;
+  const supervisorMessageIds = ensureArray(goal.supervisorMessageIds).length
+    ? ensureArray(goal.supervisorMessageIds)
+    : ensureArray(goal.evaluatorMessageIds);
+  const lastProgressSummary = goal.lastProgressSummary ?? goal.lastWorkerSummary ?? goal.lastAssistantReply ?? null;
+
+  return {
+    ...goal,
+    conversationSessionRef,
+    supervisorSessionRef,
+    lastProgressSummary,
+    lastSupervisorVerdict,
+    lastGoalDelta,
+    nextUserMessage: goal.nextUserMessage ?? null,
+    lastAssistantReply: goal.lastAssistantReply ?? null,
+    conversationMessageId,
+    supervisorMessageId,
+    supervisorMessageIds,
+    conversationEvents,
+    supervisorEvents,
+    workerSessionRef: conversationSessionRef,
+    evaluatorSessionRef: supervisorSessionRef,
+    lastWorkerSummary: lastProgressSummary,
+    lastEvaluatorVerdict: lastSupervisorVerdict,
+    nextWorkerInstruction: lastGoalDelta,
+    workerMessageId: conversationMessageId,
+    evaluatorMessageId: supervisorMessageId,
+    evaluatorMessageIds: supervisorMessageIds,
+    workerEvents: conversationEvents,
+    evaluatorEvents: supervisorEvents,
+  };
+}
+
 export function goalFilePath(goalId) {
   return path.join(getGoalsPath(), `${goalId}.json`);
 }
@@ -19,7 +72,7 @@ export function createGoalId() {
 
 export function createGoalRecord({ objective, chatId, sessionLabel, channel = "telegram" }) {
   const timestamp = nowIso();
-  return {
+  return normalizeGoalRecord({
     id: createGoalId(),
     objective,
     status: "pending",
@@ -27,27 +80,29 @@ export function createGoalRecord({ objective, chatId, sessionLabel, channel = "t
     channel,
     chatId: String(chatId),
     sessionLabel,
-    workerSessionRef: null,
-    evaluatorSessionRef: null,
+    conversationSessionRef: null,
+    supervisorSessionRef: null,
     iteration: 0,
     createdAt: timestamp,
     updatedAt: timestamp,
-    lastWorkerSummary: null,
-    lastEvaluatorVerdict: null,
+    lastProgressSummary: null,
+    lastAssistantReply: null,
+    lastSupervisorVerdict: null,
     finalOutput: null,
     finalOutputAt: null,
-    nextWorkerInstruction: null,
+    lastGoalDelta: null,
+    nextUserMessage: null,
     lastUserMessage: null,
     error: null,
     artifacts: [],
-    workerMessageId: null,
-    evaluatorMessageId: null,
-    evaluatorMessageIds: [],
+    conversationMessageId: null,
+    supervisorMessageId: null,
+    supervisorMessageIds: [],
     finalMessageId: null,
-    workerEvents: [],
-    evaluatorEvents: [],
+    conversationEvents: [],
+    supervisorEvents: [],
     history: [],
-  };
+  });
 }
 
 export function appendGoalHistory(goal, entry) {
@@ -62,13 +117,14 @@ export function appendGoalHistory(goal, entry) {
 
 export async function readGoal(goalId) {
   await ensureBotHome();
-  return await readJson(goalFilePath(goalId), null);
+  return normalizeGoalRecord(await readJson(goalFilePath(goalId), null));
 }
 
 export async function writeGoal(goal) {
   await ensureBotHome();
-  goal.updatedAt = nowIso();
-  await writeJson(goalFilePath(goal.id), goal);
+  const normalized = normalizeGoalRecord(goal);
+  normalized.updatedAt = nowIso();
+  await writeJson(goalFilePath(normalized.id), normalized);
 }
 
 export async function listGoals({ chatId = null, limit = 20 } = {}) {
@@ -89,7 +145,10 @@ export async function listGoals({ chatId = null, limit = 20 } = {}) {
     )
   ).filter(Boolean);
 
-  const filtered = chatId == null ? goals : goals.filter((goal) => String(goal.chatId) === String(chatId));
+  const normalizedGoals = goals.map((goal) => normalizeGoalRecord(goal)).filter(Boolean);
+  const filtered = chatId == null
+    ? normalizedGoals
+    : normalizedGoals.filter((goal) => String(goal.chatId) === String(chatId));
   return filtered
     .sort((a, b) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime())
     .slice(0, limit);

@@ -17,6 +17,7 @@ test("ensureAutoAideHome creates runtime directories", async () => {
       access(path.join(tempHome, "bots", "default", "memory")),
       access(path.join(tempHome, "logs")),
       access(path.join(tempHome, "bots", "default", "telegram")),
+      access(path.join(tempHome, "bots", "default", "feishu")),
     ]);
   });
 });
@@ -42,6 +43,20 @@ test("readConfig returns defaults when config is missing", async () => {
         allowedChatIds: [],
         allowedUserIds: [],
         requireExplicitMention: true,
+      },
+    });
+    assert.deepEqual(value.channels.feishu, {
+      enabled: false,
+      appId: "",
+      appSecret: "",
+      verificationToken: "",
+      encryptKey: "",
+      defaultReceiveIdType: "chat_id",
+      requireExplicitMention: true,
+      botMentionNames: [],
+      metadata: {
+        chats: {},
+        users: {},
       },
     });
   });

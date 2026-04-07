@@ -16,7 +16,7 @@ import {
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 import { buildCommandConfig as buildRunnerCommandConfig, startCliTurn } from "../../src/codex-runner.mjs";
 import { cronMatchesDate, minuteKey, parseCronExpression } from "../../src/cron-utils.mjs";
-import { startGoalRun } from "../../src/goal-runner.mjs";
+import { findRunningGoal, findRunningGoalForChat, launchGoal as launchSharedGoal, requestGoalStop } from "../../src/goal-controller.mjs";
 import { parseNaturalLanguageSchedule } from "../../src/schedule-intents.mjs";
 import {
   formatSkillInstallResult,
@@ -915,49 +915,6 @@ function requestJobStop(job) {
   return true;
 }
 
-function findRunningGoal(runningGoals, goalId) {
-  return runningGoals.get(goalId) || null;
-}
-
-function findRunningGoalForChat(runningGoals, chatId) {
-  for (const runningGoal of runningGoals.values()) {
-    if (String(runningGoal.chatId) === String(chatId)) {
-      return runningGoal;
-    }
-  }
-  return null;
-}
-
-function requestGoalStop(runningGoal) {
-  if (!runningGoal) {
-    return false;
-  }
-
-  runningGoal.controller.stopRequested = true;
-  const child = runningGoal.controller.activeChild;
-  if (!child || child.exitCode != null || child.killed) {
-    return true;
-  }
-
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    return false;
-  }
-
-  setTimeout(() => {
-    if (child.exitCode == null && !child.killed) {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // ignore hard-kill failures
-      }
-    }
-  }, 3000).unref?.();
-
-  return true;
-}
-
 async function shutdownActiveWork(runningJobs, runningGoals) {
   for (const job of runningJobs.values()) {
     requestJobStop(job);
@@ -975,7 +932,7 @@ async function shutdownActiveWork(runningJobs, runningGoals) {
 }
 
 function formatGoalSummary(goal) {
-  return `- ${goal.id} [${goal.status}] iter=${goal.iteration}${goal.lastEvaluatorVerdict ? ` verdict=${goal.lastEvaluatorVerdict}` : ""}\n  ${goal.objective}`;
+  return `- ${goal.id} [${goal.status}] iter=${goal.iteration}${goal.lastSupervisorVerdict ? ` verdict=${goal.lastSupervisorVerdict}` : ""}\n  ${goal.objective}`;
 }
 
 function formatGoalStatus(goal) {
@@ -985,11 +942,12 @@ function formatGoalStatus(goal) {
     `Phase: ${goal.phase || "unknown"}`,
     `Iteration: ${goal.iteration}`,
     `Objective: ${goal.objective}`,
-    `Worker session: ${goal.workerSessionRef || "not-started"}`,
-    `Evaluator session: ${goal.evaluatorSessionRef || "not-started"}`,
-    ...(goal.lastWorkerSummary ? [`Last worker summary: ${goal.lastWorkerSummary}`] : []),
-    ...(goal.lastEvaluatorVerdict ? [`Last evaluator verdict: ${goal.lastEvaluatorVerdict}`] : []),
-    ...(goal.nextWorkerInstruction ? [`Next instruction: ${goal.nextWorkerInstruction}`] : []),
+    `Conversation session: ${goal.conversationSessionRef || "not-started"}`,
+    `Supervisor session: ${goal.supervisorSessionRef || "not-started"}`,
+    ...(goal.lastAssistantReply ? [`Last assistant reply: ${goal.lastAssistantReply}`] : []),
+    ...(goal.lastSupervisorVerdict ? [`Last supervisor verdict: ${goal.lastSupervisorVerdict}`] : []),
+    ...(goal.nextUserMessage ? [`Next user follow-up: ${goal.nextUserMessage}`] : []),
+    ...(goal.lastGoalDelta ? [`Goal delta: ${goal.lastGoalDelta}`] : []),
     ...(goal.artifacts?.length ? [`Artifacts: ${goal.artifacts.join(", ")}`] : []),
     ...(goal.error ? [`Error: ${goal.error}`] : []),
   ].join("\n");
@@ -1136,34 +1094,39 @@ async function processSchedulesTick(context) {
 }
 
 async function launchGoal(goal, context) {
+  const session = context.state?.sessions?.[goal.sessionLabel] ?? null;
+  if (session?.cliSessionRef && !goal.conversationSessionRef) {
+    goal.conversationSessionRef = session.cliSessionRef;
+  }
+
   let notifyChain = Promise.resolve();
   let currentGoal = {
     ...goal,
-    evaluatorMessageIds: Array.isArray(goal.evaluatorMessageIds) ? goal.evaluatorMessageIds : [],
-    workerEvents: Array.isArray(goal.workerEvents) ? goal.workerEvents : [],
-    evaluatorEvents: Array.isArray(goal.evaluatorEvents) ? goal.evaluatorEvents : [],
+    supervisorMessageIds: Array.isArray(goal.supervisorMessageIds) ? goal.supervisorMessageIds : [],
+    conversationEvents: Array.isArray(goal.conversationEvents) ? goal.conversationEvents : [],
+    supervisorEvents: Array.isArray(goal.supervisorEvents) ? goal.supervisorEvents : [],
   };
 
   const persistGoal = async (nextGoal) => {
     currentGoal = {
       ...nextGoal,
-      evaluatorMessageIds: Array.isArray(nextGoal.evaluatorMessageIds) ? nextGoal.evaluatorMessageIds : [],
-      workerEvents: Array.isArray(nextGoal.workerEvents) ? nextGoal.workerEvents : [],
-      evaluatorEvents: Array.isArray(nextGoal.evaluatorEvents) ? nextGoal.evaluatorEvents : [],
+      supervisorMessageIds: Array.isArray(nextGoal.supervisorMessageIds) ? nextGoal.supervisorMessageIds : [],
+      conversationEvents: Array.isArray(nextGoal.conversationEvents) ? nextGoal.conversationEvents : [],
+      supervisorEvents: Array.isArray(nextGoal.supervisorEvents) ? nextGoal.supervisorEvents : [],
     };
     await writeGoal(currentGoal);
   };
 
   const renderWorkerPanel = (activeGoal) => {
-    const phase = activeGoal.phase || "running";
+    const phase = activeGoal.phase || "executor";
     const lines = [
-      `[${activeGoal.id}] Worker`,
+      `[${activeGoal.id}] Goal Thread`,
       `Status: ${activeGoal.status || "running"} / ${phase}`,
     ];
 
-    if (activeGoal.workerEvents?.length) {
+    if (activeGoal.conversationEvents?.length) {
       lines.push("", "Recent updates:");
-      for (const event of activeGoal.workerEvents.slice(-6)) {
+      for (const event of activeGoal.conversationEvents.slice(-6)) {
         lines.push(`- ${event}`);
       }
     }
@@ -1172,15 +1135,15 @@ async function launchGoal(goal, context) {
   };
 
   const renderEvaluatorPanel = (activeGoal) => {
-    const phase = activeGoal.phase || "evaluator";
+    const phase = activeGoal.phase || "supervisor";
     const lines = [
-      `[${activeGoal.id}] Evaluator`,
+      `[${activeGoal.id}] Supervisor`,
       `Status: ${activeGoal.status || "running"} / ${phase}`,
     ];
 
-    if (activeGoal.evaluatorEvents?.length) {
+    if (activeGoal.supervisorEvents?.length) {
       lines.push("", "Recent updates:");
-      for (const event of activeGoal.evaluatorEvents.slice(-4)) {
+      for (const event of activeGoal.supervisorEvents.slice(-4)) {
         lines.push(`- ${event}`);
       }
     }
@@ -1193,18 +1156,18 @@ async function launchGoal(goal, context) {
     if (
       !normalized ||
       normalized.startsWith("Goal started:") ||
-      normalized === "Worker: Session started" ||
-      normalized.startsWith("Worker: Running ") ||
-      normalized.startsWith("Worker: Finished ")
+      normalized === "Executor: Session started" ||
+      normalized.startsWith("Executor: Running ") ||
+      normalized.startsWith("Executor: Finished ")
     ) {
       return;
     }
-    currentGoal.workerEvents = [...(currentGoal.workerEvents || []), normalized].slice(-6);
+    currentGoal.conversationEvents = [...(currentGoal.conversationEvents || []), normalized].slice(-6);
     await persistGoal(currentGoal);
 
-    if (typeof currentGoal.workerMessageId === "number") {
+    if (typeof currentGoal.conversationMessageId === "number") {
       try {
-        await deleteMessage(context.token, context.chatId, currentGoal.workerMessageId);
+        await deleteMessage(context.token, context.chatId, currentGoal.conversationMessageId);
       } catch {
         // ignore delete failure and replace below
       }
@@ -1214,9 +1177,9 @@ async function launchGoal(goal, context) {
       context.token,
       context.chatId,
       renderWorkerPanel(currentGoal),
-      typeof currentGoal.workerMessageId === "number" ? undefined : context.messageId,
+      typeof currentGoal.conversationMessageId === "number" ? undefined : context.messageId,
     );
-    currentGoal.workerMessageId = workerMessage?.message_id ?? null;
+    currentGoal.conversationMessageId = workerMessage?.message_id ?? null;
     await persistGoal(currentGoal);
   };
 
@@ -1226,18 +1189,18 @@ async function launchGoal(goal, context) {
       return;
     }
     if (
-      normalized === "Evaluator: Session started" ||
-      normalized.startsWith("Evaluator: Running ") ||
-      normalized.startsWith("Evaluator: Finished ")
+      normalized === "Supervisor: Session started" ||
+      normalized.startsWith("Supervisor: Running ") ||
+      normalized.startsWith("Supervisor: Finished ")
     ) {
       return;
     }
-    currentGoal.evaluatorEvents = [...(currentGoal.evaluatorEvents || []), normalized].slice(-4);
+    currentGoal.supervisorEvents = [...(currentGoal.supervisorEvents || []), normalized].slice(-4);
     await persistGoal(currentGoal);
 
-    if (typeof currentGoal.evaluatorMessageId === "number") {
+    if (typeof currentGoal.supervisorMessageId === "number") {
       try {
-        await deleteMessage(context.token, context.chatId, currentGoal.evaluatorMessageId);
+        await deleteMessage(context.token, context.chatId, currentGoal.supervisorMessageId);
       } catch {
         // ignore delete failure and replace below
       }
@@ -1247,11 +1210,11 @@ async function launchGoal(goal, context) {
       context.token,
       context.chatId,
       renderEvaluatorPanel(currentGoal),
-      typeof currentGoal.evaluatorMessageId === "number" ? undefined : context.messageId,
+      typeof currentGoal.supervisorMessageId === "number" ? undefined : context.messageId,
     );
     if (typeof evaluatorMessage?.message_id === "number") {
-      currentGoal.evaluatorMessageId = evaluatorMessage.message_id;
-      currentGoal.evaluatorMessageIds = [...(currentGoal.evaluatorMessageIds || []), evaluatorMessage.message_id];
+      currentGoal.supervisorMessageId = evaluatorMessage.message_id;
+      currentGoal.supervisorMessageIds = [...(currentGoal.supervisorMessageIds || []), evaluatorMessage.message_id];
       await persistGoal(currentGoal);
     }
   };
@@ -1263,13 +1226,18 @@ async function launchGoal(goal, context) {
     await notifyChain;
   };
 
-  const started = startGoalRun(goal, {
+  await launchSharedGoal(goal, {
+    runningGoals: context.runningGoals,
     commandConfig: context.goalCommandConfig,
+    registration: {
+      chatId: context.chatId,
+      sessionLabel: goal.sessionLabel,
+    },
     persistGoal,
     notify: async (text) => {
       await enqueueNotify(async () => {
         try {
-          if (text.startsWith("Evaluator:")) {
+          if (text.startsWith("Supervisor:")) {
             await sendEvaluatorUpdate(text);
             return;
           }
@@ -1283,21 +1251,17 @@ async function launchGoal(goal, context) {
         }
       });
     },
-  });
-
-  context.runningGoals.set(goal.id, {
-    goalId: goal.id,
-    chatId: context.chatId,
-    controller: started.controller,
-  });
-
-  void started.result
-    .then(async ({ goal: finalGoal, userMessage }) => {
-      context.runningGoals.delete(goal.id);
+    onGoalFinished: async ({ goal: finalGoal, userMessage }) => {
       currentGoal = {
         ...currentGoal,
         ...finalGoal,
       };
+      const latestSession = context.state?.sessions?.[currentGoal.sessionLabel] ?? null;
+      if (latestSession && currentGoal.conversationSessionRef && context.routerStatePath) {
+        latestSession.cliSessionRef = currentGoal.conversationSessionRef;
+        latestSession.updatedAt = new Date().toISOString();
+        await writeRouterState(context.routerStatePath, context.state);
+      }
       currentGoal.finalOutput = userMessage;
       currentGoal.finalOutputAt = new Date().toISOString();
       await persistGoal(currentGoal);
@@ -1311,9 +1275,8 @@ async function launchGoal(goal, context) {
         currentGoal.finalMessageId = finalMessage.message_id;
         await persistGoal(currentGoal);
       }
-    })
-    .catch(async (error) => {
-      context.runningGoals.delete(goal.id);
+    },
+    onGoalFailed: async ({ error }) => {
       currentGoal.status = "failed";
       currentGoal.phase = "runner_failed";
       currentGoal.error = error.message;
@@ -1329,7 +1292,8 @@ async function launchGoal(goal, context) {
         `[${currentGoal.id}] Goal failed.\n\n${error.message}`,
         context.messageId,
       );
-    });
+    },
+  });
 }
 
 async function reconcileGoalsOnStartup() {
@@ -1341,7 +1305,7 @@ async function reconcileGoalsOnStartup() {
       appendGoalHistory(goal, {
         role: "system",
         type: "restart",
-        message: "Goal was interrupted by bridge restart. Use /goal-resume to continue.",
+        message: "Goal was interrupted by bridge restart. Start a new /goal if you want to continue it.",
       });
       await writeGoal(goal);
     }
@@ -1391,8 +1355,6 @@ async function handleSlashCommand({
         "/goal <objective>",
         "/goals",
         "/goal-status <id>",
-        "/goal-stop <id>",
-        "/goal-resume <id>",
         "/goal-log <id>",
         "/schedule <cron> <objective>",
         "/schedules",
@@ -1461,10 +1423,24 @@ async function handleSlashCommand({
   }
 
   if (command === "stop") {
+    const runningGoal = findRunningGoalForChat(runningGoals, chatId);
+    if (runningGoal) {
+      const stopped = requestGoalStop(runningGoal);
+      await sendMessage(
+        token,
+        message.chat.id,
+        stopped
+          ? `Stop requested for goal ${runningGoal.goalId}.`
+          : `Unable to stop goal ${runningGoal.goalId}.`,
+        message.message_id,
+      );
+      return { stateChanged: false, handled: true };
+    }
+
     const activeLabel = getActiveSessionLabel(state, chatId);
     const job = findRunningJob(runningJobs, chatId, activeLabel);
     if (!job) {
-      await sendMessage(token, message.chat.id, `No running task for ${activeLabel}.`, message.message_id);
+      await sendMessage(token, message.chat.id, `No running task or goal for ${activeLabel}.`, message.message_id);
       return { stateChanged: false, handled: true };
     }
 
@@ -1584,7 +1560,7 @@ async function handleSlashCommand({
       await sendMessage(
         token,
         message.chat.id,
-        `A goal is already running for this chat: ${activeGoal.goalId}\nUse /goal-stop ${activeGoal.goalId} first or wait for it to finish.`,
+        `A goal is already running for this chat: ${activeGoal.goalId}\nUse /stop first or wait for it to finish.`,
         message.message_id,
       );
       return { stateChanged: false, handled: true };
@@ -1606,6 +1582,7 @@ async function handleSlashCommand({
       sessionLabel: getActiveSessionLabel(state, chatId),
       channel: "telegram",
     });
+    goal.conversationSessionRef = state.sessions[goal.sessionLabel]?.cliSessionRef || null;
     goal.status = "running";
     goal.phase = "queued";
     await writeGoal(goal);
@@ -1619,6 +1596,8 @@ async function handleSlashCommand({
       token,
       chatId: message.chat.id,
       messageId: message.message_id,
+      state,
+      routerStatePath: context.routerStatePath,
       runningGoals,
       goalCommandConfig,
     });
@@ -1663,86 +1642,6 @@ async function handleSlashCommand({
       return { stateChanged: false, handled: true };
     }
     await sendMessage(token, message.chat.id, formatGoalLog(goal), message.message_id);
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "goal-stop") {
-    const goalId = argsText.trim();
-    if (!goalId) {
-      await sendMessage(token, message.chat.id, "Usage: /goal-stop <id>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const goal = await readGoal(goalId);
-    if (!goal || String(goal.chatId) !== String(chatId)) {
-      await sendMessage(token, message.chat.id, `Unknown goal: ${goalId}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const runningGoal = findRunningGoal(runningGoals, goalId);
-    if (!runningGoal) {
-      if (goal.status !== "stopped") {
-        goal.status = "stopped";
-        goal.phase = "stopped";
-        appendGoalHistory(goal, {
-          role: "system",
-          type: "stop",
-          message: "Goal stopped without an active runner.",
-        });
-        await writeGoal(goal);
-      }
-      await sendMessage(token, message.chat.id, `[${goalId}] Stopped.`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const stopped = requestGoalStop(runningGoal);
-    await sendMessage(
-      token,
-      message.chat.id,
-      stopped ? `[${goalId}] Stop requested.` : `[${goalId}] Unable to stop right now.`,
-      message.message_id,
-    );
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "goal-resume") {
-    const goalId = argsText.trim();
-    if (!goalId) {
-      await sendMessage(token, message.chat.id, "Usage: /goal-resume <id>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const goal = await readGoal(goalId);
-    if (!goal || String(goal.chatId) !== String(chatId)) {
-      await sendMessage(token, message.chat.id, `Unknown goal: ${goalId}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    if (findRunningGoalForChat(runningGoals, chatId)) {
-      await sendMessage(
-        token,
-        message.chat.id,
-        "Another goal is already running for this chat. Stop it first or wait for it to finish.",
-        message.message_id,
-      );
-      return { stateChanged: false, handled: true };
-    }
-    if (goal.status === "completed") {
-      await sendMessage(token, message.chat.id, `[${goalId}] is already completed.`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    goal.status = "running";
-    goal.phase = "resuming";
-    goal.error = null;
-    appendGoalHistory(goal, {
-      role: "system",
-      type: "resume",
-      message: "Goal resumed by user.",
-    });
-    await writeGoal(goal);
-    await sendMessage(token, message.chat.id, `[${goalId}] Resuming.`, message.message_id);
-    await launchGoal(goal, {
-      token,
-      chatId: message.chat.id,
-      messageId: message.message_id,
-      runningGoals,
-      goalCommandConfig,
-    });
     return { stateChanged: false, handled: true };
   }
 
@@ -1820,6 +1719,7 @@ async function handleSlashCommand({
       sessionLabel: getActiveSessionLabel(state, chatId),
       channel: "telegram",
     });
+    goal.conversationSessionRef = state.sessions[goal.sessionLabel]?.cliSessionRef || null;
     goal.status = "running";
     goal.phase = "queued";
     goal.scheduleId = schedule.id;
@@ -1839,6 +1739,8 @@ async function handleSlashCommand({
       token,
       chatId: message.chat.id,
       messageId: message.message_id,
+      state,
+      routerStatePath: context.routerStatePath,
       runningGoals,
       goalCommandConfig,
     });
@@ -1988,7 +1890,7 @@ async function processUpdate(update, context) {
     await sendMessage(
       context.token,
       message.chat.id,
-      `Goal ${runningGoal.goalId} is already running. Use /goal-stop ${runningGoal.goalId} before sending a normal request.`,
+      `Goal ${runningGoal.goalId} is already running. Use /stop before sending a normal request.`,
       message.message_id,
     );
     return;

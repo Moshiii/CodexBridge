@@ -9,13 +9,13 @@ import {
   ensureBotHome,
   ensureControlPlaneHome,
   getBotConfigPath,
+  getChannelBridgeLogPath,
+  getChannelBridgePidPath,
   getBotPath,
   getBotRuntimeLogPath,
   getBotRuntimePidPath,
-  getTelegramBridgePidPath,
   getLogsPath,
   getRegistryPath,
-  getTelegramBridgeLogPath,
   readConfig,
   readActiveBotId,
   readJson,
@@ -26,6 +26,7 @@ import {
   writeJson,
   writeRegistry,
 } from "./config.mjs";
+import { getChannelAdapter } from "./channel-adapters.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -185,7 +186,7 @@ async function readRuntimePid(bot) {
 
 async function cleanupBotOrphans(bot) {
   const runtimePidPath = getBotRuntimePidPath(bot.homePath);
-  const bridgePidPath = getTelegramBridgePidPath(bot.homePath);
+  const bridgePidPath = getChannelBridgePidPath(bot.channel, bot.homePath);
   const runtimePid = await readRuntimePid(bot);
   const bridgePid = await readPidFile(bridgePidPath);
 
@@ -202,7 +203,8 @@ async function cleanupBotOrphans(bot) {
 
   const processes = await listProcesses();
   const runtimePattern = `${BIN_PATH} bot run ${bot.id}`;
-  const bridgePattern = `telegram-codex-bridge.mjs --bot-id ${bot.id}`;
+  const adapter = getChannelAdapter(bot.channel);
+  const bridgePattern = adapter?.bridgeScriptPath ? `${path.basename(adapter.bridgeScriptPath)} --bot-id ${bot.id}` : null;
   const liveRuntimePid = await readRuntimePid(bot);
   const liveBridgePid = await readPidFile(bridgePidPath);
   const keepPids = new Set([liveRuntimePid, liveBridgePid].filter(Boolean));
@@ -211,7 +213,7 @@ async function cleanupBotOrphans(bot) {
     if (!proc?.pid || keepPids.has(proc.pid) || proc.pid === process.pid) {
       return false;
     }
-    return proc.command.includes(runtimePattern) || proc.command.includes(bridgePattern);
+    return proc.command.includes(runtimePattern) || (bridgePattern ? proc.command.includes(bridgePattern) : false);
   });
 
   for (const proc of duplicates) {
@@ -240,6 +242,7 @@ async function markBotStoppedWithError(bot, errorMessage = null) {
   await writeConfig(nextConfig, bot.homePath);
   await replaceRegistryBot({
     ...bot,
+    channel: nextConfig.channel || bot.channel,
     enabled: nextConfig.enabled,
     desiredVersion: nextConfig.desiredVersion,
     runningVersion: nextConfig.runningVersion,
@@ -307,6 +310,10 @@ export async function createBot({
   if (!botId) {
     throw new Error("Bot id is required.");
   }
+  const adapter = getChannelAdapter(channel);
+  if (!adapter) {
+    throw new Error(`Unsupported channel: ${channel}`);
+  }
   await ensureControlPlaneHome();
   const registry = await readRegistry();
   if (registry.bots.find((bot) => bot.id === botId)) {
@@ -346,7 +353,7 @@ export async function createBot({
     desiredVersion,
     runningVersion: null,
     status: "stopped",
-    botUsername: nextConfig.channels.telegram.botUsername || "",
+    botUsername: adapter.getSummary(nextConfig),
     lastError: null,
   };
   registry.bots.push(entry);
@@ -361,12 +368,13 @@ export async function updateBotConfig(botId, updater) {
   await writeConfig(nextConfig, bot.homePath);
   return await replaceRegistryBot({
     ...bot,
+    channel: nextConfig.channel || bot.channel,
     name: nextConfig.name || bot.name,
     enabled: nextConfig.enabled ?? bot.enabled,
     desiredVersion: nextConfig.desiredVersion ?? bot.desiredVersion,
     runningVersion: nextConfig.runningVersion ?? bot.runningVersion,
     status: nextConfig.status ?? bot.status,
-    botUsername: nextConfig.channels?.telegram?.botUsername || bot.botUsername || "",
+    botUsername: getChannelAdapter(bot.channel)?.getSummary(nextConfig) || bot.botUsername || "",
     lastError: nextConfig.observability?.lastError || null,
   });
 }
@@ -407,9 +415,14 @@ export async function startBot(botId) {
     return existingPid;
   }
   const config = await readConfig(bot.homePath);
-  const telegram = config.channels?.telegram ?? {};
-  if (bot.channel === "telegram" && (!telegram.enabled || !telegram.botToken)) {
-    const errorMessage = `Bot ${botId} is not ready to start: Telegram is not configured.`;
+  const adapter = getChannelAdapter(bot.channel);
+  if (!adapter) {
+    const errorMessage = `Bot ${botId} is not ready to start: unsupported channel ${bot.channel}.`;
+    await markBotStoppedWithError(bot, errorMessage);
+    throw new Error(errorMessage);
+  }
+  if (!adapter.isConfigured(config)) {
+    const errorMessage = `Bot ${botId} is not ready to start: ${adapter.label} is not configured.`;
     await markBotStoppedWithError(bot, errorMessage);
     throw new Error(errorMessage);
   }
@@ -550,7 +563,7 @@ export async function inspectBot(botId) {
       configPath: getBotConfigPath(bot.homePath),
       runtimePidPath: getBotRuntimePidPath(bot.homePath),
       runtimeLogPath: getBotRuntimeLogPath(bot.homePath),
-      bridgeLogPath: getTelegramBridgeLogPath(bot.homePath),
+      bridgeLogPath: getChannelBridgeLogPath(bot.channel, bot.homePath),
     },
   };
 }
@@ -562,9 +575,14 @@ export async function runBotRuntime(botId) {
   await cleanupBotOrphans(bot);
 
   const config = await readConfig(botHome);
-  const telegram = config.channels?.telegram ?? {};
-  if (bot.channel === "telegram" && (!telegram.enabled || !telegram.botToken)) {
-    const errorMessage = `Bot ${botId} is not ready to run: Telegram is not configured.`;
+  const adapter = getChannelAdapter(bot.channel);
+  if (!adapter) {
+    const errorMessage = `Bot ${botId} is not ready to run: unsupported channel ${bot.channel}.`;
+    await markBotStoppedWithError(bot, errorMessage);
+    throw new Error(errorMessage);
+  }
+  if (!adapter.isConfigured(config)) {
+    const errorMessage = `Bot ${botId} is not ready to run: ${adapter.label} is not configured.`;
     await markBotStoppedWithError(bot, errorMessage);
     throw new Error(errorMessage);
   }
@@ -580,10 +598,11 @@ export async function runBotRuntime(botId) {
   await replaceRegistryBot({
     ...bot,
     enabled: config.enabled,
+    channel: config.channel || bot.channel,
     desiredVersion: config.desiredVersion,
     runningVersion: config.runningVersion,
     status: "running",
-    botUsername: config.channels.telegram.botUsername || "",
+    botUsername: adapter.getSummary(config),
     lastError: null,
   });
 
@@ -607,10 +626,11 @@ export async function runBotRuntime(botId) {
     await replaceRegistryBot({
       ...bot,
       enabled: latest.enabled,
+      channel: latest.channel || bot.channel,
       desiredVersion: latest.desiredVersion,
       runningVersion: latest.runningVersion,
       status: "stopped",
-      botUsername: latest.channels.telegram.botUsername || "",
+      botUsername: adapter.getSummary(latest),
       lastError: latest.observability?.lastError || null,
     });
     await clearPidFile(getBotRuntimePidPath(botHome));
@@ -623,8 +643,8 @@ export async function runBotRuntime(botId) {
     void clearPidFile(getBotRuntimePidPath(botHome));
   });
 
-  const bridgeLog = await open(getTelegramBridgeLogPath(botHome), "a");
-  const child = spawn(process.execPath, [path.join(__dirname, "..", "plugins", "telegram-codex", "telegram-codex-bridge.mjs"), "--bot-id", bot.id], {
+  const bridgeLog = await open(getChannelBridgeLogPath(bot.channel, botHome), "a");
+  const child = spawn(process.execPath, [adapter.bridgeScriptPath, "--bot-id", bot.id], {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,
@@ -648,10 +668,11 @@ export async function runBotRuntime(botId) {
     await replaceRegistryBot({
       ...bot,
       enabled: latest.enabled,
+      channel: latest.channel || bot.channel,
       desiredVersion: latest.desiredVersion,
       runningVersion: latest.runningVersion,
       status: "stopped",
-      botUsername: latest.channels.telegram.botUsername || "",
+      botUsername: adapter.getSummary(latest),
       lastError: latest.observability.lastError,
     });
     await clearPidFile(getBotRuntimePidPath(botHome));
@@ -667,13 +688,13 @@ export async function healthCheckBot(botId) {
   const bot = await getRegistryBotOrThrow(botId);
   const pid = await readRuntimePid(bot);
   const config = await readConfig(bot.homePath);
-  const telegram = config.channels?.telegram ?? {};
+  const adapter = getChannelAdapter(bot.channel);
   return {
     id: bot.id,
     healthy: Boolean(pid),
     status: pid ? "running" : config.status || bot.status || "stopped",
     pid,
-    botUsername: telegram.botUsername || "",
+    botUsername: adapter?.getSummary(config) || "",
     homePath: bot.homePath,
     runningVersion: config.runningVersion,
     desiredVersion: config.desiredVersion,
@@ -681,7 +702,7 @@ export async function healthCheckBot(botId) {
     lastStoppedAt: config.observability?.lastStoppedAt || null,
     lastError: config.observability?.lastError || null,
     runtimeLogPath: getBotRuntimeLogPath(bot.homePath),
-    bridgeLogPath: getTelegramBridgeLogPath(bot.homePath),
+    bridgeLogPath: getChannelBridgeLogPath(bot.channel, bot.homePath),
   };
 }
 

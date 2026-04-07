@@ -103,20 +103,45 @@ export function getTelegramStatePath(botHome = resolveBotHome()) {
   return path.join(botHome, "telegram");
 }
 
+export function getChannelStatePath(channel, botHome = resolveBotHome()) {
+  return path.join(botHome, String(channel || "").trim().toLowerCase());
+}
+
 export function getBotRuntimePidPath(botHome = resolveBotHome()) {
   return path.join(getTelegramStatePath(botHome), "runtime.pid");
 }
 
-export function getTelegramBridgePidPath(botHome = resolveBotHome()) {
-  return path.join(getTelegramStatePath(botHome), "bridge.pid");
+export function getChannelBridgePidPath(channel, botHome = resolveBotHome()) {
+  return path.join(getChannelStatePath(channel, botHome), "bridge.pid");
 }
 
 export function getBotRuntimeLogPath(botHome = resolveBotHome()) {
   return path.join(getLogsPath(botHome), "runtime.log");
 }
 
+export function getChannelBridgeLogPath(channel, botHome = resolveBotHome()) {
+  const normalizedChannel = String(channel || "").trim().toLowerCase() || "channel";
+  return path.join(getLogsPath(botHome), `${normalizedChannel}-bridge.log`);
+}
+
+export function getTelegramBridgePidPath(botHome = resolveBotHome()) {
+  return getChannelBridgePidPath("telegram", botHome);
+}
+
 export function getTelegramBridgeLogPath(botHome = resolveBotHome()) {
-  return path.join(getLogsPath(botHome), "telegram-bridge.log");
+  return getChannelBridgeLogPath("telegram", botHome);
+}
+
+export function getFeishuStatePath(botHome = resolveBotHome()) {
+  return getChannelStatePath("feishu", botHome);
+}
+
+export function getFeishuBridgePidPath(botHome = resolveBotHome()) {
+  return getChannelBridgePidPath("feishu", botHome);
+}
+
+export function getFeishuBridgeLogPath(botHome = resolveBotHome()) {
+  return getChannelBridgeLogPath("feishu", botHome);
 }
 
 export const AUTOAIDE_HOME = getAutoAideHome();
@@ -180,6 +205,20 @@ export function createDefaultBotConfig() {
           requireExplicitMention: true,
         },
       },
+      feishu: {
+        enabled: false,
+        appId: "",
+        appSecret: "",
+        verificationToken: "",
+        encryptKey: "",
+        defaultReceiveIdType: "chat_id",
+        requireExplicitMention: true,
+        botMentionNames: [],
+        metadata: {
+          chats: {},
+          users: {},
+        },
+      },
     },
     observability: {
       lastError: null,
@@ -187,6 +226,38 @@ export function createDefaultBotConfig() {
       lastStoppedAt: null,
       logPath: null,
     },
+  };
+}
+
+function normalizeFeishuConfig(feishu = {}) {
+  return {
+    ...createDefaultBotConfig().channels.feishu,
+    ...feishu,
+    metadata: {
+      ...createDefaultBotConfig().channels.feishu.metadata,
+      ...(feishu.metadata ?? {}),
+      chats:
+        feishu.metadata?.chats && typeof feishu.metadata.chats === "object"
+          ? feishu.metadata.chats
+          : {},
+      users:
+        feishu.metadata?.users && typeof feishu.metadata.users === "object"
+          ? feishu.metadata.users
+          : {},
+    },
+    enabled: feishu.enabled ?? createDefaultBotConfig().channels.feishu.enabled,
+    appId: feishu.appId ?? createDefaultBotConfig().channels.feishu.appId,
+    appSecret: feishu.appSecret ?? createDefaultBotConfig().channels.feishu.appSecret,
+    verificationToken:
+      feishu.verificationToken ?? createDefaultBotConfig().channels.feishu.verificationToken,
+    encryptKey: feishu.encryptKey ?? createDefaultBotConfig().channels.feishu.encryptKey,
+    defaultReceiveIdType:
+      feishu.defaultReceiveIdType ?? createDefaultBotConfig().channels.feishu.defaultReceiveIdType,
+    requireExplicitMention:
+      feishu.requireExplicitMention ?? createDefaultBotConfig().channels.feishu.requireExplicitMention,
+    botMentionNames: Array.isArray(feishu.botMentionNames)
+      ? feishu.botMentionNames.map((name) => String(name || "").trim()).filter(Boolean)
+      : createDefaultBotConfig().channels.feishu.botMentionNames,
   };
 }
 
@@ -234,7 +305,9 @@ export function normalizeBotConfig(config = {}) {
     ...rest
   } = config ?? {};
   const telegram = channelsConfig?.telegram ?? {};
+  const feishu = channelsConfig?.feishu ?? {};
   const normalizedTelegram = normalizeTelegramConfig(telegram);
+  const normalizedFeishu = normalizeFeishuConfig(feishu);
   return {
     ...defaults,
     ...rest,
@@ -245,6 +318,9 @@ export function normalizeBotConfig(config = {}) {
     channels: {
       telegram: {
         ...normalizedTelegram,
+      },
+      feishu: {
+        ...normalizedFeishu,
       },
     },
     observability: {
@@ -293,6 +369,7 @@ export async function ensureBotHome(botHome = resolveBotHome()) {
   await mkdir(getSkillsPath(botHome), { recursive: true });
   await mkdir(getLogsPath(botHome), { recursive: true });
   await mkdir(getTelegramStatePath(botHome), { recursive: true });
+  await mkdir(getFeishuStatePath(botHome), { recursive: true });
   await mkdir(getMemoryPath(botHome), { recursive: true });
 }
 

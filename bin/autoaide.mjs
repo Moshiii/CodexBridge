@@ -23,6 +23,7 @@ import {
   updateBotConfig,
 } from "../src/bots.mjs";
 import { readActiveBotId, readConfig } from "../src/config.mjs";
+import { getChannelAdapter } from "../src/channel-adapters.mjs";
 import {
   formatSkillInstallResult,
   formatSkillsOverview,
@@ -86,8 +87,8 @@ async function ensureConfiguredCurrentBotOnline() {
   if (!config.enabled) {
     return;
   }
-  const telegram = config.channels?.telegram ?? {};
-  if (!telegram.enabled || !telegram.botToken) {
+  const adapter = getChannelAdapter(activeBot.channel);
+  if (!adapter?.isConfigured(config)) {
     return;
   }
 

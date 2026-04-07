@@ -5,6 +5,7 @@ import {
   AUTOAIDE_HOME,
   getBootstrapStatePath,
   getBotRuntimePidPath,
+  getFeishuStatePath,
   getTelegramStatePath,
   getWorkspacePath,
   ensureAutoAideHome,
@@ -43,6 +44,15 @@ function getTelegramConfigView(config) {
   };
 }
 
+function getFeishuConfigView(config) {
+  const feishu = config.channels?.feishu ?? {};
+  return {
+    ...feishu,
+    metadataChats: feishu.metadata?.chats ?? {},
+    metadataUsers: feishu.metadata?.users ?? {},
+  };
+}
+
 function formatTelegramEntity(id, entry, fallbackLabel = null) {
   if (entry?.label) {
     return `${entry.label} (${id})`;
@@ -68,8 +78,11 @@ function formatTelegramEntityList(ids, metadata, kind) {
 
 function formatCliStatus(botContext, config, bridgeProcess, cliState, bootstrapInfo) {
   const telegram = getTelegramConfigView(config);
+  const feishu = getFeishuConfigView(config);
   const runtimeOnline = Boolean(bridgeProcess?.pid);
-  const telegramOnline = runtimeOnline && telegram?.enabled;
+  const activeChannel = config.channel || "telegram";
+  const telegramOnline = runtimeOnline && activeChannel === "telegram" && telegram?.enabled;
+  const feishuOnline = runtimeOnline && activeChannel === "feishu" && feishu?.enabled;
   return formatKeyValueCard("AutoAide Status", [
     ["home", AUTOAIDE_HOME],
     ["bot", botContext.botId],
@@ -77,12 +90,18 @@ function formatCliStatus(botContext, config, bridgeProcess, cliState, bootstrapI
     ["bootstrap state", getBootstrapStatePath(botContext.botHome)],
     ["runtime pid file", getBotRuntimePidPath(botContext.botHome)],
     ["telegram state", getTelegramStatePath(botContext.botHome)],
+    ["feishu state", getFeishuStatePath(botContext.botHome)],
+    ["active channel", activeChannel],
     ["model", config.runtime?.model || "gpt-5.4"],
     ["bootstrap completed", bootstrapInfo.bootstrapPending ? "no" : "yes"],
     ["active session", cliState.activeSessionLabel],
     ["bot runtime online", runtimeOnline ? "yes" : "no"],
     ["telegram paired", telegram?.enabled ? "yes" : "no"],
     ["telegram bridge online", telegramOnline ? "yes" : "no"],
+    ["feishu enabled", feishu?.enabled ? "yes" : "no"],
+    ["feishu bridge online", feishuOnline ? "yes" : "no"],
+    ["feishu app id", feishu?.appId || "none"],
+    ["feishu mention required", String(feishu?.requireExplicitMention ?? true)],
     ...(telegram?.enabled
       ? [
           ["private chats", formatTelegramEntityList(telegram.privateAllowedChatIds, telegram.metadata, "chat")],
@@ -250,97 +269,187 @@ function slugifySessionLabel(raw) {
 }
 
 async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef) {
-  console.log(`${formatListCard("Available Channels", ["1. Telegram"])}\n`);
+  console.log(`${formatListCard("Available Channels", ["1. Telegram", "2. Feishu"])}\n`);
   const selection = (await rl.question("Select a channel [telegram]: ")).trim().toLowerCase();
-  if (selection && selection !== "1" && selection !== "telegram") {
-    console.log(`${formatMessageCard("Channel Selection", ["Only Telegram is available right now."])}\n`);
+
+  if (!selection || selection === "1" || selection === "telegram") {
+    console.log(
+      `\n${formatListCard("Telegram Pairing", [
+        "Open Telegram and message @BotFather.",
+        "Create a bot with /newbot, then paste the bot token here.",
+      ])}\n`,
+    );
+
+    const token = (await rl.question("Telegram bot token: ")).trim();
+    if (!token) {
+      console.log(`${formatMessageCard("Telegram Pairing", ["Pairing cancelled."])}\n`);
+      return;
+    }
+
+    const currentBot = await getBot(botContextRef.current.botId);
+    const currentTelegram = config.channels?.telegram ?? {};
+    const hadRunningRuntime = Boolean(currentBot.runtimePid);
+    let shouldRestoreRuntime = hadRunningRuntime;
+
+    if (hadRunningRuntime) {
+      console.log(`${formatMessageCard("Telegram Pairing", ["Pausing the current bot runtime so pairing can read Telegram updates cleanly..."])}\n`);
+      await stopBot(botContextRef.current.botId).catch(() => {});
+      bridgeProcessRef.current = { pid: null };
+    }
+
+    console.log(`\n${formatMessageCard("Telegram Pairing", ["Now send one message to your bot in Telegram, then press Enter here."])}\n`);
+    await rl.question("");
+
+    try {
+      let paired = null;
+      try {
+        paired = await pairTelegramChannel(token);
+      } catch (error) {
+        const existingChatId = currentTelegram.private?.allowedChatIds?.[0] ?? null;
+        if (currentTelegram.botToken === token && existingChatId) {
+          paired = {
+            chatId: String(existingChatId),
+            userId: String(currentTelegram.groups?.allowedUserIds?.[0] ?? currentTelegram.private?.allowedChatIds?.[0]),
+            username: currentTelegram.botUsername || null,
+          };
+        } else {
+          throw error;
+        }
+      }
+      config = await updateBotConfig(botContextRef.current.botId, (currentConfig) => {
+        const existingGroupUserIds = currentConfig.channels?.telegram?.groups?.allowedUserIds ?? [];
+        return {
+          ...currentConfig,
+          channel: "telegram",
+          enabled: true,
+          channels: {
+            ...currentConfig.channels,
+            telegram: {
+              enabled: true,
+              botToken: token,
+              botUsername: paired.botUsername || currentConfig.channels?.telegram?.botUsername || "",
+              metadata: {
+                chats: {
+                  ...(currentConfig.channels?.telegram?.metadata?.chats ?? {}),
+                  [paired.chatId]: {
+                    type: "private",
+                    username: paired.userUsername ?? null,
+                    label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
+                  },
+                },
+                users: {
+                  ...(currentConfig.channels?.telegram?.metadata?.users ?? {}),
+                  [paired.userId]: {
+                    username: paired.userUsername ?? null,
+                    label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
+                  },
+                },
+              },
+              private: {
+                allowedChatIds: [paired.chatId],
+              },
+              groups: {
+                allowedChatIds: currentConfig.channels?.telegram?.groups?.allowedChatIds ?? [],
+                allowedUserIds: Array.from(new Set([...existingGroupUserIds, paired.userId])),
+                requireExplicitMention: currentConfig.channels?.telegram?.groups?.requireExplicitMention ?? true,
+              },
+            },
+          },
+        };
+      });
+      shouldRestoreRuntime = false;
+      try {
+        bridgeProcessRef.current = {
+          pid: await startBot(botContextRef.current.botId),
+        };
+      } catch {
+        bridgeProcessRef.current = {
+          pid: (await getBot(botContextRef.current.botId)).runtimePid,
+        };
+      }
+
+      console.log(
+        `${formatKeyValueCard("Telegram Paired", [
+          ["status", "paired successfully"],
+          ["chat id", String(paired.chatId)],
+          ...(paired.botUsername ? [["bot username", `@${paired.botUsername}`]] : []),
+          ...(paired.userUsername ? [["paired user", `@${paired.userUsername}`]] : []),
+        ])}\n`,
+      );
+    } catch (error) {
+      console.log(`${formatMessageCard("Telegram Pairing Failed", [error.message])}\n`);
+      if (shouldRestoreRuntime && currentTelegram.enabled && currentTelegram.botToken) {
+        try {
+          bridgeProcessRef.current = {
+            pid: await startBot(botContextRef.current.botId),
+          };
+        } catch {
+          bridgeProcessRef.current = {
+            pid: (await getBot(botContextRef.current.botId)).runtimePid,
+          };
+        }
+      }
+    }
+    return;
+  }
+
+  if (selection !== "2" && selection !== "feishu") {
+    console.log(`${formatMessageCard("Channel Selection", ["Unknown channel selection."])}\n`);
     return;
   }
 
   console.log(
-    `\n${formatListCard("Telegram Pairing", [
-      "Open Telegram and message @BotFather.",
-      "Create a bot with /newbot, then paste the bot token here.",
+    `\n${formatListCard("Feishu Setup", [
+      "Create a self-built app in Feishu Open Platform.",
+      "Enable bot capability and subscribe to im.message.receive_v1.",
+      "This bridge uses long connection mode, so no public webhook URL is required.",
+      "Install the app into the tenant where you want to chat with it.",
+      "Then open a chat with the app and send a plain text message.",
     ])}\n`,
   );
 
-  const token = (await rl.question("Telegram bot token: ")).trim();
-  if (!token) {
-    console.log(`${formatMessageCard("Telegram Pairing", ["Pairing cancelled."])}\n`);
+  console.log(
+    `${formatListCard("Feishu Checklist", [
+      "1. Open https://open.feishu.cn/app and create a self-built app.",
+      "2. In Permission Management, enable the bot/IM message scopes your app needs.",
+      "3. In Event Subscriptions, add im.message.receive_v1.",
+      "4. In App Features, make sure the bot can be added to chats.",
+      "5. Install the app to your workspace or tenant before testing.",
+    ])}\n`,
+  );
+
+  const appId = (await rl.question("Feishu app id: ")).trim();
+  const appSecret = (await rl.question("Feishu app secret: ")).trim();
+  if (!appId || !appSecret) {
+    console.log(`${formatMessageCard("Feishu Setup", ["Setup cancelled."])}\n`);
     return;
   }
 
-  const currentBot = await getBot(botContextRef.current.botId);
-  const currentTelegram = config.channels?.telegram ?? {};
-  const hadRunningRuntime = Boolean(currentBot.runtimePid);
-  let shouldRestoreRuntime = hadRunningRuntime;
-
-  if (hadRunningRuntime) {
-    console.log(`${formatMessageCard("Telegram Pairing", ["Pausing the current bot runtime so pairing can read Telegram updates cleanly..."])}\n`);
-    await stopBot(botContextRef.current.botId).catch(() => {});
-    bridgeProcessRef.current = { pid: null };
-  }
-
-  console.log(`\n${formatMessageCard("Telegram Pairing", ["Now send one message to your bot in Telegram, then press Enter here."])}\n`);
-  await rl.question("");
-
   try {
-    let paired = null;
-    try {
-      paired = await pairTelegramChannel(token);
-    } catch (error) {
-      const existingChatId = currentTelegram.private?.allowedChatIds?.[0] ?? null;
-      if (currentTelegram.botToken === token && existingChatId) {
-        paired = {
-          chatId: String(existingChatId),
-          userId: String(currentTelegram.groups?.allowedUserIds?.[0] ?? currentTelegram.private?.allowedChatIds?.[0]),
-          username: currentTelegram.botUsername || null,
-        };
-      } else {
-        throw error;
-      }
+    const currentBot = await getBot(botContextRef.current.botId);
+    const hadRunningRuntime = Boolean(currentBot.runtimePid);
+    if (hadRunningRuntime) {
+      console.log(`${formatMessageCard("Feishu Setup", ["Restarting the current bot runtime so the Feishu bridge can take over..."])}\n`);
+      await stopBot(botContextRef.current.botId).catch(() => {});
+      bridgeProcessRef.current = { pid: null };
     }
-    config = await updateBotConfig(botContextRef.current.botId, (currentConfig) => {
-      const existingGroupUserIds = currentConfig.channels?.telegram?.groups?.allowedUserIds ?? [];
-      return {
-        ...currentConfig,
-        enabled: true,
-        channels: {
-          ...currentConfig.channels,
-          telegram: {
-            enabled: true,
-            botToken: token,
-            botUsername: paired.botUsername || currentConfig.channels?.telegram?.botUsername || "",
-            metadata: {
-              chats: {
-                ...(currentConfig.channels?.telegram?.metadata?.chats ?? {}),
-                [paired.chatId]: {
-                  type: "private",
-                  username: paired.userUsername ?? null,
-                  label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
-                },
-              },
-              users: {
-                ...(currentConfig.channels?.telegram?.metadata?.users ?? {}),
-                [paired.userId]: {
-                  username: paired.userUsername ?? null,
-                  label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
-                },
-              },
-            },
-            private: {
-              allowedChatIds: [paired.chatId],
-            },
-            groups: {
-              allowedChatIds: currentConfig.channels?.telegram?.groups?.allowedChatIds ?? [],
-              allowedUserIds: Array.from(new Set([...existingGroupUserIds, paired.userId])),
-              requireExplicitMention: currentConfig.channels?.telegram?.groups?.requireExplicitMention ?? true,
-            },
-          },
+
+    config = await updateBotConfig(botContextRef.current.botId, (currentConfig) => ({
+      ...currentConfig,
+      channel: "feishu",
+      enabled: true,
+      channels: {
+        ...currentConfig.channels,
+        feishu: {
+          ...(currentConfig.channels?.feishu ?? {}),
+          enabled: true,
+          appId,
+          appSecret,
+          requireExplicitMention: currentConfig.channels?.feishu?.requireExplicitMention ?? true,
         },
-      };
-    });
-    shouldRestoreRuntime = false;
+      },
+    }));
+
     try {
       bridgeProcessRef.current = {
         pid: await startBot(botContextRef.current.botId),
@@ -352,26 +461,15 @@ async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef)
     }
 
     console.log(
-      `${formatKeyValueCard("Telegram Paired", [
-        ["status", "paired successfully"],
-        ["chat id", String(paired.chatId)],
-        ...(paired.botUsername ? [["bot username", `@${paired.botUsername}`]] : []),
-        ...(paired.userUsername ? [["paired user", `@${paired.userUsername}`]] : []),
+      `${formatKeyValueCard("Feishu Enabled", [
+        ["status", "configured successfully"],
+        ["app id", appId],
+        ["mode", "long connection"],
+        ["next step", "Send a plain text message to the app in Feishu"],
       ])}\n`,
     );
   } catch (error) {
-    console.log(`${formatMessageCard("Telegram Pairing Failed", [error.message])}\n`);
-    if (shouldRestoreRuntime && currentTelegram.enabled && currentTelegram.botToken) {
-      try {
-        bridgeProcessRef.current = {
-          pid: await startBot(botContextRef.current.botId),
-        };
-      } catch {
-        bridgeProcessRef.current = {
-          pid: (await getBot(botContextRef.current.botId)).runtimePid,
-        };
-      }
-    }
+    console.log(`${formatMessageCard("Feishu Setup Failed", [error.message])}\n`);
   }
 }
 
@@ -502,7 +600,7 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
           "/help     show commands",
           "/bots     list bots",
           "/bot      create, show, or use bots",
-          "/channel  pair Telegram",
+          "/channel  configure Telegram or Feishu",
           "/home     switch to main session",
           "/new      create a session",
           "/switch   switch session",
@@ -570,7 +668,9 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
             ["status", bot.status],
             ["home", bot.homePath],
             ["enabled", bot.enabled ? "yes" : "no"],
+            ["channel", config.channel || "telegram"],
             ["telegram paired", config.channels?.telegram?.enabled ? "yes" : "no"],
+            ["feishu enabled", config.channels?.feishu?.enabled ? "yes" : "no"],
           ])}\n`);
         } catch (error) {
           console.log(`${formatMessageCard("Bot Show Failed", [error.message])}\n`);

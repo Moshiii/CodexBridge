@@ -1,9 +1,9 @@
 import { startCliTurn } from "./codex-runner.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
-import { buildWorkerGoalPrompt, buildEvaluatorGoalPrompt } from "./goal-prompts.mjs";
+import { buildGoalTurnPrompt, buildGoalEvaluatorPrompt } from "./goal-prompts.mjs";
 import { appendGoalHistory } from "./goals-state.mjs";
 
-const MAX_GOAL_ITERATIONS = 4;
+const MAX_GOAL_ITERATIONS = 6;
 
 function extractJson(text) {
   const trimmed = String(text || "").trim();
@@ -31,67 +31,22 @@ function extractJson(text) {
   throw new Error("Could not parse JSON result from Codex.");
 }
 
-function normalizeArtifacts(value) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-  return value
-    .map((item) => (typeof item === "string" ? item.trim() : ""))
-    .filter(Boolean)
-    .slice(0, 12);
-}
-
-function normalizeWorkerResult(parsed) {
-  return {
-    summary: typeof parsed.summary === "string" ? parsed.summary.trim() : "",
-    status_note: typeof parsed.status_note === "string" ? parsed.status_note.trim() : "",
-    artifacts: normalizeArtifacts(parsed.artifacts),
-    deliverable: typeof parsed.deliverable === "string" ? parsed.deliverable.trim() : "",
-    needs_input: Boolean(parsed.needs_input),
-    input_request: typeof parsed.input_request === "string" ? parsed.input_request.trim() : "",
-  };
-}
-
 function normalizeEvaluatorResult(parsed) {
   const verdict = typeof parsed.verdict === "string" ? parsed.verdict.trim().toLowerCase() : "";
   return {
     verdict: ["continue", "complete", "blocked", "failed"].includes(verdict) ? verdict : "failed",
     summary: typeof parsed.summary === "string" ? parsed.summary.trim() : "",
-    next_worker_instruction:
-      typeof parsed.next_worker_instruction === "string" ? parsed.next_worker_instruction.trim() : "",
-    user_message: typeof parsed.user_message === "string" ? parsed.user_message.trim() : "",
+    goalDelta: typeof parsed.goal_delta === "string" ? parsed.goal_delta.trim() : "",
+    nextUserMessage:
+      typeof parsed.next_user_message === "string" ? parsed.next_user_message.trim() : "",
+    userMessage: typeof parsed.user_message === "string" ? parsed.user_message.trim() : "",
   };
-}
-
-function mergeArtifacts(goal, newArtifacts) {
-  goal.artifacts = Array.from(new Set([...(goal.artifacts || []), ...normalizeArtifacts(newArtifacts)]));
-}
-
-function composeFinalGoalMessage(workerResult, evaluatorResult, goal) {
-  const parts = [];
-
-  if (workerResult?.deliverable) {
-    parts.push(workerResult.deliverable);
-  }
-
-  if (evaluatorResult?.user_message) {
-    const normalized = evaluatorResult.user_message.trim();
-    if (!parts.length || normalized !== parts[0]) {
-      parts.push(`Evaluator: ${normalized}`);
-    }
-  }
-
-  if (!parts.length) {
-    parts.push(`[${goal.id}] Completed.`);
-  }
-
-  return parts.join("\n\n");
 }
 
 function createStoppedResult(goal) {
   goal.status = "stopped";
   goal.phase = "stopped";
-  goal.lastEvaluatorVerdict = "stopped";
+  goal.lastSupervisorVerdict = "stopped";
   appendGoalHistory(goal, {
     role: "system",
     type: "stop",
@@ -102,6 +57,27 @@ function createStoppedResult(goal) {
     status: "stopped",
     userMessage: `[${goal.id}] Stopped.`,
   };
+}
+
+function composeFinalGoalMessage(goal, evaluatorResult) {
+  const parts = [];
+
+  if (goal.lastAssistantReply) {
+    parts.push(goal.lastAssistantReply);
+  }
+
+  if (evaluatorResult?.userMessage) {
+    const normalized = evaluatorResult.userMessage.trim();
+    if (!parts.length || normalized !== parts[0]) {
+      parts.push(`Supervisor: ${normalized}`);
+    }
+  }
+
+  if (!parts.length) {
+    parts.push(`[${goal.id}] Completed.`);
+  }
+
+  return parts.join("\n\n");
 }
 
 export function startGoalRun(initialGoal, options) {
@@ -122,44 +98,44 @@ export function startGoalRun(initialGoal, options) {
     onGoalStarted?.(goal, controller);
 
     goal.status = "running";
-    goal.phase = "worker";
+    goal.phase = "executor";
     appendGoalHistory(goal, {
       role: "system",
       type: "start",
-      message: `Goal started: ${goal.objective}`,
+      message: `Goal started in session ${goal.sessionLabel}: ${goal.objective}`,
     });
     await persistGoal(goal);
-    await notify(`Goal started: ${goal.objective}`);
+    await notify(`Goal started in session ${goal.sessionLabel}: ${goal.objective}`);
 
     for (let index = goal.iteration; index < MAX_GOAL_ITERATIONS; index += 1) {
       if (controller.stopRequested) {
         return createStoppedResult(goal);
       }
 
-      goal.phase = "worker";
+      goal.phase = "executor";
       goal.iteration = index;
       await persistGoal(goal);
 
-      const workerPrompt = await buildWorkspacePrompt(buildWorkerGoalPrompt(goal));
-      const workerStarted = startCliTurn(workerPrompt, goal.workerSessionRef, {
+      const turnPrompt = await buildWorkspacePrompt(buildGoalTurnPrompt(goal));
+      const executorStarted = startCliTurn(turnPrompt, goal.conversationSessionRef, {
         ...commandConfig,
         onStatus: async (summary) => {
-          await notify(`Worker: ${summary}`);
+          await notify(`Executor: ${summary}`);
         },
       });
-      controller.activeChild = workerStarted.child;
-      const workerRaw = await workerStarted.result;
+      controller.activeChild = executorStarted.child;
+      const executorRaw = await executorStarted.result;
       controller.activeChild = null;
 
       if (controller.stopRequested) {
         return createStoppedResult(goal);
       }
-      if (!workerRaw.ok) {
+      if (!executorRaw.ok) {
         goal.status = "failed";
-        goal.phase = "worker_failed";
-        goal.error = workerRaw.stderr || workerRaw.output || "Worker failed.";
+        goal.phase = "executor_failed";
+        goal.error = executorRaw.stderr || executorRaw.output || "Executor failed.";
         appendGoalHistory(goal, {
-          role: "worker",
+          role: "executor",
           type: "failure",
           message: goal.error,
         });
@@ -167,35 +143,30 @@ export function startGoalRun(initialGoal, options) {
         return {
           goal,
           status: "failed",
-          userMessage: `[${goal.id}] Worker failed.\n\n${goal.error}`,
+          userMessage: `[${goal.id}] Executor failed.\n\n${goal.error}`,
         };
       }
 
-      goal.workerSessionRef = workerRaw.cliSessionRef || goal.workerSessionRef;
-      const workerParsed = normalizeWorkerResult(extractJson(workerRaw.output));
-      goal.lastWorkerSummary = workerParsed.summary;
-      goal.lastUserMessage = workerParsed.deliverable || workerParsed.status_note || null;
-      mergeArtifacts(goal, workerParsed.artifacts);
+      goal.conversationSessionRef = executorRaw.cliSessionRef || goal.conversationSessionRef;
+      goal.lastAssistantReply = executorRaw.output?.trim() || "";
+      goal.lastProgressSummary = goal.lastAssistantReply;
       appendGoalHistory(goal, {
-        role: "worker",
-        type: "iteration",
-        summary: workerParsed.summary,
-        status_note: workerParsed.status_note,
-        deliverable: workerParsed.deliverable,
-        artifacts: workerParsed.artifacts,
+        role: "executor",
+        type: "assistant_reply",
+        message: goal.lastAssistantReply,
       });
       await persistGoal(goal);
-      if (workerParsed.status_note) {
-        await notify(`Worker: ${workerParsed.status_note}`);
+      if (goal.lastAssistantReply) {
+        await notify(`Executor reply: ${goal.lastAssistantReply.slice(0, 240)}`);
       }
 
-      goal.phase = "evaluator";
+      goal.phase = "supervisor";
       await persistGoal(goal);
-      const evaluatorPrompt = await buildWorkspacePrompt(buildEvaluatorGoalPrompt(goal, workerParsed));
-      const evaluatorStarted = startCliTurn(evaluatorPrompt, goal.evaluatorSessionRef, {
+      const evaluatorPrompt = await buildWorkspacePrompt(buildGoalEvaluatorPrompt(goal, goal.lastAssistantReply));
+      const evaluatorStarted = startCliTurn(evaluatorPrompt, goal.supervisorSessionRef, {
         ...commandConfig,
         onStatus: async (summary) => {
-          await notify(`Evaluator: ${summary}`);
+          await notify(`Supervisor: ${summary}`);
         },
       });
       controller.activeChild = evaluatorStarted.child;
@@ -207,10 +178,10 @@ export function startGoalRun(initialGoal, options) {
       }
       if (!evaluatorRaw.ok) {
         goal.status = "failed";
-        goal.phase = "evaluator_failed";
-        goal.error = evaluatorRaw.stderr || evaluatorRaw.output || "Evaluator failed.";
+        goal.phase = "supervisor_failed";
+        goal.error = evaluatorRaw.stderr || evaluatorRaw.output || "Supervisor failed.";
         appendGoalHistory(goal, {
-          role: "evaluator",
+          role: "supervisor",
           type: "failure",
           message: goal.error,
         });
@@ -218,29 +189,31 @@ export function startGoalRun(initialGoal, options) {
         return {
           goal,
           status: "failed",
-          userMessage: `[${goal.id}] Evaluator failed.\n\n${goal.error}`,
+          userMessage: `[${goal.id}] Supervisor failed.\n\n${goal.error}`,
         };
       }
 
-      goal.evaluatorSessionRef = evaluatorRaw.cliSessionRef || goal.evaluatorSessionRef;
+      goal.supervisorSessionRef = evaluatorRaw.cliSessionRef || goal.supervisorSessionRef;
       const evaluatorParsed = normalizeEvaluatorResult(extractJson(evaluatorRaw.output));
-      goal.lastEvaluatorVerdict = evaluatorParsed.verdict;
-      goal.nextWorkerInstruction = evaluatorParsed.next_worker_instruction || null;
+      goal.lastSupervisorVerdict = evaluatorParsed.verdict;
+      goal.lastGoalDelta = evaluatorParsed.goalDelta || null;
+      goal.nextUserMessage = evaluatorParsed.nextUserMessage || null;
       appendGoalHistory(goal, {
-        role: "evaluator",
+        role: "supervisor",
         type: "verdict",
         verdict: evaluatorParsed.verdict,
         summary: evaluatorParsed.summary,
-        next_worker_instruction: evaluatorParsed.next_worker_instruction,
-        user_message: evaluatorParsed.user_message,
+        goal_delta: evaluatorParsed.goalDelta,
+        next_user_message: evaluatorParsed.nextUserMessage,
+        user_message: evaluatorParsed.userMessage,
       });
       await persistGoal(goal);
 
       if (evaluatorParsed.summary) {
-        await notify(`Evaluator: ${evaluatorParsed.summary}`);
+        await notify(`Supervisor: ${evaluatorParsed.summary}`);
       }
 
-      if (workerParsed.needs_input || evaluatorParsed.verdict === "blocked") {
+      if (evaluatorParsed.verdict === "blocked") {
         goal.status = "blocked";
         goal.phase = "blocked";
         await persistGoal(goal);
@@ -248,8 +221,7 @@ export function startGoalRun(initialGoal, options) {
           goal,
           status: "blocked",
           userMessage:
-            evaluatorParsed.user_message ||
-            workerParsed.input_request ||
+            evaluatorParsed.userMessage ||
             `[${goal.id}] Blocked. More input is needed.`,
         };
       }
@@ -261,19 +233,31 @@ export function startGoalRun(initialGoal, options) {
         return {
           goal,
           status: "completed",
-          userMessage: composeFinalGoalMessage(workerParsed, evaluatorParsed, goal),
+          userMessage: composeFinalGoalMessage(goal, evaluatorParsed),
         };
       }
 
       if (evaluatorParsed.verdict === "failed") {
         goal.status = "failed";
         goal.phase = "failed";
-        goal.error = evaluatorParsed.summary || "Evaluator marked goal as failed.";
+        goal.error = evaluatorParsed.summary || "Supervisor marked goal as failed.";
         await persistGoal(goal);
         return {
           goal,
           status: "failed",
           userMessage: `[${goal.id}] Failed.\n\n${goal.error}`,
+        };
+      }
+
+      if (!evaluatorParsed.nextUserMessage) {
+        goal.status = "blocked";
+        goal.phase = "blocked";
+        goal.error = "Supervisor did not provide a next user message.";
+        await persistGoal(goal);
+        return {
+          goal,
+          status: "blocked",
+          userMessage: `[${goal.id}] Blocked because no follow-up message was produced.`,
         };
       }
 
@@ -283,7 +267,7 @@ export function startGoalRun(initialGoal, options) {
 
     goal.status = "blocked";
     goal.phase = "iteration_limit";
-    goal.lastEvaluatorVerdict = "blocked";
+    goal.lastSupervisorVerdict = "blocked";
     appendGoalHistory(goal, {
       role: "system",
       type: "limit",

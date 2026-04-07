@@ -1,71 +1,59 @@
-function renderArtifacts(artifacts) {
-  if (!Array.isArray(artifacts) || !artifacts.length) {
-    return "[]";
-  }
-  return JSON.stringify(artifacts, null, 2);
-}
-
 function renderHistory(history) {
   if (!Array.isArray(history) || !history.length) {
     return "[]";
   }
-  return JSON.stringify(history.slice(-8), null, 2);
+  return JSON.stringify(history.slice(-10), null, 2);
 }
 
-export function buildWorkerGoalPrompt(goal) {
-  const nextInstruction = goal.nextWorkerInstruction
-    ? `Next evaluator instruction:\n${goal.nextWorkerInstruction}\n`
-    : "There is no prior evaluator instruction yet.\n";
+export function buildGoalTurnPrompt(goal) {
+  const nextUserMessage = goal.nextUserMessage?.trim()
+    ? goal.nextUserMessage.trim()
+    : `Work toward this goal and respond with the next best progress update: ${goal.objective}`;
 
   return [
-    "You are the worker for an AutoAide /goal task.",
-    "Advance the goal using the workspace when helpful.",
-    "You may read and write files if that helps complete the goal.",
-    "Do not explain your internal chain of thought.",
-    "Return strict JSON only. No markdown fences.",
+    "A supervisor goal is active for this conversation.",
+    "Stay in the same conversation thread and continue moving the goal forward.",
+    "Use the workspace when helpful, and reply normally to the user.",
+    "Do not return JSON unless the user explicitly asks for it.",
     "",
     `Goal ID: ${goal.id}`,
     `Objective: ${goal.objective}`,
     `Iteration: ${goal.iteration + 1}`,
     "",
-    nextInstruction,
-    `Known artifacts: ${renderArtifacts(goal.artifacts)}`,
-    `Recent history: ${renderHistory(goal.history)}`,
+    "Recent goal history:",
+    renderHistory(goal.history),
     "",
-    "Return a JSON object with this shape:",
-    "{",
-    '  "summary": "short factual summary of what you did",',
-    '  "status_note": "short current status note for user-facing progress",',
-    '  "artifacts": ["relative/path/if/you/wrote/files"],',
-    '  "deliverable": "plain-language result or interim result for the user",',
-    '  "needs_input": false,',
-    '  "input_request": ""',
-    "}",
+    "Send the following user message into the ongoing conversation:",
+    nextUserMessage,
   ].join("\n");
 }
 
-export function buildEvaluatorGoalPrompt(goal, workerResult) {
+export function buildGoalEvaluatorPrompt(goal, assistantReply) {
   return [
-    "You are the evaluator for an AutoAide /goal task.",
-    "Judge the worker output conservatively.",
-    "Do not redo the work. Decide whether the goal should continue, complete, block, or fail.",
+    "You are the supervisor for an AutoAide goal running inside an existing conversation thread.",
+    "Evaluate the assistant's latest normal-chat reply against the goal.",
+    "Do not do the work yourself.",
+    "If the goal is incomplete, produce exactly one short follow-up user message that should be sent into the same thread next.",
     "Return strict JSON only. No markdown fences.",
     "",
     `Goal ID: ${goal.id}`,
     `Objective: ${goal.objective}`,
-    `Iteration: ${goal.iteration}`,
-    `Known artifacts: ${renderArtifacts(goal.artifacts)}`,
-    `Worker summary: ${workerResult.summary || ""}`,
-    `Worker status note: ${workerResult.status_note || ""}`,
-    `Worker deliverable: ${workerResult.deliverable || ""}`,
-    `Worker requested input: ${workerResult.input_request || ""}`,
+    `Iteration: ${goal.iteration + 1}`,
+    `Previous follow-up message: ${goal.nextUserMessage || ""}`,
+    "",
+    "Recent goal history:",
+    renderHistory(goal.history),
+    "",
+    "Latest assistant reply:",
+    assistantReply || "",
     "",
     "Return a JSON object with this shape:",
     "{",
     '  "verdict": "continue|complete|blocked|failed",',
     '  "summary": "short factual judgment",',
-    '  "next_worker_instruction": "one short instruction for the next worker turn",',
-    '  "user_message": "what the user should see now"',
+    '  "goal_delta": "what progress was actually made",',
+    '  "next_user_message": "one short user-style follow-up message for the same conversation thread",',
+    '  "user_message": "what the human should be shown now"',
     "}",
   ].join("\n");
 }
