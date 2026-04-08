@@ -7,7 +7,6 @@ import { buildCommandConfig, startCliTurn } from "../../src/codex-runner.mjs";
 import {
   getChannelStatePath,
   getFeishuBridgePidPath,
-  getWorkspacePath,
   readCliState,
   readConfig,
   resolveBotHome,
@@ -15,6 +14,9 @@ import {
   writeConfig,
 } from "../../src/config.mjs";
 import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
+import { normalizeFeishuEnvelope } from "../../src/channel-envelope.mjs";
+import { resolveConversationIdentity } from "../../src/session-routing.mjs";
+import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
 
 const DEFAULT_BOT_HOME = resolveBotHome();
 const DEFAULT_PID_PATH = getFeishuBridgePidPath(DEFAULT_BOT_HOME);
@@ -110,16 +112,18 @@ async function writeRouterState(filePath, state) {
   await writeJsonFile(filePath, state);
 }
 
-function ensureChatState(state, chatId) {
-  if (!state.chats[chatId]) {
-    state.chats[chatId] = {
-      sessionLabel: `feishu-${chatId.slice(-8).toLowerCase()}`,
+function ensureConversationState(state, envelope) {
+  const { sessionKey, sessionLabel } = resolveConversationIdentity(envelope);
+  if (!state.chats[sessionKey]) {
+    state.chats[sessionKey] = {
+      sessionKey,
       cliSessionRef: null,
+      sessionLabel,
       createdAt: nowIso(),
       updatedAt: nowIso(),
     };
   }
-  return state.chats[chatId];
+  return state.chats[sessionKey];
 }
 
 function rememberProcessedMessage(state, messageId) {
@@ -366,12 +370,116 @@ async function ensureSession(botHome, chatState) {
   return cliState;
 }
 
-async function handleSlashCommand(command, chatState, client, chatId, options = {}) {
+function requestActiveRunStop(child) {
+  if (!child || child.exitCode != null || child.killed) {
+    return false;
+  }
+  try {
+    child.kill("SIGTERM");
+  } catch {
+    return false;
+  }
+  setTimeout(() => {
+    if (child.exitCode == null && !child.killed) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore hard-kill failures
+      }
+    }
+  }, 3000).unref?.();
+  return true;
+}
+
+async function handleSlashCommand(command, chatState, client, chatId, activeRuns, routeKey, botConfig, envelope, options = {}) {
+  if (command === "/start") {
+    await sendText(
+      client,
+      chatId,
+      [
+        "AutoAide is ready.",
+        "Send a normal message to chat.",
+        "Supported commands:",
+        "/help",
+        "/where",
+        "/stop",
+      ].join("\n"),
+      options,
+    );
+    return true;
+  }
+
   if (command === "/where") {
     const sessionRef = chatState.cliSessionRef ? `resume=${chatState.cliSessionRef}` : "resume=not-started";
     await sendText(client, chatId, `Current session: ${chatState.sessionLabel}\n${sessionRef}`, options);
     return true;
   }
+
+  if (command === "/help") {
+    await sendText(
+      client,
+      chatId,
+      [
+        "Commands:",
+        "/start",
+        "/where",
+        "/stop",
+        "",
+        "Send a normal message to chat with AutoAide.",
+        "Management actions belong in the local CLI or web control plane.",
+      ].join("\n"),
+      options,
+    );
+    return true;
+  }
+
+  if (command === "/stop") {
+    const stopped = requestActiveRunStop(activeRuns.get(routeKey));
+    await sendText(
+      client,
+      chatId,
+      stopped
+        ? `Stop requested for [${chatState.sessionLabel}].`
+        : `No running task for [${chatState.sessionLabel}].`,
+      options,
+    );
+    return true;
+  }
+
+  if (command === "/goal") {
+    await sendText(
+      client,
+      chatId,
+      canUseGoal(envelope, botConfig || {})
+        ? "Feishu no longer manages goals directly. Use the local CLI or web control plane."
+        : "Only the bot owner or admins can use /goal in group chats.",
+      options,
+    );
+    return true;
+  }
+
+  if (command === "/schedule" || command === "/schedules" || command === "/schedule-stop" || command === "/schedule-run") {
+    await sendText(
+      client,
+      chatId,
+      canUseSchedule(envelope, botConfig || {})
+        ? "Feishu no longer manages schedules directly. Use the local CLI or web control plane."
+        : "Only the bot owner or admins can use /schedule in group chats.",
+      options,
+    );
+    return true;
+  }
+
+  if (command.startsWith("/")) {
+    await sendText(
+      client,
+      chatId,
+      `Unsupported command: ${command}\n\nFeishu is now a lightweight chat channel. Use the local CLI or web control plane for management actions.`,
+      options,
+    );
+    return true;
+  }
+
   return false;
 }
 
@@ -457,16 +565,22 @@ async function main() {
             return;
           }
 
-          if (requireExplicitMention && !hasExplicitMention(event, botIdentity)) {
+          const explicitlyMentionedBot = hasExplicitMention(event, botIdentity);
+          if (requireExplicitMention && !explicitlyMentionedBot) {
             return;
           }
 
-          const chatState = ensureChatState(routerState, chatId);
+          const envelope = normalizeFeishuEnvelope(event, {
+            text,
+            explicitlyMentionedBot,
+          });
+          const chatState = ensureConversationState(routerState, envelope);
+          const routeKey = chatState.sessionKey || chatState.sessionLabel;
           chatState.updatedAt = nowIso();
           await ensureSession(botHome, chatState);
           await writeRouterState(ROUTER_STATE_PATH, routerState);
 
-          if (await handleSlashCommand(text.trim(), chatState, client, chatId, { replyToMessageId: messageId })) {
+          if (await handleSlashCommand(text.trim(), chatState, client, chatId, activeRuns, routeKey, config, envelope, { replyToMessageId: messageId })) {
             return;
           }
 
@@ -475,8 +589,8 @@ async function main() {
             return;
           }
 
-          const pendingBefore = pendingCounts.get(chatId) || 0;
-          pendingCounts.set(chatId, pendingBefore + 1);
+          const pendingBefore = pendingCounts.get(routeKey) || 0;
+          pendingCounts.set(routeKey, pendingBefore + 1);
           if (pendingBefore > 0) {
             const queuedResponse = await sendText(client, chatId, renderQueuedMessage(chatState.sessionLabel, pendingBefore), {
               replyToMessageId: messageId,
@@ -484,7 +598,7 @@ async function main() {
             rememberBotOpenId(botIdentity, queuedResponse);
           }
 
-          const previous = chatQueues.get(chatId) ?? Promise.resolve();
+          const previous = chatQueues.get(routeKey) ?? Promise.resolve();
           const next = previous
             .catch(() => {})
             .then(async () => {
@@ -495,13 +609,13 @@ async function main() {
 
               const prompt = await buildWorkspacePrompt(promptText, { botHome });
               const started = startCliTurn(prompt, chatState.cliSessionRef, commandConfig);
-              activeRuns.set(chatId, started.child);
+              activeRuns.set(routeKey, started.child);
 
               const result = await started.result;
-              activeRuns.delete(chatId);
+              activeRuns.delete(routeKey);
 
               const latestState = await readRouterState(ROUTER_STATE_PATH);
-              const latestChatState = ensureChatState(latestState, chatId);
+              const latestChatState = ensureConversationState(latestState, envelope);
               if (result.ok && result.cliSessionRef) {
                 latestChatState.cliSessionRef = result.cliSessionRef;
               }
@@ -535,18 +649,18 @@ async function main() {
               rememberBotOpenId(botIdentity, successResponse);
             })
             .finally(() => {
-              const remaining = (pendingCounts.get(chatId) || 1) - 1;
+              const remaining = (pendingCounts.get(routeKey) || 1) - 1;
               if (remaining <= 0) {
-                pendingCounts.delete(chatId);
-                if (chatQueues.get(chatId) === next) {
-                  chatQueues.delete(chatId);
+                pendingCounts.delete(routeKey);
+                if (chatQueues.get(routeKey) === next) {
+                  chatQueues.delete(routeKey);
                 }
                 return;
               }
-              pendingCounts.set(chatId, remaining);
+              pendingCounts.set(routeKey, remaining);
             });
 
-          chatQueues.set(chatId, next);
+          chatQueues.set(routeKey, next);
           await next;
         })().catch(async (error) => {
           console.error("feishu event handler failed", error);

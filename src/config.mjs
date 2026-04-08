@@ -180,6 +180,8 @@ export function createDefaultBotConfig() {
     id: DEFAULT_BOT_ID,
     name: "Default",
     channel: "telegram",
+    ownerUserId: "",
+    adminUserIds: [],
     enabled: false,
     desiredVersion: "v1",
     runningVersion: null,
@@ -311,6 +313,10 @@ export function normalizeBotConfig(config = {}) {
   return {
     ...defaults,
     ...rest,
+    ownerUserId: String(config.ownerUserId ?? defaults.ownerUserId).trim(),
+    adminUserIds: Array.isArray(config.adminUserIds)
+      ? config.adminUserIds.map((id) => String(id || "").trim()).filter(Boolean)
+      : defaults.adminUserIds,
     enabled: config.enabled ?? normalizedTelegram.enabled ?? defaults.enabled,
     runtime: {
       model: runtimeConfig.model ?? defaults.runtime.model,

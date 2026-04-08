@@ -17,7 +17,6 @@ import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 import { buildCommandConfig as buildRunnerCommandConfig, startCliTurn } from "../../src/codex-runner.mjs";
 import { cronMatchesDate, minuteKey, parseCronExpression } from "../../src/cron-utils.mjs";
 import { findRunningGoal, findRunningGoalForChat, launchGoal as launchSharedGoal, requestGoalStop } from "../../src/goal-controller.mjs";
-import { parseNaturalLanguageSchedule } from "../../src/schedule-intents.mjs";
 import {
   formatSkillInstallResult,
   formatSkillsOverview,
@@ -39,6 +38,9 @@ import {
   upsertSchedule,
   writeSchedulesState,
 } from "../../src/schedules-state.mjs";
+import { normalizeTelegramEnvelope } from "../../src/channel-envelope.mjs";
+import { resolveConversationIdentity } from "../../src/session-routing.mjs";
+import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const POLL_TIMEOUT_SECONDS = 30;
@@ -272,6 +274,7 @@ async function resolveBotRuntimeContext() {
       parseAllowedUserIds(process.env.TELEGRAM_ALLOWED_GROUP_USER_IDS),
     codexCwd: getWorkspacePath(botHome),
     model: process.env.AUTOAIDE_MODEL?.trim() || config.runtime?.model || "gpt-5.4",
+    botConfig: config,
   };
 }
 
@@ -490,6 +493,26 @@ function setActiveSessionLabel(state, chatId, label) {
   chatState.updatedAt = new Date().toISOString();
 }
 
+function ensureEnvelopeSession(state, envelope) {
+  const { sessionKey, sessionLabel } = resolveConversationIdentity(envelope);
+  if (!state.sessions[sessionLabel]) {
+    state.sessions[sessionLabel] = {
+      label: sessionLabel,
+      displayLabel: sessionLabel,
+      backend: "codex",
+      cliSessionRef: null,
+      isMain: false,
+      sessionKey,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+  } else if (!state.sessions[sessionLabel].sessionKey) {
+    state.sessions[sessionLabel].sessionKey = sessionKey;
+  }
+  setActiveSessionLabel(state, envelope.chatId, sessionLabel);
+  return state.sessions[sessionLabel];
+}
+
 function formatSessionList(state, chatId) {
   const activeLabel = getActiveSessionLabel(state, chatId);
   const sessions = Object.values(state.sessions).sort((a, b) => a.label.localeCompare(b.label));
@@ -506,17 +529,17 @@ function formatSessionList(state, chatId) {
   ].join("\n");
 }
 
-function formatWhere(state, chatId) {
-  const label = getActiveSessionLabel(state, chatId);
-  const session = state.sessions[label];
+function formatWhere(state, chatId, label = null) {
+  const resolvedLabel = label || getActiveSessionLabel(state, chatId);
+  const session = state.sessions[resolvedLabel];
   const cliState = session.cliSessionRef ? `resume=${session.cliSessionRef}` : "resume=not-started";
   return `Current session: ${session.label}${session.isMain ? " [main]" : ""}\nBackend: ${session.backend}\n${cliState}`;
 }
 
-function formatStatus(state, chatId, runningJobs) {
-  const label = getActiveSessionLabel(state, chatId);
-  const session = state.sessions[label];
-  const job = findRunningJob(runningJobs, chatId, label);
+function formatStatus(state, chatId, runningJobs, label = null) {
+  const resolvedLabel = label || getActiveSessionLabel(state, chatId);
+  const session = state.sessions[resolvedLabel];
+  const job = findRunningJob(runningJobs, chatId, resolvedLabel);
 
   return [
     `Current session: ${session.label}${session.isMain ? " [main]" : ""}`,
@@ -1314,25 +1337,37 @@ async function reconcileGoalsOnStartup() {
 
 async function handleSlashCommand({
   command,
-  argsText,
   state,
   chatId,
+  envelope,
   token,
   message,
   runningJobs,
   runningGoals,
-  goalCommandConfig,
 }) {
   ensureMainSession(state);
+  const routedSession = envelope ? ensureEnvelopeSession(state, envelope) : null;
+  const routedLabel = routedSession?.label || getActiveSessionLabel(state, chatId);
 
-  if (command === "start" || command === "home") {
-    setActiveSessionLabel(state, chatId, DEFAULT_MAIN_SESSION_LABEL);
-    await sendMessage(token, message.chat.id, `Switched to ${DEFAULT_MAIN_SESSION_LABEL}.`, message.message_id);
+  if (command === "start") {
+    await sendMessage(
+      token,
+      message.chat.id,
+      [
+        "AutoAide is ready.",
+        "Send a normal message to chat.",
+        "Supported commands:",
+        "/help",
+        "/where",
+        "/stop",
+      ].join("\n"),
+      message.message_id,
+    );
     return { stateChanged: true, handled: true };
   }
 
   if (command === "where") {
-    await sendMessage(token, message.chat.id, formatWhere(state, chatId), message.message_id);
+    await sendMessage(token, message.chat.id, formatWhere(state, chatId, routedLabel), message.message_id);
     return { stateChanged: false, handled: true };
   }
 
@@ -1342,83 +1377,15 @@ async function handleSlashCommand({
       message.chat.id,
       [
         "Commands:",
-        "/home or /start",
-        "/new <label>",
-        "/switch <label>",
-        "/sessions",
-        "/skills",
-        "/files [inbox|outbox|exports]",
-        "/get <relative-path>",
+        "/start",
         "/where",
-        "/status",
         "/stop",
-        "/goal <objective>",
-        "/goals",
-        "/goal-status <id>",
-        "/goal-log <id>",
-        "/schedule <cron> <objective>",
-        "/schedules",
-        "/schedule-stop <id>",
-        "/schedule-run <id>",
-        "Natural language:",
-        "每天9点帮我做xxx",
-        "/restart",
+        "",
+        "Send a normal message to talk to AutoAide.",
+        "Management actions belong in the local CLI or web control plane.",
       ].join("\n"),
       message.message_id,
     );
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "status") {
-    const runningGoal = findRunningGoalForChat(runningGoals, chatId);
-    await sendMessage(
-      token,
-      message.chat.id,
-      [formatStatus(state, chatId, runningJobs), `Running goal: ${runningGoal ? runningGoal.goalId : "no"}`].join("\n"),
-      message.message_id,
-    );
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "files") {
-    const requestedRoot = argsText.trim() || DEFAULT_UPLOAD_DIR_NAME;
-    const listing = await listWorkspaceFiles(message.workspacePaths, requestedRoot);
-    await sendMessage(token, message.chat.id, listing.text, message.message_id);
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "get") {
-    const requestedPath = argsText.trim();
-    if (!requestedPath) {
-      await sendMessage(token, message.chat.id, "Usage: /get <relative-path>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-
-    const resolvedPath = resolveDownloadPath(message.workspacePaths, requestedPath);
-    if (!resolvedPath) {
-      await sendMessage(
-        token,
-        message.chat.id,
-        `Invalid path: ${requestedPath}\n\nAllowed roots: ${DEFAULT_DOWNLOAD_DIRS.join(", ")}`,
-        message.message_id,
-      );
-      return { stateChanged: false, handled: true };
-    }
-
-    let fileStat;
-    try {
-      fileStat = await stat(resolvedPath);
-    } catch {
-      await sendMessage(token, message.chat.id, `File not found: ${requestedPath}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-
-    if (!fileStat.isFile()) {
-      await sendMessage(token, message.chat.id, `Not a file: ${requestedPath}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-
-    await sendDocument(token, message.chat.id, resolvedPath, message.message_id, requestedPath);
     return { stateChanged: false, handled: true };
   }
 
@@ -1437,10 +1404,9 @@ async function handleSlashCommand({
       return { stateChanged: false, handled: true };
     }
 
-    const activeLabel = getActiveSessionLabel(state, chatId);
-    const job = findRunningJob(runningJobs, chatId, activeLabel);
+    const job = findRunningJob(runningJobs, chatId, routedLabel);
     if (!job) {
-      await sendMessage(token, message.chat.id, `No running task or goal for ${activeLabel}.`, message.message_id);
+      await sendMessage(token, message.chat.id, `No running task or goal for ${routedLabel}.`, message.message_id);
       return { stateChanged: false, handled: true };
     }
 
@@ -1448,306 +1414,44 @@ async function handleSlashCommand({
     await sendMessage(
       token,
       message.chat.id,
-      stopped ? renderStopRequestedMessage(activeLabel) : `Unable to stop ${activeLabel}.`,
+      stopped ? renderStopRequestedMessage(routedLabel) : `Unable to stop ${routedLabel}.`,
       message.message_id,
     );
     return { stateChanged: false, handled: true };
-  }
-
-  if (command === "restart") {
-    const botId = process.env.AUTOAIDE_BOT_ID?.trim() || "default";
-    const botHome = process.env.BOT_HOME?.trim() || DEFAULT_BOT_HOME;
-    await sendMessage(token, message.chat.id, `Restarting bot runtime for ${botId}.`, message.message_id);
-    scheduleBotRuntimeRestart(botId, botHome);
-    try {
-      process.kill(process.ppid, "SIGTERM");
-    } catch {
-      process.exit(0);
-    }
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "sessions") {
-    await sendMessage(token, message.chat.id, formatSessionList(state, chatId), message.message_id);
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "skills") {
-    const parts = argsText.trim().split(/\s+/).filter(Boolean);
-    const subcommand = parts[0];
-    if (!subcommand || subcommand === "list") {
-      const skills = await listSkills();
-      await sendMessage(token, message.chat.id, formatSkillsOverview(skills), message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    if (subcommand === "install") {
-      const source = parts.slice(1).join(" ").trim();
-      if (!source) {
-        await sendMessage(token, message.chat.id, "Usage: /skills install <zip-or-path>", message.message_id);
-        return { stateChanged: false, handled: true };
-      }
-      try {
-        const installed = await installSkillFromPath(source, { force: true });
-        await sendMessage(token, message.chat.id, formatSkillInstallResult(installed), message.message_id);
-      } catch (error) {
-        await sendMessage(token, message.chat.id, `Skill install failed: ${error.message}`, message.message_id);
-      }
-      return { stateChanged: false, handled: true };
-    }
-    await sendMessage(
-      token,
-      message.chat.id,
-      ["Skills commands:", "/skills", "/skills install <zip-or-path>"].join("\n"),
-      message.message_id,
-    );
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "new") {
-    const label = slugifySessionLabel(argsText);
-    if (!label) {
-      await sendMessage(token, message.chat.id, "Usage: /new <label>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    if (state.sessions[label]) {
-      setActiveSessionLabel(state, chatId, label);
-      await sendMessage(token, message.chat.id, `Session ${label} already exists. Switched to it.`, message.message_id);
-      return { stateChanged: true, handled: true };
-    }
-    state.sessions[label] = {
-      label,
-      displayLabel: argsText,
-      backend: "codex",
-      cliSessionRef: null,
-      isMain: false,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    setActiveSessionLabel(state, chatId, label);
-    await sendMessage(
-      token,
-      message.chat.id,
-      `Created session ${label} and switched to it.\nSend your next message to start that Codex thread.`,
-      message.message_id,
-    );
-    return { stateChanged: true, handled: true };
-  }
-
-  if (command === "switch") {
-    const label = slugifySessionLabel(argsText);
-    if (!label) {
-      await sendMessage(token, message.chat.id, "Usage: /switch <label>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    if (!state.sessions[label]) {
-      await sendMessage(token, message.chat.id, `Unknown session: ${label}\n\nUse /sessions to list available sessions.`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    setActiveSessionLabel(state, chatId, label);
-    await sendMessage(token, message.chat.id, `Switched to ${label}.`, message.message_id);
-    return { stateChanged: true, handled: true };
   }
 
   if (command === "goal") {
-    const objective = argsText.trim();
-    if (!objective) {
-      await sendMessage(token, message.chat.id, "Usage: /goal <objective>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-
-    const activeGoal = findRunningGoalForChat(runningGoals, chatId);
-    if (activeGoal) {
-      await sendMessage(
-        token,
-        message.chat.id,
-        `A goal is already running for this chat: ${activeGoal.goalId}\nUse /stop first or wait for it to finish.`,
-        message.message_id,
-      );
-      return { stateChanged: false, handled: true };
-    }
-    const activeSessionJob = findAnyRunningJobForChat(runningJobs, chatId);
-    if (activeSessionJob) {
-      await sendMessage(
-        token,
-        message.chat.id,
-        "A regular session task is already running for this chat. Use /stop before starting a goal.",
-        message.message_id,
-      );
-      return { stateChanged: false, handled: true };
-    }
-
-    const goal = createGoalRecord({
-      objective,
-      chatId,
-      sessionLabel: getActiveSessionLabel(state, chatId),
-      channel: "telegram",
-    });
-    goal.conversationSessionRef = state.sessions[goal.sessionLabel]?.cliSessionRef || null;
-    goal.status = "running";
-    goal.phase = "queued";
-    await writeGoal(goal);
+    const allowed = canUseGoal(envelope, message.botConfig || {});
     await sendMessage(
       token,
       message.chat.id,
-      `Goal created: ${goal.id}\nObjective: ${goal.objective}\nStatus: running`,
-      message.message_id,
-    );
-    await launchGoal(goal, {
-      token,
-      chatId: message.chat.id,
-      messageId: message.message_id,
-      state,
-      routerStatePath: context.routerStatePath,
-      runningGoals,
-      goalCommandConfig,
-    });
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "goals") {
-    const goals = await listGoals({ chatId, limit: 10 });
-    await sendMessage(
-      token,
-      message.chat.id,
-      goals.length ? ["Goals:", ...goals.map(formatGoalSummary)].join("\n") : "No goals yet.",
+      allowed
+        ? "Telegram no longer manages goals directly. Use the local CLI or web control plane."
+        : "Only the bot owner or admins can use /goal in group chats.",
       message.message_id,
     );
     return { stateChanged: false, handled: true };
   }
 
-  if (command === "goal-status") {
-    const goalId = argsText.trim();
-    if (!goalId) {
-      await sendMessage(token, message.chat.id, "Usage: /goal-status <id>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const goal = await readGoal(goalId);
-    if (!goal || String(goal.chatId) !== String(chatId)) {
-      await sendMessage(token, message.chat.id, `Unknown goal: ${goalId}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    await sendMessage(token, message.chat.id, formatGoalStatus(goal), message.message_id);
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "goal-log") {
-    const goalId = argsText.trim();
-    if (!goalId) {
-      await sendMessage(token, message.chat.id, "Usage: /goal-log <id>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const goal = await readGoal(goalId);
-    if (!goal || String(goal.chatId) !== String(chatId)) {
-      await sendMessage(token, message.chat.id, `Unknown goal: ${goalId}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    await sendMessage(token, message.chat.id, formatGoalLog(goal), message.message_id);
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "schedule") {
-    let parsedArgs;
-    try {
-      parsedArgs = parseScheduleCommandArgs(argsText);
-    } catch (error) {
-      await sendMessage(token, message.chat.id, error.message, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    await registerSchedule({
-      token,
-      chatId: message.chat.id,
-      messageId: message.message_id,
-      cron: parsedArgs.cron,
-      objective: parsedArgs.objective,
-    });
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "schedules") {
-    const schedules = await listSchedules({ chatId });
+  if (command === "schedule" || command === "schedules" || command === "schedule-stop" || command === "schedule-run") {
+    const allowed = canUseSchedule(envelope, message.botConfig || {});
     await sendMessage(
       token,
       message.chat.id,
-      schedules.length
-        ? ["Schedules:", ...schedules.map(formatScheduleSummary)].join("\n")
-        : "No schedules yet.",
+      allowed
+        ? "Telegram no longer manages schedules directly. Use the local CLI or web control plane."
+        : "Only the bot owner or admins can use /schedule in group chats.",
       message.message_id,
     );
     return { stateChanged: false, handled: true };
   }
-
-  if (command === "schedule-stop") {
-    const scheduleId = argsText.trim();
-    if (!scheduleId) {
-      await sendMessage(token, message.chat.id, "Usage: /schedule-stop <id>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const schedule = await getScheduleById(scheduleId);
-    if (!schedule || String(schedule.chatId) !== String(chatId)) {
-      await sendMessage(token, message.chat.id, `Unknown schedule: ${scheduleId}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    schedule.enabled = false;
-    await upsertSchedule(schedule);
-    await sendMessage(token, message.chat.id, `[${schedule.id}] Disabled.`, message.message_id);
-    return { stateChanged: false, handled: true };
-  }
-
-  if (command === "schedule-run") {
-    const scheduleId = argsText.trim();
-    if (!scheduleId) {
-      await sendMessage(token, message.chat.id, "Usage: /schedule-run <id>", message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    const schedule = await getScheduleById(scheduleId);
-    if (!schedule || String(schedule.chatId) !== String(chatId)) {
-      await sendMessage(token, message.chat.id, `Unknown schedule: ${scheduleId}`, message.message_id);
-      return { stateChanged: false, handled: true };
-    }
-    if (findRunningGoalForChat(runningGoals, chatId)) {
-      await sendMessage(
-        token,
-        message.chat.id,
-        "A goal is already running for this chat. Stop it first or wait for it to finish.",
-        message.message_id,
-      );
-      return { stateChanged: false, handled: true };
-    }
-    const goal = createGoalRecord({
-      objective: schedule.objective,
-      chatId,
-      sessionLabel: getActiveSessionLabel(state, chatId),
-      channel: "telegram",
-    });
-    goal.conversationSessionRef = state.sessions[goal.sessionLabel]?.cliSessionRef || null;
-    goal.status = "running";
-    goal.phase = "queued";
-    goal.scheduleId = schedule.id;
-    await writeGoal(goal);
-    schedule.lastTriggeredAt = new Date().toISOString();
-    schedule.lastTriggeredKey = minuteKey(new Date());
-    schedule.lastGoalId = goal.id;
-    schedule.lastError = null;
-    await upsertSchedule(schedule);
-    await sendMessage(
-      token,
-      message.chat.id,
-      `[${schedule.id}] Manual run started.\nGoal: ${goal.id}`,
-      message.message_id,
-    );
-    await launchGoal(goal, {
-      token,
-      chatId: message.chat.id,
-      messageId: message.message_id,
-      state,
-      routerStatePath: context.routerStatePath,
-      runningGoals,
-      goalCommandConfig,
-    });
-    return { stateChanged: false, handled: true };
-  }
-
-  return { stateChanged: false, handled: false };
+  await sendMessage(
+    token,
+    message.chat.id,
+    `Unsupported command: /${command}\n\nTelegram is now a lightweight chat channel. Use the local CLI or web control plane for management actions.`,
+    message.message_id,
+  );
+  return { stateChanged: false, handled: true };
 }
 
 async function processUpdate(update, context) {
@@ -1829,6 +1533,16 @@ async function processUpdate(update, context) {
   const entities = getMessageEntities(message);
   const mention = isGroupChat(message) ? extractBotMention(text, entities, context.botUsername) : null;
   const normalizedText = mention ? stripExplicitBotMention(text, mention) : text;
+  const commandHead = normalizedText.split(/\s+/, 1)[0] || "";
+  const commandTargetsBot = Boolean(
+    context.botUsername &&
+    new RegExp(`^/[^\\s@]+@${context.botUsername.replace(/^@+/, "")}$`, "i").test(commandHead),
+  );
+  const envelope = normalizeTelegramEnvelope(message, {
+    text: normalizedText,
+    explicitlyMentionedBot: Boolean(mention || commandTargetsBot),
+  });
+  const routedSession = ensureEnvelopeSession(state, envelope);
   const slashCommand = parseCommand(normalizedText);
   if (slashCommand) {
     logBridgeEvent("telegram slash command", {
@@ -1840,6 +1554,7 @@ async function processUpdate(update, context) {
       ...slashCommand,
       state,
       chatId,
+      envelope,
       token: context.token,
       runningJobs: context.runningJobs,
       runningGoals: context.runningGoals,
@@ -1847,6 +1562,7 @@ async function processUpdate(update, context) {
       message: {
         ...message,
         workspacePaths: context.workspacePaths,
+        botConfig: context.botConfig,
       },
     });
     if (handled.stateChanged) {
@@ -1857,25 +1573,7 @@ async function processUpdate(update, context) {
     }
   }
 
-  const naturalLanguageSchedule = parseNaturalLanguageSchedule(normalizedText);
-  if (naturalLanguageSchedule) {
-    logBridgeEvent("telegram natural-language schedule matched", {
-      chatId,
-      messageId: message.message_id,
-      cron: naturalLanguageSchedule.cron,
-      objective: naturalLanguageSchedule.objective,
-    });
-    await registerSchedule({
-      token: context.token,
-      chatId: message.chat.id,
-      messageId: message.message_id,
-      cron: naturalLanguageSchedule.cron,
-      objective: naturalLanguageSchedule.objective,
-    });
-    return;
-  }
-
-  const activeLabel = getActiveSessionLabel(state, chatId);
+  const activeLabel = routedSession.label;
   const session = state.sessions[activeLabel];
   const mode = session.cliSessionRef ? "Codex resume" : "Codex";
   const runningJob = findRunningJob(context.runningJobs, chatId, activeLabel);

@@ -28,6 +28,8 @@ test("readConfig returns defaults when config is missing", async () => {
     const value = await config.readConfig();
 
     assert.equal(value.runtime.model, "gpt-5.4");
+    assert.equal(value.ownerUserId, "");
+    assert.deepEqual(value.adminUserIds, []);
     assert.deepEqual(value.channels.telegram, {
       enabled: false,
       botToken: "",
@@ -86,9 +88,24 @@ test("normalizeBotConfig drops unused runtime backend, skills, and schedule stub
 
     assert.equal(normalized.runtime.model, "gpt-5.4-mini");
     assert.equal(normalized.enabled, false);
+    assert.equal(normalized.ownerUserId, "");
+    assert.deepEqual(normalized.adminUserIds, []);
     assert.equal("backend" in normalized.runtime, false);
     assert.equal("skills" in normalized, false);
     assert.equal("schedule" in normalized, false);
+  });
+});
+
+test("normalizeBotConfig normalizes owner and admin ids", async () => {
+  await withTempHome(async () => {
+    const config = await importFresh("../../src/config.mjs");
+    const normalized = config.normalizeBotConfig({
+      ownerUserId: " 123 ",
+      adminUserIds: [" 123 ", "", "456", null],
+    });
+
+    assert.equal(normalized.ownerUserId, "123");
+    assert.deepEqual(normalized.adminUserIds, ["123", "456"]);
   });
 });
 

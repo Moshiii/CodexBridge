@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
+import * as Lark from "@larksuiteoapi/node-sdk";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
 import {
   AUTOAIDE_HOME,
@@ -92,6 +93,8 @@ function formatCliStatus(botContext, config, bridgeProcess, cliState, bootstrapI
     ["telegram state", getTelegramStatePath(botContext.botHome)],
     ["feishu state", getFeishuStatePath(botContext.botHome)],
     ["active channel", activeChannel],
+    ["owner user id", config.ownerUserId || "unset"],
+    ["admin count", String((config.adminUserIds ?? []).length)],
     ["model", config.runtime?.model || "gpt-5.4"],
     ["bootstrap completed", bootstrapInfo.bootstrapPending ? "no" : "yes"],
     ["active session", cliState.activeSessionLabel],
@@ -129,6 +132,24 @@ function formatCliSessions(cliState, runningTurns) {
       return `- ${session.label} [${tags.join(", ")}]`;
     }),
   );
+}
+
+async function resolveFeishuAppOwnerUserId(appId, appSecret) {
+  const client = new Lark.Client({
+    appId,
+    appSecret,
+    domain: Lark.Domain.Feishu,
+  });
+  const response = await client.application.v6.application.get({
+    params: {
+      lang: "zh_cn",
+      user_id_type: "user_id",
+    },
+    path: {
+      app_id: appId,
+    },
+  });
+  return String(response?.data?.app?.creator_id || "").trim() || null;
 }
 
 function printBootstrapHint(bootstrapInfo) {
@@ -321,6 +342,10 @@ async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef)
         return {
           ...currentConfig,
           channel: "telegram",
+          ownerUserId: currentConfig.ownerUserId || paired.userId,
+          adminUserIds: currentConfig.adminUserIds?.length
+            ? currentConfig.adminUserIds
+            : [paired.userId],
           enabled: true,
           channels: {
             ...currentConfig.channels,
@@ -372,6 +397,7 @@ async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef)
         `${formatKeyValueCard("Telegram Paired", [
           ["status", "paired successfully"],
           ["chat id", String(paired.chatId)],
+          ["owner user id", String(config.ownerUserId || paired.userId)],
           ...(paired.botUsername ? [["bot username", `@${paired.botUsername}`]] : []),
           ...(paired.userUsername ? [["paired user", `@${paired.userUsername}`]] : []),
         ])}\n`,
@@ -426,6 +452,12 @@ async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef)
   }
 
   try {
+    let detectedOwnerUserId = null;
+    try {
+      detectedOwnerUserId = await resolveFeishuAppOwnerUserId(appId, appSecret);
+    } catch {
+      detectedOwnerUserId = null;
+    }
     const currentBot = await getBot(botContextRef.current.botId);
     const hadRunningRuntime = Boolean(currentBot.runtimePid);
     if (hadRunningRuntime) {
@@ -437,6 +469,13 @@ async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef)
     config = await updateBotConfig(botContextRef.current.botId, (currentConfig) => ({
       ...currentConfig,
       channel: "feishu",
+      ownerUserId: currentConfig.ownerUserId || detectedOwnerUserId || "",
+      adminUserIds:
+        currentConfig.adminUserIds?.length
+          ? currentConfig.adminUserIds
+          : detectedOwnerUserId
+            ? [detectedOwnerUserId]
+            : [],
       enabled: true,
       channels: {
         ...currentConfig.channels,
@@ -464,6 +503,7 @@ async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef)
       `${formatKeyValueCard("Feishu Enabled", [
         ["status", "configured successfully"],
         ["app id", appId],
+        ["owner user id", config.ownerUserId || detectedOwnerUserId || "unknown"],
         ["mode", "long connection"],
         ["next step", "Send a plain text message to the app in Feishu"],
       ])}\n`,
@@ -598,25 +638,15 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
       console.log(
         `${formatListCard("Commands", [
           "/help     show commands",
-          "/bots     list bots",
           "/bot      create, show, or use bots",
           "/channel  configure Telegram or Feishu",
-          "/home     switch to main session",
-          "/new      create a session",
-          "/switch   switch session",
-          "/sessions list sessions",
-          "/skills   show skills and install new ones",
           "/stop     stop the current running turn",
           "/restart  restart the current bot runtime",
           "/status   show paths, model, and runtime status",
-          "/where    show current CLI session",
           "/exit     quit AutoAide",
           "text      run a normal Codex turn",
         ])}\n`,
       );
-      return true;
-    case "/bots":
-      console.log(`${formatBotList(await listBots(), botContextRef.current.botId)}\n`);
       return true;
     case "/bot": {
       const [subcommand, ...botRest] = arg.split(/\s+/).filter(Boolean);
@@ -680,72 +710,6 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
       console.log(`${formatMessageCard("Usage", ["/bots", "/bot create <id> [name]", "/bot use <id>", "/bot show [id]"])}\n`);
       return true;
     }
-    case "/home":
-      cliState.activeSessionLabel = "main";
-      await writeCliState(cliState, botContextRef.current.botHome);
-      console.log(`${formatMessageCard("Session", ["Switched to main."])}\n`);
-      return true;
-    case "/sessions":
-      console.log(`${formatCliSessions(cliState, runningTurns)}\n`);
-      return true;
-    case "/skills": {
-      const [subcommand, ...skillRest] = arg.split(/\s+/).filter(Boolean);
-      if (!subcommand || subcommand === "list") {
-        const skills = await listSkills();
-        console.log(`${formatMessageCard("Skills", [formatSkillsOverview(skills)])}\n`);
-        return true;
-      }
-      if (subcommand === "install") {
-        const source = skillRest.join(" ").trim();
-        if (!source) {
-          console.log(`${formatMessageCard("Usage", ["Use /skills install <zip-or-path>."])}\n`);
-          return true;
-        }
-        try {
-          const installed = await installSkillFromPath(source, { force: true });
-          console.log(`${formatMessageCard("Skill Installed", [formatSkillInstallResult(installed)])}\n`);
-        } catch (error) {
-          console.log(`${formatMessageCard("Skill Install Failed", [error.message])}\n`);
-        }
-        return true;
-      }
-      console.log(`${formatMessageCard("Usage", ["/skills", "/skills install <zip-or-path>"])}\n`);
-      return true;
-    }
-    case "/new": {
-      const label = slugifySessionLabel(arg);
-      if (!label) {
-        console.log(`${formatMessageCard("Usage", ["Use /new <label>."])}\n`);
-        return true;
-      }
-      if (!cliState.sessions[label]) {
-        cliState.sessions[label] = {
-          label,
-          cliSessionRef: null,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-      }
-      cliState.activeSessionLabel = label;
-      await writeCliState(cliState, botContextRef.current.botHome);
-      console.log(`${formatMessageCard("Session", [`Switched to ${label}.`])}\n`);
-      return true;
-    }
-    case "/switch": {
-      const label = slugifySessionLabel(arg);
-      if (!label) {
-        console.log(`${formatMessageCard("Usage", ["Use /switch <label>."])}\n`);
-        return true;
-      }
-      if (!cliState.sessions[label]) {
-        console.log(`${formatMessageCard("Unknown Session", [label])}\n`);
-        return true;
-      }
-      cliState.activeSessionLabel = label;
-      await writeCliState(cliState, botContextRef.current.botHome);
-      console.log(`${formatMessageCard("Session", [`Switched to ${label}.`])}\n`);
-      return true;
-    }
     case "/channel":
       await handleChannelCommand(rl, botContextRef, configRef.current, bridgeProcessRef);
       configRef.current = await readConfig(botContextRef.current.botHome);
@@ -760,14 +724,6 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
       );
       console.log(
         `${formatKeyValueCard("Run State", [
-          ["current session", cliState.activeSessionLabel],
-          ["running", getRunningTurn(runningTurns, cliState.activeSessionLabel) ? "yes" : "no"],
-        ])}\n`,
-      );
-      return true;
-    case "/where":
-      console.log(
-        `${formatKeyValueCard("Session", [
           ["current session", cliState.activeSessionLabel],
           ["running", getRunningTurn(runningTurns, cliState.activeSessionLabel) ? "yes" : "no"],
         ])}\n`,
