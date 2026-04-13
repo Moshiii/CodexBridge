@@ -17,6 +17,7 @@ import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 import { normalizeFeishuEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
+import { chargeTurnCredits, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
 
 const DEFAULT_BOT_HOME = resolveBotHome();
 const DEFAULT_PID_PATH = getFeishuBridgePidPath(DEFAULT_BOT_HOME);
@@ -289,8 +290,68 @@ function stripMentionMarkup(text) {
     .trim();
 }
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function stripLeadingBotMentionText(text, event, botIdentity) {
+  let normalized = String(text || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  const candidateNames = new Set();
+  for (const mention of event?.message?.mentions || []) {
+    if (isBotMention(mention, botIdentity) && mention?.name) {
+      candidateNames.add(String(mention.name).trim());
+    }
+  }
+  for (const name of botIdentity?.mentionNames || []) {
+    if (name) {
+      candidateNames.add(String(name).trim());
+    }
+  }
+
+  for (const rawName of candidateNames) {
+    const name = String(rawName || "").trim();
+    if (!name) {
+      continue;
+    }
+    const patterns = [
+      new RegExp(`^@${escapeRegExp(name)}(?:[\\s:：,，-]+|\\s*$)`, "i"),
+      new RegExp(`^${escapeRegExp(name)}(?:[\\s:：,，-]+|\\s*$)`, "i"),
+    ];
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const pattern of patterns) {
+        if (pattern.test(normalized)) {
+          normalized = normalized.replace(pattern, "").trim();
+          changed = true;
+        }
+      }
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeIncomingText(text, event, botIdentity) {
+  const withoutMarkup = stripMentionMarkup(text);
+  return stripLeadingBotMentionText(withoutMarkup, event, botIdentity);
+}
+
+function parseSlashCommand(text) {
+  const normalized = String(text || "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const match = normalized.match(/(?:^|\s)(\/[^\s]+)/);
+  return match?.[1] ? String(match[1]).trim().toLowerCase() : null;
+}
+
 function buildFeishuPrompt(text, event) {
-  const cleaned = stripMentionMarkup(text);
+  const cleaned = String(text || "").trim();
   if (!cleaned) {
     return "";
   }
@@ -402,6 +463,7 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
         "Supported commands:",
         "/help",
         "/where",
+        "/credits",
         "/stop",
       ].join("\n"),
       options,
@@ -415,6 +477,22 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
     return true;
   }
 
+  if (command === "/credits") {
+    const creditsInfo = await getUserCredits(envelope.userId, options.botHome || DEFAULT_BOT_HOME);
+    await sendText(
+      client,
+      chatId,
+      [
+        `Credits for ${creditsInfo.account.userId}:`,
+        `Remaining: ${creditsInfo.account.balance}`,
+        `Turn cost: ${creditsInfo.defaults.turnCost}`,
+        `Total consumed: ${creditsInfo.account.totalConsumed}`,
+      ].join("\n"),
+      options,
+    );
+    return true;
+  }
+
   if (command === "/help") {
     await sendText(
       client,
@@ -423,6 +501,7 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
         "Commands:",
         "/start",
         "/where",
+        "/credits",
         "/stop",
         "",
         "Send a normal message to chat with AutoAide.",
@@ -561,7 +640,8 @@ async function main() {
           }
 
           const text = parseTextMessage(event.message?.content);
-          if (!text) {
+          const normalizedText = normalizeIncomingText(text, event, botIdentity);
+          if (!normalizedText) {
             return;
           }
 
@@ -571,7 +651,7 @@ async function main() {
           }
 
           const envelope = normalizeFeishuEnvelope(event, {
-            text,
+            text: normalizedText,
             explicitlyMentionedBot,
           });
           const chatState = ensureConversationState(routerState, envelope);
@@ -580,11 +660,12 @@ async function main() {
           await ensureSession(botHome, chatState);
           await writeRouterState(ROUTER_STATE_PATH, routerState);
 
-          if (await handleSlashCommand(text.trim(), chatState, client, chatId, activeRuns, routeKey, config, envelope, { replyToMessageId: messageId })) {
+          const slashCommand = parseSlashCommand(normalizedText);
+          if (slashCommand && await handleSlashCommand(slashCommand, chatState, client, chatId, activeRuns, routeKey, config, envelope, { replyToMessageId: messageId, botHome })) {
             return;
           }
 
-          const promptText = buildFeishuPrompt(text, event);
+          const promptText = buildFeishuPrompt(normalizedText, event);
           if (!promptText) {
             return;
           }
@@ -602,6 +683,21 @@ async function main() {
           const next = previous
             .catch(() => {})
             .then(async () => {
+              const chargeResult = await chargeTurnCredits({
+                userId: envelope.userId,
+                botHome,
+              });
+              if (!chargeResult.ok) {
+                const deniedResponse = await sendText(
+                  client,
+                  chatId,
+                  renderInsufficientCreditsMessage(chargeResult, { userId: envelope.userId }),
+                  { replyToMessageId: messageId },
+                );
+                rememberBotOpenId(botIdentity, deniedResponse);
+                return;
+              }
+
               const runningResponse = await sendText(client, chatId, renderRunningMessage(chatState.sessionLabel, Boolean(chatState.cliSessionRef)), {
                 replyToMessageId: messageId,
               });

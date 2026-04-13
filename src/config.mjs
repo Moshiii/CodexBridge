@@ -99,6 +99,10 @@ export function getMemoryPath(botHome = resolveBotHome()) {
   return path.join(botHome, "memory");
 }
 
+export function getUserCreditsStatePath(botHome = resolveBotHome()) {
+  return path.join(botHome, "user-credits.json");
+}
+
 export function getTelegramStatePath(botHome = resolveBotHome()) {
   return path.join(botHome, "telegram");
 }

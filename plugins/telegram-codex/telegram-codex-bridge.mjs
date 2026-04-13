@@ -41,6 +41,7 @@ import {
 import { normalizeTelegramEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
+import { chargeTurnCredits, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const POLL_TIMEOUT_SECONDS = 30;
@@ -1359,6 +1360,7 @@ async function handleSlashCommand({
         "Supported commands:",
         "/help",
         "/where",
+        "/credits",
         "/stop",
       ].join("\n"),
       message.message_id,
@@ -1371,6 +1373,22 @@ async function handleSlashCommand({
     return { stateChanged: false, handled: true };
   }
 
+  if (command === "credits") {
+    const creditsInfo = await getUserCredits(envelope.userId, message.botHome);
+    await sendMessage(
+      token,
+      message.chat.id,
+      [
+        `Credits for ${creditsInfo.account.userId}:`,
+        `Remaining: ${creditsInfo.account.balance}`,
+        `Turn cost: ${creditsInfo.defaults.turnCost}`,
+        `Total consumed: ${creditsInfo.account.totalConsumed}`,
+      ].join("\n"),
+      message.message_id,
+    );
+    return { stateChanged: false, handled: true };
+  }
+
   if (command === "help") {
     await sendMessage(
       token,
@@ -1379,6 +1397,7 @@ async function handleSlashCommand({
         "Commands:",
         "/start",
         "/where",
+        "/credits",
         "/stop",
         "",
         "Send a normal message to talk to AutoAide.",
@@ -1563,6 +1582,7 @@ async function processUpdate(update, context) {
         ...message,
         workspacePaths: context.workspacePaths,
         botConfig: context.botConfig,
+        botHome: context.botHome,
       },
     });
     if (handled.stateChanged) {
@@ -1621,6 +1641,20 @@ async function processUpdate(update, context) {
   }
 
   if (!normalizedText) {
+    return;
+  }
+
+  const chargeResult = await chargeTurnCredits({
+    userId: envelope.userId,
+    botHome: context.botHome,
+  });
+  if (!chargeResult.ok) {
+    await sendMessage(
+      context.token,
+      message.chat.id,
+      renderInsufficientCreditsMessage(chargeResult, { userId: envelope.userId }),
+      message.message_id,
+    );
     return;
   }
 

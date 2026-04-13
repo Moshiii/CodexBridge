@@ -22,6 +22,7 @@ import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstrap.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
 import { createBot, ensureDefaultBot, getBot, listBots, restartBot, setActiveBot, startBot, stopBot, updateBotConfig } from "./bots.mjs";
+import { chargeTurnCredits, getUserCredits, renderInsufficientCreditsMessage, resolveCliCreditsUserId } from "./user-credits.mjs";
 import {
   formatSkillInstallResult,
   formatSkillsList,
@@ -77,13 +78,15 @@ function formatTelegramEntityList(ids, metadata, kind) {
     .join(", ");
 }
 
-function formatCliStatus(botContext, config, bridgeProcess, cliState, bootstrapInfo) {
+function formatCliStatus(botContext, config, bridgeProcess, cliState, bootstrapInfo, creditsInfo = null) {
   const telegram = getTelegramConfigView(config);
   const feishu = getFeishuConfigView(config);
   const runtimeOnline = Boolean(bridgeProcess?.pid);
   const activeChannel = config.channel || "telegram";
   const telegramOnline = runtimeOnline && activeChannel === "telegram" && telegram?.enabled;
   const feishuOnline = runtimeOnline && activeChannel === "feishu" && feishu?.enabled;
+  const creditsBalance = creditsInfo?.account?.balance;
+  const creditsDisplay = Number.isFinite(creditsBalance) ? String(creditsBalance) : "unknown";
   return formatKeyValueCard("AutoAide Status", [
     ["home", AUTOAIDE_HOME],
     ["bot", botContext.botId],
@@ -95,6 +98,8 @@ function formatCliStatus(botContext, config, bridgeProcess, cliState, bootstrapI
     ["active channel", activeChannel],
     ["owner user id", config.ownerUserId || "unset"],
     ["admin count", String((config.adminUserIds ?? []).length)],
+    ["credits user id", creditsInfo?.account?.userId || resolveCliCreditsUserId(config)],
+    ["credits remaining", creditsDisplay],
     ["model", config.runtime?.model || "gpt-5.4"],
     ["bootstrap completed", bootstrapInfo.bootstrapPending ? "no" : "yes"],
     ["active session", cliState.activeSessionLabel],
@@ -588,6 +593,15 @@ async function startCliMessage(line, botContextRef, cliState, config, runningTur
     console.log(`${formatMessageCard("Session Busy", [`${active.label} is already running. Use /stop first.`])}\n`);
     return;
   }
+  const billingUserId = resolveCliCreditsUserId(config);
+  const chargeResult = await chargeTurnCredits({
+    userId: billingUserId,
+    botHome: botContextRef.current.botHome,
+  });
+  if (!chargeResult.ok) {
+    console.log(`${formatMessageCard("No Credits", [renderInsufficientCreditsMessage(chargeResult, { userId: billingUserId })])}\n`);
+    return;
+  }
   const commandConfig = {
     ...buildCommandConfig(config),
     onStatus(status) {
@@ -640,6 +654,7 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
           "/help     show commands",
           "/bot      create, show, or use bots",
           "/channel  configure Telegram or Feishu",
+          "/credits  show remaining credits for this bot",
           "/stop     stop the current running turn",
           "/restart  restart the current bot runtime",
           "/status   show paths, model, and runtime status",
@@ -719,8 +734,19 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
       bridgeProcessRef.current = {
         pid: (await getBot(botContextRef.current.botId)).runtimePid,
       };
+      const creditsInfo = await getUserCredits(
+        resolveCliCreditsUserId(configRef.current),
+        botContextRef.current.botHome,
+      );
       console.log(
-        `${formatCliStatus(botContextRef.current, configRef.current, bridgeProcessRef.current, cliState, bootstrapInfoRef.current)}\n`,
+        `${formatCliStatus(
+          botContextRef.current,
+          configRef.current,
+          bridgeProcessRef.current,
+          cliState,
+          bootstrapInfoRef.current,
+          creditsInfo,
+        )}\n`,
       );
       console.log(
         `${formatKeyValueCard("Run State", [
@@ -729,6 +755,22 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
         ])}\n`,
       );
       return true;
+    case "/credits": {
+      configRef.current = await readConfig(botContextRef.current.botHome);
+      const creditsInfo = await getUserCredits(
+        resolveCliCreditsUserId(configRef.current),
+        botContextRef.current.botHome,
+      );
+      console.log(
+        `${formatKeyValueCard("Credits", [
+          ["user id", creditsInfo.account.userId],
+          ["remaining", String(creditsInfo.account.balance)],
+          ["turn cost", String(creditsInfo.defaults.turnCost)],
+          ["total consumed", String(creditsInfo.account.totalConsumed)],
+        ])}\n`,
+      );
+      return true;
+    }
     case "/stop": {
       const turn = getRunningTurn(runningTurns, cliState.activeSessionLabel);
       if (!turn) {
