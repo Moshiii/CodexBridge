@@ -1,8 +1,8 @@
-# AutoAide Web Console Phase 1 Spec
+# CodexBridge Web Console Phase 1 Spec
 
 ## Purpose
 
-This document specifies Phase 1 of the AutoAide web console build.
+This document specifies Phase 1 of the CodexBridge web console build.
 
 Phase 1 is the point where the current thin control plane becomes a real bot operations console.
 
@@ -86,7 +86,7 @@ The entire console is a single-page application with local tab state.
 
 ```text
 +------------------------------------------------------------------------------------+
-| AutoAide Web Console                                                               |
+| CodexBridge Web Console                                                               |
 | current bot: Astock | runtime: online | telegram: paired | enabled | no errors    |
 +------------------------------------------------------------------------------------+
 | Fleet rail                  | Main panel                                            |

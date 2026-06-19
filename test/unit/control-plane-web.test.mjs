@@ -173,7 +173,7 @@ test("bot set-config style nested patch should preserve sibling telegram fields"
     const persisted = await readConfig();
     assert.equal(persisted.channels.telegram.enabled, false);
     assert.equal(persisted.channels.telegram.botToken, "");
-    const delta = await readConfig(path.join(process.env.AUTOAIDE_HOME, "bots", "delta"));
+    const delta = await readConfig(path.join(process.env.CODEXBRIDGE_HOME, "bots", "delta"));
     assert.equal(delta.channels.telegram.enabled, false);
     assert.equal(delta.channels.telegram.botToken, "token-delta");
     assert.deepEqual(delta.channels.telegram.private.allowedChatIds, ["100"]);

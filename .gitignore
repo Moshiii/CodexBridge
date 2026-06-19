@@ -6,3 +6,4 @@ dist/
 .npmrc
 .pnpm-debug.log*
 .autoaide/
+.codexbridge/

@@ -1,4 +1,4 @@
-# AGENTS.md - AutoAide Workspace
+# AGENTS.md - CodexBridge Workspace
 
 This folder is home. Treat it that way.
 

@@ -1,8 +1,8 @@
-# AutoAide 产品决策稿
+# CodexBridge 产品决策稿
 
 ## 一、文档目的
 
-这份文档用于重新明确 AutoAide 的核心产品决策。
+这份文档用于重新明确 CodexBridge 的核心产品决策。
 
 这次决策的关键变化是：
 
@@ -12,13 +12,13 @@
 
 这份稿子要解决的问题是：
 
-- 无论消息来自群聊还是私聊，AutoAide 都必须知道“当前是谁在说话”
-- 无论消息来自 Telegram、Feishu 还是未来其他 channel，AutoAide 都必须用统一规则路由会话
+- 无论消息来自群聊还是私聊，CodexBridge 都必须知道“当前是谁在说话”
+- 无论消息来自 Telegram、Feishu 还是未来其他 channel，CodexBridge 都必须用统一规则路由会话
 - `/goal`、schedule、stop、命令权限这些都应该建立在统一身份模型之上，而不是建立在粗糙的模式划分之上
 
 ## 二、产品总方向
 
-AutoAide 应该被定义成：
+CodexBridge 应该被定义成：
 
 - 一个多 Bot 的本地运行时系统
 - 每个 Bot 只绑定一个外部 channel
@@ -62,7 +62,7 @@ AutoAide 应该被定义成：
 
 - 必须建立
 
-AutoAide 在任何 channel 下都必须能够识别：
+CodexBridge 在任何 channel 下都必须能够识别：
 
 - 当前 query 是谁发来的
 - 当前 query 是在私聊里还是在群里
@@ -81,7 +81,7 @@ AutoAide 在任何 channel 下都必须能够识别：
 - 如果 session 只挂在 chat 上，群聊里所有人就会共用同一条记忆链
 - 这会导致上下文污染、任务串台、stop 权限混乱、人格混乱
 
-因此，AutoAide 必须先知道“谁在说话”，再决定“把这条消息接到哪条会话线上”。
+因此，CodexBridge 必须先知道“谁在说话”，再决定“把这条消息接到哪条会话线上”。
 
 ### 决策 4：群聊/私聊的差异应体现在策略层，而不是基础身份层
 
@@ -484,7 +484,7 @@ Midjourney 的 `/info` 更偏个人状态面板。
 
 这说明：
 
-- AutoAide 未来也应该尽量减少在群里输出长状态面板和系统噪音
+- CodexBridge 未来也应该尽量减少在群里输出长状态面板和系统噪音
 
 ### 4. 强命令边界在多人环境里更重要
 
@@ -496,7 +496,7 @@ Midjourney 的 slash commands 非常明确。
 
 ## 十七、最终产品决策
 
-AutoAide 下一阶段正式采用以下产品原则：
+CodexBridge 下一阶段正式采用以下产品原则：
 
 1. 一个 Bot 只绑定一个 channel
 
@@ -565,7 +565,7 @@ AutoAide 下一阶段正式采用以下产品原则：
 
 最终结论很明确：
 
-- AutoAide 不应该先被定义成“single_user 产品”和“group 产品”
+- CodexBridge 不应该先被定义成“single_user 产品”和“group 产品”
 - 它应该先被定义成“能在任何 channel 里识别当前是谁在说话，并把消息路由到正确 session 的系统”
 
 在这个基础上：

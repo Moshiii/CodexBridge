@@ -1,4 +1,4 @@
-# AutoAide Web Console Phased Development Plan
+# CodexBridge Web Console Phased Development Plan
 
 ## Purpose
 
@@ -16,7 +16,7 @@ This plan assumes:
 
 - the current bot-scoped runtime model is the source of truth
 - the terminal and CLI flows already exist
-- the web console should progressively reach feature parity with the rest of AutoAide
+- the web console should progressively reach feature parity with the rest of CodexBridge
 
 ## Planning Principles
 

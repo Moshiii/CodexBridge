@@ -1,8 +1,8 @@
-# AutoAide Logo Blur To Solid 启动动画评估
+# CodexBridge Logo Blur To Solid 启动动画评估
 
 ## 1. 目标
 
-这份文档评估当前 `AutoAide` 启动 logo 的一个短动画方案：
+这份文档评估当前 `CodexBridge` 启动 logo 的一个短动画方案：
 
 - 起始态是模糊、发虚、低密度的字标
 - 结束态是清晰、稳定、实心的字标
@@ -23,7 +23,7 @@
 
 ## 2. 当前 logo 的前提
 
-在 [cli-visual-identity.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/cli-visual-identity.md#L123) 中，你已经把主 logo 定为一组由 `░▒▓█` 组成的块状字标。
+在 [cli-visual-identity.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/cli-visual-identity.md#L123) 中，你已经把主 logo 定为一组由 `░▒▓█` 组成的块状字标。
 
 这意味着它天然具备做“密度递进动画”的条件：
 
@@ -124,7 +124,7 @@
 - 第三层：`▒` 和 `▓` 混合
 - 最终层：收敛到“硬终态”，弱化或移除外围的 `░` / `▒`
 
-更准确一点地说，不应该把目前 [cli-visual-identity.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/cli-visual-identity.md#L123) 里的展示稿直接当作动画终点。
+更准确一点地说，不应该把目前 [cli-visual-identity.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/cli-visual-identity.md#L123) 里的展示稿直接当作动画终点。
 
 因为你现在指出的核心问题是对的：
 
@@ -536,6 +536,6 @@
 4. 播放一次 300 到 400ms 的 blur-to-solid 动画
 5. logo 停稳后，再播放备注行的一次性轻 glitch
 
-这是当前最适合 `AutoAide` 的方案。
+这是当前最适合 `CodexBridge` 的方案。
 
 它比“旋转 logo”更符合你的字标结构，也比“logo glitch”更稳、更高级、更容易落地。

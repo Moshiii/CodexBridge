@@ -60,7 +60,7 @@ const DEFAULT_CODEX_RESUME_TEMPLATE =
   "codex exec resume --skip-git-repo-check --json __SESSION_ID__ -";
 const DEFAULT_UPLOAD_DIR_NAME = "inbox";
 const DEFAULT_DOWNLOAD_DIRS = ["inbox", "outbox", "exports"];
-const AUTOAIDE_BIN_PATH = path.join(__dirname, "..", "..", "bin", "autoaide.mjs");
+const CODEXBRIDGE_BIN_PATH = path.join(__dirname, "..", "..", "bin", "codexbridge.mjs");
 
 function getShellSpec() {
   if (process.platform === "win32") {
@@ -251,7 +251,7 @@ function buildCommandConfig(model = "gpt-5.4") {
 
 function buildGoalCommandConfig() {
   return buildRunnerCommandConfig({
-    model: process.env.AUTOAIDE_MODEL?.trim() || "gpt-5.4",
+    model: process.env.CODEXBRIDGE_MODEL?.trim() || "gpt-5.4",
   });
 }
 
@@ -274,7 +274,7 @@ async function resolveBotRuntimeContext() {
       parseAllowedUserIds((telegram.groups?.allowedUserIds ?? []).join(",")) ||
       parseAllowedUserIds(process.env.TELEGRAM_ALLOWED_GROUP_USER_IDS),
     codexCwd: getWorkspacePath(botHome),
-    model: process.env.AUTOAIDE_MODEL?.trim() || config.runtime?.model || "gpt-5.4",
+    model: process.env.CODEXBRIDGE_MODEL?.trim() || config.runtime?.model || "gpt-5.4",
     botConfig: config,
   };
 }
@@ -692,7 +692,7 @@ async function sendDocument(token, chatId, filePath, replyToMessageId, caption =
 
 export function buildBotRuntimeRestartCommand(botId, botHome) {
   const logPath = path.join(botHome, "logs", "runtime.log");
-  return `sleep 1; node "${AUTOAIDE_BIN_PATH}" bot restart "${botId}" >> "${logPath}" 2>&1`;
+  return `sleep 1; node "${CODEXBRIDGE_BIN_PATH}" bot restart "${botId}" >> "${logPath}" 2>&1`;
 }
 
 export function scheduleBotRuntimeRestart(botId, botHome) {
@@ -1355,7 +1355,7 @@ async function handleSlashCommand({
       token,
       message.chat.id,
       [
-        "AutoAide is ready.",
+        "CodexBridge is ready.",
         "Send a normal message to chat.",
         "Supported commands:",
         "/help",
@@ -1400,7 +1400,7 @@ async function handleSlashCommand({
         "/credits",
         "/stop",
         "",
-        "Send a normal message to talk to AutoAide.",
+        "Send a normal message to talk to CodexBridge.",
         "Management actions belong in the local CLI or web control plane.",
       ].join("\n"),
       message.message_id,
@@ -1635,7 +1635,7 @@ async function processUpdate(update, context) {
       `Saved file to ${uploadedDocument.relativePath}.`,
       `Name: ${uploadedDocument.originalName}`,
       `Size: ${formatBytes(uploadedDocument.fileSize)}`,
-      normalizedText ? "Running your caption against the saved file..." : "You can now ask AutoAide to process it.",
+      normalizedText ? "Running your caption against the saved file..." : "You can now ask CodexBridge to process it.",
     ].join("\n");
     await sendMessage(context.token, message.chat.id, uploadNotice, message.message_id);
   }

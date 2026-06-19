@@ -5,11 +5,11 @@ import path from "node:path";
 
 import { importFresh, withTempHome } from "../helpers/module.js";
 
-test("ensureAutoAideHome creates runtime directories", async () => {
+test("ensureCodexBridgeHome creates runtime directories", async () => {
   await withTempHome(async (tempHome) => {
     const config = await importFresh("../../src/config.mjs");
 
-    await config.ensureAutoAideHome();
+    await config.ensureCodexBridgeHome();
 
     await Promise.all([
       access(path.join(tempHome, "control")),

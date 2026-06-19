@@ -1,12 +1,12 @@
-# AutoAide Current Architecture
+# CodexBridge Current Architecture
 
 ## Purpose
 
-AutoAide is a local, bot-scoped runtime wrapper around Codex CLI.
+CodexBridge is a local, bot-scoped runtime wrapper around Codex CLI.
 
 The project currently provides:
 
-- a local CLI shell via `autoaide`
+- a local CLI shell via `codexbridge`
 - a bot control plane with registry + per-bot state
 - a persistent workspace per bot
 - a Telegram bridge that runs inside a bot runtime
@@ -19,13 +19,13 @@ It no longer uses the old single global daemon model.
 
 ```text
 repo/
-  bin/autoaide.mjs
+  bin/codexbridge.mjs
   scripts/postinstall.mjs
   src/
   plugins/telegram-codex/
   docs/
 
-~/.autoaide/
+~/.codexbridge/
   control/
     registry.json
   logs/
@@ -53,11 +53,11 @@ repo/
 
 ### Entrypoints
 
-- `bin/autoaide.mjs`
+- `bin/codexbridge.mjs`
   - top-level CLI entrypoint
-  - routes `autoaide`, `autoaide bot ...`, `autoaide bots`, `autoaide skills ...`, `autoaide rollout ...`, `autoaide web`
+  - routes `codexbridge`, `codexbridge bot ...`, `codexbridge bots`, `codexbridge skills ...`, `codexbridge rollout ...`, `codexbridge web`
 - `scripts/postinstall.mjs`
-  - prepares the bot-scoped runtime skeleton under `~/.autoaide`
+  - prepares the bot-scoped runtime skeleton under `~/.codexbridge`
 
 ### State and Paths
 
@@ -134,12 +134,12 @@ repo/
 ```text
 +--------------------------------------------------------------+
 | User Surfaces                                                 |
-|  - local shell: autoaide                                      |
+|  - local shell: codexbridge                                      |
 |  - Telegram bot messages                                      |
 |  - web control plane                                          |
 +--------------------------------------------------------------+
-| AutoAide Orchestration                                         |
-|  - bin/autoaide.mjs                                           |
+| CodexBridge Orchestration                                         |
+|  - bin/codexbridge.mjs                                           |
 |  - src/cli.mjs                                                |
 |  - src/bots.mjs                                               |
 |  - src/control-plane-web.mjs                                  |
@@ -222,7 +222,7 @@ repo/
 
 ### Local CLI
 
-- `autoaide`
+- `codexbridge`
 - `/help`
 - `/home`
 - `/new <label>`
@@ -240,26 +240,26 @@ repo/
 
 ### Bot Lifecycle CLI
 
-- `autoaide bots`
-- `autoaide bot create <id>`
-- `autoaide bot show <id>`
-- `autoaide bot config <id>`
-- `autoaide bot set-config <id> --json ...`
-- `autoaide bot health <id>`
-- `autoaide bot start <id>`
-- `autoaide bot stop <id>`
-- `autoaide bot restart <id>`
-- `autoaide bot enable <id>`
-- `autoaide bot disable <id>`
-- `autoaide bot delete <id>`
-- `autoaide bot logs <id>`
+- `codexbridge bots`
+- `codexbridge bot create <id>`
+- `codexbridge bot show <id>`
+- `codexbridge bot config <id>`
+- `codexbridge bot set-config <id> --json ...`
+- `codexbridge bot health <id>`
+- `codexbridge bot start <id>`
+- `codexbridge bot stop <id>`
+- `codexbridge bot restart <id>`
+- `codexbridge bot enable <id>`
+- `codexbridge bot disable <id>`
+- `codexbridge bot delete <id>`
+- `codexbridge bot logs <id>`
 
 ### Rollout and Ops
 
-- `autoaide rollout restart-all`
-- `autoaide rollout canary --bots ... --version ...`
-- `autoaide rollout rollback <id> --version ...`
-- `autoaide web`
+- `codexbridge rollout restart-all`
+- `codexbridge rollout canary --bots ... --version ...`
+- `codexbridge rollout rollback <id> --version ...`
+- `codexbridge web`
 
 ### Telegram Commands
 
@@ -292,7 +292,7 @@ repo/
 ### 1. Install / Runtime Skeleton
 
 ```text
-User             npm              postinstall.mjs          ~/.autoaide
+User             npm              postinstall.mjs          ~/.codexbridge
  |                |                      |                      |
  | npm install    |                      |                      |
  |--------------->| run postinstall      |                      |
@@ -304,18 +304,18 @@ User             npm              postinstall.mjs          ~/.autoaide
  |                |<---------------------|                      |
 ```
 
-### 2. `autoaide` No-Arg Launch
+### 2. `codexbridge` No-Arg Launch
 
 ```text
-User           bin/autoaide        bots.mjs          config.mjs        cli.mjs
+User           bin/codexbridge        bots.mjs          config.mjs        cli.mjs
  |                  |                 |                  |               |
- | autoaide         |                 |                  |               |
+ | codexbridge         |                 |                  |               |
  |----------------->| ensureDefault   |----------------->|               |
  |                  | maybe autostart |---- getBot ----->|               |
  |                  | maybe startBot  |----------------->|               |
  |                  | startCli()      |                                     
  |                  |----------------------------------------------------->|
- |                  |                                   ensureAutoAideHome |
+ |                  |                                   ensureCodexBridgeHome |
  |                  |                                   ensureWorkspaceBoot |
  |                  |                                   readConfig/state    |
  |                  |                                   show banner         |
@@ -385,7 +385,7 @@ User         cli.mjs          telegram-pairing     bots.mjs         Telegram API
 Caller           bots.mjs            bot runtime process        telegram bridge
  |                  |                        |                        |
  | startBot(id)     | validate config        |                        |
- |----------------->| spawn "autoaide bot run id" ------------------->|
+ |----------------->| spawn "codexbridge bot run id" ------------------->|
  |                  | wait for runtime.pid   | write runtime pid      |
  |                  |<-----------------------|                        |
  |                  | return runtime pid     | spawn bridge --------->|
@@ -538,23 +538,23 @@ Operator         bin/web API            bots.mjs                target bots
 
 ## Command-to-Module Map
 
-### `autoaide`
+### `codexbridge`
 
-- `bin/autoaide.mjs`
+- `bin/codexbridge.mjs`
 - `src/cli.mjs`
 - `src/workspace-bootstrap.mjs`
 - `src/workspace-context.mjs`
 - `src/codex-runner.mjs`
 
-### `autoaide bot ...`
+### `codexbridge bot ...`
 
-- `bin/autoaide.mjs`
+- `bin/codexbridge.mjs`
 - `src/bots.mjs`
 - `src/config.mjs`
 
-### `autoaide web`
+### `codexbridge web`
 
-- `bin/autoaide.mjs`
+- `bin/codexbridge.mjs`
 - `src/control-plane-web.mjs`
 - `src/bots.mjs`
 

@@ -95,7 +95,7 @@ export async function ensureWorkspaceBootstrap(botHome = undefined) {
   const userContent = await readFile(userPath, "utf8").catch(() => "");
   const identityName = parseIdentityName(identityContent);
   const userCallName = parseUserCallName(userContent);
-  const identityReady = Boolean(identityName) && identityName !== "AutoAide";
+  const identityReady = Boolean(identityName) && identityName !== "CodexBridge";
   const userReady = Boolean(userCallName);
   const completed = state.completed === true && !bootstrapExists && identityReady && userReady;
 

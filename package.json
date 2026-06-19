@@ -1,14 +1,14 @@
 {
-  "name": "autoaide",
+  "name": "codexbridge",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "autoaide": "./bin/autoaide.mjs"
+    "codexbridge": "./bin/codexbridge.mjs"
   },
   "scripts": {
     "postinstall": "node ./scripts/postinstall.mjs",
-    "start": "node ./bin/autoaide.mjs",
+    "start": "node ./bin/codexbridge.mjs",
     "test": "node --test --test-concurrency=1"
   },
   "engines": {

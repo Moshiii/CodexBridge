@@ -24,7 +24,7 @@ function renderBootstrapContext(files) {
   });
 
   return [
-    "[AutoAide Workspace Context]",
+    "[CodexBridge Workspace Context]",
     "Use this as persistent workspace context.",
     "AGENTS.md may also be loaded natively by Codex from the current workspace.",
     "",

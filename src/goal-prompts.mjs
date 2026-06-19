@@ -30,7 +30,7 @@ export function buildGoalTurnPrompt(goal) {
 
 export function buildGoalEvaluatorPrompt(goal, assistantReply) {
   return [
-    "You are the supervisor for an AutoAide goal running inside an existing conversation thread.",
+    "You are the supervisor for a CodexBridge goal running inside an existing conversation thread.",
     "Evaluate the assistant's latest normal-chat reply against the goal.",
     "Do not do the work yourself.",
     "If the goal is incomplete, produce exactly one short follow-up user message that should be sent into the same thread next.",

@@ -1,4 +1,4 @@
-# AutoAide Web Console Layout Redesign
+# CodexBridge Web Console Layout Redesign
 
 ## Goal
 
@@ -58,7 +58,7 @@ These are different modes of work, but the current layout gives them equal visua
 
 Use a three-pane master-detail workspace.
 
-This is the most appropriate pattern for AutoAide because the product already has strong object hierarchy:
+This is the most appropriate pattern for CodexBridge because the product already has strong object hierarchy:
 
 - fleet
 - bot
@@ -141,7 +141,7 @@ This is the recommended default desktop structure.
 
 ```text
 +------------------------------------------------------------------------------------------------------------------+
-| AutoAide                                                Current Bot: default   Status: running   Telegram: paired |
+| CodexBridge                                                Current Bot: default   Status: running   Telegram: paired |
 +------------------------------------------------------------------------------------------------------------------+
 | LEFT RAIL                | CENTER PANE                                      | RIGHT DETAIL PANE                |
 |--------------------------|--------------------------------------------------|----------------------------------|
@@ -296,7 +296,7 @@ ASCII:
 
 ```text
 +------------------------------------------------------+
-| AutoAide   [Bot Switcher]   [Mode Switcher]          |
+| CodexBridge   [Bot Switcher]   [Mode Switcher]          |
 +------------------------------------------------------+
 | Center list / object list                            |
 | sessions / goals / schedules / files / skills        |
@@ -395,6 +395,6 @@ Proceed with the three-pane redesign centered on:
 - right pane for selected object work
 - bottom strip for diagnostics
 
-This is the best fit for AutoAide because it reduces visual fragmentation while preserving the system's real mental model.
+This is the best fit for CodexBridge because it reduces visual fragmentation while preserving the system's real mental model.
 
 If implemented well, the product will feel less like a demo console with many tabs and more like a serious local assistant workspace.

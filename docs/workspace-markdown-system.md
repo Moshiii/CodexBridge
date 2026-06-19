@@ -1,23 +1,23 @@
-# AutoAide Workspace Markdown System
+# CodexBridge Workspace Markdown System
 
 ## 1. Purpose
 
 This document defines the Markdown file system that lives under:
 
 ```text
-~/.autoaide/bots/default/workspace/
+~/.codexbridge/bots/default/workspace/
 ```
 
 The goal is not to build a second agent runtime.
 
-The goal is to give AutoAide a stable, editable, product-grade context layer:
+The goal is to give CodexBridge a stable, editable, product-grade context layer:
 
 - the repo contains software
-- `~/.autoaide/bots/default/workspace` contains the assistant's working memory and operating context
+- `~/.codexbridge/bots/default/workspace` contains the assistant's working memory and operating context
 - Codex remains the execution core
 - Markdown files define how the assistant understands itself, the user, the environment, and its ongoing work
 
-This design is heavily informed by OpenClaw's workspace bootstrap model, but is adapted for AutoAide's lighter CLI-first architecture.
+This design is heavily informed by OpenClaw's workspace bootstrap model, but is adapted for CodexBridge's lighter CLI-first architecture.
 
 ## 2. Core Design Principle
 
@@ -56,19 +56,19 @@ This Markdown system is not:
 
 ## 4. Product Boundary
 
-AutoAide has two major homes:
+CodexBridge has two major homes:
 
 - install/source directory:
-  - `/Users/moshiwei/Documents/GitHub/AutoAide`
+  - `/Users/moshiwei/Documents/GitHub/CodexBridge`
 - runtime home:
-  - `~/.autoaide`
+  - `~/.codexbridge`
 
 The Markdown system belongs to the runtime home, not the repo.
 
 Recommended layout:
 
 ```text
-~/.autoaide/
+~/.codexbridge/
   config.json
   cli-sessions.json
   logs/
@@ -92,10 +92,10 @@ The current product already uses part of this Markdown system.
 
 Implemented now:
 
-- Codex runs with `cwd=~/.autoaide/bots/default/workspace`
+- Codex runs with `cwd=~/.codexbridge/bots/default/workspace`
 - Codex can therefore read `AGENTS.md` natively
-- AutoAide reads `SOUL.md`, `IDENTITY.md`, `USER.md`, and `TOOLS.md`
-- AutoAide injects those files into the prompt before calling Codex
+- CodexBridge reads `SOUL.md`, `IDENTITY.md`, `USER.md`, and `TOOLS.md`
+- CodexBridge injects those files into the prompt before calling Codex
 - bootstrap writes identity and user answers back into workspace Markdown
 
 Not fully implemented yet:
@@ -136,7 +136,7 @@ It should not contain:
 
 Short version:
 
-`AGENTS.md` defines how AutoAide works.
+`AGENTS.md` defines how CodexBridge works.
 
 ### 5.2 `SOUL.md`
 
@@ -150,14 +150,14 @@ Purpose:
 
 It should contain:
 
-- how concise or expressive AutoAide should be
+- how concise or expressive CodexBridge should be
 - whether it is warm, blunt, playful, formal, or dry
 - what kind of judgment it should exercise
 - how it should think about trust and initiative
 
 Short version:
 
-`SOUL.md` defines who AutoAide feels like.
+`SOUL.md` defines who CodexBridge feels like.
 
 ### 5.3 `USER.md`
 
@@ -180,7 +180,7 @@ It should contain:
 
 Short version:
 
-`USER.md` defines who AutoAide is helping.
+`USER.md` defines who CodexBridge is helping.
 
 ### 5.4 `IDENTITY.md`
 
@@ -203,7 +203,7 @@ This file is the best candidate for future programmatic parsing.
 
 Short version:
 
-`IDENTITY.md` is AutoAide's structured nameplate.
+`IDENTITY.md` is CodexBridge's structured nameplate.
 
 ### 5.5 `TOOLS.md`
 
@@ -236,7 +236,7 @@ Purpose:
 
 This should exist only for initial setup.
 
-It should guide AutoAide to:
+It should guide CodexBridge to:
 
 - introduce itself
 - ask who the user is
@@ -274,7 +274,7 @@ Important:
 
 Short version:
 
-`HEARTBEAT.md` defines what AutoAide does when nobody is actively talking to it.
+`HEARTBEAT.md` defines what CodexBridge does when nobody is actively talking to it.
 
 ### 5.8 `MEMORY.md`
 
@@ -318,7 +318,7 @@ Daily memory files are raw notes; `MEMORY.md` is the refined version.
 
 ## 6. Program Semantics
 
-AutoAide should not treat every file the same way.
+CodexBridge should not treat every file the same way.
 
 Recommended semantics:
 
@@ -347,7 +347,7 @@ not every session should see every file.
 
 ## 7. Session-Type Filtering
 
-AutoAide should eventually distinguish at least these contexts:
+CodexBridge should eventually distinguish at least these contexts:
 
 - main private session
 - Telegram private session
@@ -441,11 +441,11 @@ Recommended reserved `AGENTS.md` headings:
 - `## Channel Rules`
 - `## Heartbeats`
 
-That gives AutoAide a future path for partial extraction without turning the whole system into YAML.
+That gives CodexBridge a future path for partial extraction without turning the whole system into YAML.
 
 ## 9. Bootstrap Behavior
 
-When `BOOTSTRAP.md` exists and the workspace is new, AutoAide should treat that as a first-run ritual.
+When `BOOTSTRAP.md` exists and the workspace is new, CodexBridge should treat that as a first-run ritual.
 
 Recommended first-run flow:
 
@@ -464,7 +464,7 @@ This is a strong product pattern because it lets the assistant help create its o
 
 ## 10. Heartbeat Behavior
 
-AutoAide is meant to become an always-on assistant, so `HEARTBEAT.md` should be treated as a first-class file.
+CodexBridge is meant to become an always-on assistant, so `HEARTBEAT.md` should be treated as a first-class file.
 
 Design rules:
 
@@ -488,9 +488,9 @@ Bad heartbeat tasks:
 - broad internet rabbit holes
 - noisy user interruptions without clear value
 
-## 11. Minimal AutoAide v1 Markdown Set
+## 11. Minimal CodexBridge v1 Markdown Set
 
-For AutoAide v1, the best file set is:
+For CodexBridge v1, the best file set is:
 
 - `AGENTS.md`
 - `SOUL.md`
@@ -511,10 +511,10 @@ v1 needs a stable identity and operator model more than it needs a full memory e
 
 ## 12. Recommended Seed Strategy
 
-On first setup, AutoAide should seed starter templates into:
+On first setup, CodexBridge should seed starter templates into:
 
 ```text
-~/.autoaide/bots/default/workspace/
+~/.codexbridge/bots/default/workspace/
 ```
 
 Recommended starter files:
@@ -538,8 +538,8 @@ This should be part of product setup, not a manual docs-only step.
 
 The right way to think about this system is:
 
-- config files define how AutoAide runs
-- workspace Markdown defines how AutoAide understands the world
+- config files define how CodexBridge runs
+- workspace Markdown defines how CodexBridge understands the world
 
 Or even more simply:
 

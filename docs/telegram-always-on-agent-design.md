@@ -281,9 +281,9 @@ MVP 只需要一份很薄的状态数据，JSON 文件都可以，后续再切 S
       "is_main": true,
       "updated_at": "2026-03-26T20:00:00+08:00"
     },
-    "work:autoaide": {
+    "work:codexbridge": {
       "backend": "codex",
-      "cli_session_ref": "sess_codex_autoaide_456",
+      "cli_session_ref": "sess_codex_codexbridge_456",
       "is_main": false,
       "updated_at": "2026-03-26T20:10:00+08:00"
     }

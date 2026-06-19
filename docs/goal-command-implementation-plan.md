@@ -4,7 +4,7 @@
 
 ## Purpose
 
-This document turns the `/goal` long-task design into a practical implementation plan for the current `AutoAide` repo.
+This document turns the `/goal` long-task design into a practical implementation plan for the current `CodexBridge` repo.
 
 It answers:
 
@@ -40,13 +40,13 @@ This prevents scope drift.
 
 ## Deliverable
 
-Add persistent goal state under `~/.autoaide/goals/`.
+Add persistent goal state under `~/.codexbridge/goals/`.
 
 ### Recommended new paths
 
-- `~/.autoaide/goals/`
-- `~/.autoaide/goals/index.json`
-- `~/.autoaide/goals/<goal-id>.json`
+- `~/.codexbridge/goals/`
+- `~/.codexbridge/goals/index.json`
+- `~/.codexbridge/goals/<goal-id>.json`
 
 ### Why file-backed first
 
@@ -455,4 +455,4 @@ Implement `/goal` as:
 - file-backed state
 - explicit user controls
 
-That is the smallest real long-task system that fits `AutoAide` today.
+That is the smallest real long-task system that fits `CodexBridge` today.

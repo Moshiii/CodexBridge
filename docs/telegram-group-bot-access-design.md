@@ -2,7 +2,7 @@
 
 ## Goal
 
-Define the first safe version of AutoAide's Telegram group behavior.
+Define the first safe version of CodexBridge's Telegram group behavior.
 
 This version is intentionally narrow.
 
@@ -35,13 +35,13 @@ Keep it small.
 
 The user does not want strangers who join a group to immediately gain access to the bot.
 
-That means AutoAide should not treat group presence as open access.
+That means CodexBridge should not treat group presence as open access.
 
 The bot should feel private-by-default even inside a group.
 
 ## Trigger Rule
 
-For a group or supergroup message, AutoAide should only continue if all of the following are true:
+For a group or supergroup message, CodexBridge should only continue if all of the following are true:
 
 1. The chat is allowed.
 2. The sender is allowed.
@@ -86,8 +86,8 @@ The bot should only respond when the incoming message explicitly mentions the bo
 
 Examples:
 
-- `@AutoAideBot hi`
-- `@AutoAideBot summarize this`
+- `@CodexBridgeBot hi`
+- `@CodexBridgeBot summarize this`
 
 Mention detection should use Telegram message entities when available, not only plain string matching.
 
@@ -135,7 +135,7 @@ For now, do not implement it.
 - only process messages that mention the bot
 - ignore everything else
 
-This gives AutoAide a narrow and predictable group mode.
+This gives CodexBridge a narrow and predictable group mode.
 
 ## Execution Flow
 
@@ -148,7 +148,7 @@ For each incoming Telegram update:
    check group allow list
 4. Check sender allow list
 5. Check explicit bot mention
-6. Only then pass the message into the existing AutoAide handling flow
+6. Only then pass the message into the existing CodexBridge handling flow
 
 ## Silence Is Preferred
 

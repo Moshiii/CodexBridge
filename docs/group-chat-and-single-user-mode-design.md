@@ -1,13 +1,13 @@
-# AutoAide Group Chat And Single-User Mode Design
+# CodexBridge Group Chat And Single-User Mode Design
 
 ## Purpose
 
-This document proposes a new operating model for AutoAide:
+This document proposes a new operating model for CodexBridge:
 
 - single-user mode
 - group-chat management mode
 
-The goal is to make AutoAide behave like a serious chat-surface assistant system:
+The goal is to make CodexBridge behave like a serious chat-surface assistant system:
 
 - simple and opinionated for one-person use
 - safe and scalable for multi-user group-chat use
@@ -39,7 +39,7 @@ So the system needs an explicit mode model instead of one universal routing rule
 
 ## 2. Product Direction
 
-AutoAide should become:
+CodexBridge should become:
 
 - a multi-bot runtime
 - each bot bound to exactly one external channel
@@ -287,7 +287,7 @@ Source:
 
 - Midjourney direct messages: https://docs.midjourney.com/hc/en-us/articles/32637339216013-Discord-Direct-Messages
 
-This matters for AutoAide because it suggests a healthy split:
+This matters for CodexBridge because it suggests a healthy split:
 
 - public/shared surface for invocation
 - private surface for personal continuation when needed
@@ -300,7 +300,7 @@ Source:
 
 - Midjourney `/info`: https://docs.midjourney.com/hc/en-us/articles/32084927086861-Info-Command
 
-That is a strong design lesson for AutoAide:
+That is a strong design lesson for CodexBridge:
 
 - public channels should not be the default place for noisy personal state dumps
 - personal operational metadata should be private or at least scoped to the invoker
@@ -322,28 +322,28 @@ Source:
 
 The design implication is:
 
-- context awareness should be first-class in AutoAide, not an afterthought
+- context awareness should be first-class in CodexBridge, not an afterthought
 
-## 10. Product Implications For AutoAide
+## 10. Product Implications For CodexBridge
 
-AutoAide should borrow the following from Midjourney’s design philosophy:
+CodexBridge should borrow the following from Midjourney’s design philosophy:
 
 1. Strong mode boundaries
 2. Context-aware command availability
 3. Personal status views instead of noisy shared control chatter
 4. Public invocation plus private continuation as an optional pattern
 
-But AutoAide should not copy Midjourney literally, because the products differ:
+But CodexBridge should not copy Midjourney literally, because the products differ:
 
 - Midjourney is mostly job submission and asset generation
-- AutoAide is conversational, stateful, and agentic
+- CodexBridge is conversational, stateful, and agentic
 
 So the right adaptation is:
 
 - keep conversational freedom
 - adopt explicit command and context governance
 
-## 11. Recommended AutoAide Product Shape
+## 11. Recommended CodexBridge Product Shape
 
 ### 11.1 Bot contract
 
@@ -548,7 +548,7 @@ It is:
 - separate single-user and group mode at the product model level
 - make user identity the session owner in shared environments
 
-That gives AutoAide a much more defensible architecture:
+That gives CodexBridge a much more defensible architecture:
 
 - simpler for one-person use
 - safer for teams

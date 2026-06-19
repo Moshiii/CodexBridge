@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document captures the current implementation state of the Feishu channel in `AutoAide`.
+This document captures the current implementation state of the Feishu channel in `CodexBridge`.
 
 It is intentionally scoped to:
 
@@ -38,7 +38,7 @@ It does not yet support:
 
 ### Channel registration
 
-- [src/channel-adapters.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/channel-adapters.mjs)
+- [src/channel-adapters.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/src/channel-adapters.mjs)
 
 This file now registers `feishu` as a first-class channel adapter and defines:
 
@@ -50,7 +50,7 @@ This file now registers `feishu` as a first-class channel adapter and defines:
 
 ### Config and paths
 
-- [src/config.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/config.mjs)
+- [src/config.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/src/config.mjs)
 
 Feishu-specific additions include:
 
@@ -79,8 +79,8 @@ Current Feishu config shape:
 
 ### Bot runtime integration
 
-- [src/bots.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/bots.mjs)
-- [bin/autoaide.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/bin/autoaide.mjs)
+- [src/bots.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/src/bots.mjs)
+- [bin/codexbridge.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/bin/codexbridge.mjs)
 
 Bot lifecycle is now channel-aware rather than Telegram-only.
 
@@ -93,7 +93,7 @@ The runtime now:
 
 ### CLI onboarding
 
-- [src/cli.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/cli.mjs)
+- [src/cli.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/src/cli.mjs)
 
 The CLI now supports:
 
@@ -107,15 +107,16 @@ The CLI now supports:
 Feishu onboarding flow currently asks the user to:
 
 1. Create a self-built app in Feishu Open Platform.
-2. Enable bot / IM permissions.
-3. Subscribe to `im.message.receive_v1`.
-4. Install the app into the target tenant.
-5. Paste `appId` and `appSecret` into the CLI.
-6. Send a plain text message to the app in Feishu.
+2. Enable bot capability in App Features so the app can be chatted with.
+3. Enable IM message permissions needed for receiving and sending messages.
+4. Subscribe to `im.message.receive_v1`.
+5. Install or publish the app into the target tenant.
+6. Paste `appId` and `appSecret` into the CLI.
+7. Send a plain text message to the app in Feishu.
 
 ### Feishu bridge
 
-- [plugins/feishu-codex/feishu-codex-bridge.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/plugins/feishu-codex/feishu-codex-bridge.mjs)
+- [plugins/feishu-codex/feishu-codex-bridge.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/plugins/feishu-codex/feishu-codex-bridge.mjs)
 
 The bridge uses the official Feishu Node SDK:
 
@@ -147,7 +148,7 @@ Current message behavior:
 Current Feishu router state is stored at:
 
 ```text
-~/.autoaide/bots/<id>/feishu/router.json
+~/.codexbridge/bots/<id>/feishu/router.json
 ```
 
 It currently tracks:
@@ -164,7 +165,7 @@ The current implementation depends on:
 
 This was added to:
 
-- [package.json](/Users/moshiwei/Documents/GitHub/AutoAide/package.json)
+- [package.json](/Users/moshiwei/Documents/GitHub/CodexBridge/package.json)
 
 ## Current Runtime Model
 

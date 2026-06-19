@@ -6,11 +6,11 @@ It is not a skills registry.
 
 ## Local Paths
 
-- AutoAide home: `~/.autoaide`
-- Default bot home: `~/.autoaide/bots/default`
-- Workspace: `~/.autoaide/bots/default/workspace`
-- Telegram state: `~/.autoaide/bots/default/telegram`
-- Logs: `~/.autoaide/bots/default/logs`
+- CodexBridge home: `~/.codexbridge`
+- Default bot home: `~/.codexbridge/bots/default`
+- Workspace: `~/.codexbridge/bots/default/workspace`
+- Telegram state: `~/.codexbridge/bots/default/telegram`
+- Logs: `~/.codexbridge/bots/default/logs`
 
 ## Runtime Notes
 
@@ -24,7 +24,7 @@ Write machine-specific notes here, for example:
 
 ## Current Defaults
 
-- AutoAide runs from the CLI entrypoint: `autoaide`
+- CodexBridge runs from the CLI entrypoint: `codexbridge`
 - Codex is the current execution engine
 - Telegram is the first supported external channel
 

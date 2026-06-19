@@ -621,7 +621,7 @@ function renderHtmlPage() {
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>AutoAide Control Plane</title>
+    <title>CodexBridge Control Plane</title>
     <style>
       :root {
         --bg-0: #09100e;
@@ -1118,7 +1118,7 @@ function renderHtmlPage() {
       <section class="panel topbar">
         <div class="headline">
           <div class="eyebrow">Autonomous Operations Console</div>
-          <h1>AutoAide Web Console</h1>
+          <h1>CodexBridge Web Console</h1>
           <p class="subtle">Hard-sci-fi local control room for bots, sessions, goals, schedules, workspace files, and live Telegram runtime state.</p>
         </div>
         <div class="status-strip">

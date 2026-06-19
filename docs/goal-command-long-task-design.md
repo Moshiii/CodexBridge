@@ -4,7 +4,7 @@
 
 ## Purpose
 
-This document proposes how `AutoAide` should evolve from:
+This document proposes how `CodexBridge` should evolve from:
 
 - long-lived shell
 - thin session routing
@@ -16,11 +16,11 @@ into:
 - worker / evaluator separation
 - Telegram-friendly progress and control
 
-The proposal is designed to fit the current `AutoAide` architecture instead of replacing it.
+The proposal is designed to fit the current `CodexBridge` architecture instead of replacing it.
 
 ## Current State
 
-Today, `AutoAide` already has:
+Today, `CodexBridge` already has:
 
 - a single daemon
 - a Telegram bridge
@@ -49,7 +49,7 @@ but not yet:
 
 The product goal of `/goal` should be:
 
-> let the user define a durable objective that AutoAide works on over multiple turns, with visible worker progress and explicit evaluator judgment
+> let the user define a durable objective that CodexBridge works on over multiple turns, with visible worker progress and explicit evaluator judgment
 
 This is not the same as:
 
@@ -168,9 +168,9 @@ Examples:
 
 When `/goal` is created:
 
-1. AutoAide creates a goal record
+1. CodexBridge creates a goal record
 2. the goal is attached to the current session or a dedicated goal session
-3. AutoAide starts a worker iteration
+3. CodexBridge starts a worker iteration
 4. evaluator reviews output
 5. goal either:
    - continues
@@ -192,11 +192,11 @@ Do **not** overload `/goal` with too many subcommands in the first version.
 
 ## State Model
 
-The new thing AutoAide needs is a proper goal state file.
+The new thing CodexBridge needs is a proper goal state file.
 
 Recommended storage:
 
-- JSON files under `~/.autoaide/goals/`
+- JSON files under `~/.codexbridge/goals/`
 
 Later this can move to SQLite if needed.
 
@@ -394,8 +394,8 @@ If the user sends:
 
 the expected flow should be:
 
-1. AutoAide creates a goal record
-2. AutoAide replies with a short confirmation such as:
+1. CodexBridge creates a goal record
+2. CodexBridge replies with a short confirmation such as:
 
 ```text
 Goal created: goal_20260401_001
@@ -445,7 +445,7 @@ This example also shows an important design rule:
 
 `/goal` is only as good as the capabilities beneath it.
 
-If AutoAide does not have:
+If CodexBridge does not have:
 
 - reliable web access
 - clear source handling
@@ -463,7 +463,7 @@ That is much better than letting the goal system sound autonomous while returnin
 
 ## Better Early `/goal` Use Cases
 
-For the first real version, `/goal` will work best on tasks that match AutoAide's current strengths:
+For the first real version, `/goal` will work best on tasks that match CodexBridge's current strengths:
 
 - turn uploaded notes into a clean brief
 - review a repo and produce a checklist
@@ -496,7 +496,7 @@ The user should never feel the system is wandering invisibly.
 
 ## Where This Fits the Existing Design
 
-This proposal is compatible with the current `AutoAide` principles because:
+This proposal is compatible with the current `CodexBridge` principles because:
 
 - daemon remains thin
 - session mapping remains thin
@@ -572,7 +572,7 @@ The right implementation is:
 
 - a thin goal layer on top of the existing daemon + session resume architecture
 
-That keeps the design coherent with what `AutoAide` already is.
+That keeps the design coherent with what `CodexBridge` already is.
 
 ## Recommended Next Step
 

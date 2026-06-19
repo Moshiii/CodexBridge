@@ -1,10 +1,10 @@
-# AutoAide Roadmap
+# CodexBridge Roadmap
 
 Date: 2026-04-04
 
 ## Purpose
 
-This document gives a practical roadmap for AutoAide from the current repo state.
+This document gives a practical roadmap for CodexBridge from the current repo state.
 
 It is not a pure vision document.
 It is not a rewrite proposal.
@@ -18,7 +18,7 @@ It is meant to answer:
 
 ## Current State
 
-AutoAide already has a real product core:
+CodexBridge already has a real product core:
 
 - bot-scoped runtime model
 - local interactive CLI
@@ -132,7 +132,7 @@ Make the current system harder to break in daily use.
 
 ### Why this matters
 
-Before expanding features, AutoAide should become operationally trustworthy.
+Before expanding features, CodexBridge should become operationally trustworthy.
 
 ### Work items
 
@@ -161,7 +161,7 @@ Create one shared model for what execution shows to the user.
 
 ### Why this matters
 
-This is the product layer that makes AutoAide feel coherent across:
+This is the product layer that makes CodexBridge feel coherent across:
 
 - CLI
 - Telegram
@@ -186,8 +186,8 @@ This is the product layer that makes AutoAide feel coherent across:
 
 ### Important source plans
 
-- [docs/goal-handoff-and-execution-visibility-plan.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/goal-handoff-and-execution-visibility-plan.md)
-- [docs/execution-visibility-and-history-design.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/execution-visibility-and-history-design.md)
+- [docs/goal-handoff-and-execution-visibility-plan.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/goal-handoff-and-execution-visibility-plan.md)
+- [docs/execution-visibility-and-history-design.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/execution-visibility-and-history-design.md)
 
 ### Exit criteria
 
@@ -205,7 +205,7 @@ Reduce Telegram operational fragility.
 
 ### Why this matters
 
-Telegram is AutoAide's most valuable remote surface.
+Telegram is CodexBridge's most valuable remote surface.
 If it is unreliable, the product feels unreliable even if the core architecture is solid.
 
 ### Work items
@@ -220,9 +220,9 @@ If it is unreliable, the product feels unreliable even if the core architecture 
 
 ### Important source plans
 
-- [docs/telegram-group-bot-access-design.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/telegram-group-bot-access-design.md)
-- [docs/telegram-always-on-agent-design.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/telegram-always-on-agent-design.md)
-- [docs/telegram-codex-bridge.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/telegram-codex-bridge.md)
+- [docs/telegram-group-bot-access-design.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/telegram-group-bot-access-design.md)
+- [docs/telegram-always-on-agent-design.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/telegram-always-on-agent-design.md)
+- [docs/telegram-codex-bridge.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/telegram-codex-bridge.md)
 
 ### Exit criteria
 
@@ -256,9 +256,9 @@ The next step is product quality and workflow quality.
 
 ### Important source plans
 
-- [docs/web-console-layout-redesign.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/web-console-layout-redesign.md)
-- [docs/web-console-visual-style.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/web-console-visual-style.md)
-- [docs/web-console-phased-plan.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/web-console-phased-plan.md)
+- [docs/web-console-layout-redesign.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/web-console-layout-redesign.md)
+- [docs/web-console-visual-style.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/web-console-visual-style.md)
+- [docs/web-console-phased-plan.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/web-console-phased-plan.md)
 
 ### Exit criteria
 
@@ -289,9 +289,9 @@ This is one of the strongest differentiated directions in the repo.
 
 ### Important source plans
 
-- [docs/goal-command-implementation-plan.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/goal-command-implementation-plan.md)
-- [docs/goal-command-long-task-design.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/goal-command-long-task-design.md)
-- [docs/long-task-design.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/long-task-design.md)
+- [docs/goal-command-implementation-plan.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/goal-command-implementation-plan.md)
+- [docs/goal-command-long-task-design.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/goal-command-long-task-design.md)
+- [docs/long-task-design.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/long-task-design.md)
 
 ### Exit criteria
 
@@ -321,7 +321,7 @@ Fewer systems make persistent context and capability composition feel native.
 
 ### Important source plans
 
-- [docs/workspace-markdown-system.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/workspace-markdown-system.md)
+- [docs/workspace-markdown-system.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/workspace-markdown-system.md)
 
 ### Exit criteria
 
@@ -376,7 +376,7 @@ If focus is limited, the most valuable directions are:
 3. web console refinement
 4. goal maturity and reinjection
 
-These four together would make AutoAide feel like a real product rather than a strong technical prototype.
+These four together would make CodexBridge feel like a real product rather than a strong technical prototype.
 
 ## What Is Less Urgent
 
@@ -398,7 +398,7 @@ For the next work cycle, the highest-signal sequence is:
 
 ## Success Definition
 
-AutoAide will feel meaningfully complete when:
+CodexBridge will feel meaningfully complete when:
 
 - a user can operate bots from web without confusion
 - Telegram feels reliable enough for daily remote use

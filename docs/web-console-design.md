@@ -1,8 +1,8 @@
-# AutoAide Web Console Design
+# CodexBridge Web Console Design
 
 ## Purpose
 
-This document defines the target web console for AutoAide.
+This document defines the target web console for CodexBridge.
 
 The goal is to move the current thin control plane from:
 
@@ -10,7 +10,7 @@ The goal is to move the current thin control plane from:
 - basic start/stop/restart
 - raw config editing
 
-to a full product console that can cover nearly every capability that AutoAide already exposes through:
+to a full product console that can cover nearly every capability that CodexBridge already exposes through:
 
 - terminal commands
 - in-shell slash commands
@@ -95,7 +95,7 @@ It should reflect:
 
 ## Scope
 
-This design assumes the current AutoAide architecture:
+This design assumes the current CodexBridge architecture:
 
 - bot-scoped runtime
 - current bot selection
@@ -128,7 +128,7 @@ The console should have these top-level areas:
 
 ```text
 +----------------------------------------------------------------------------------+
-| AutoAide Web Console                                                             |
+| CodexBridge Web Console                                                             |
 | current bot: Astock | runtime: online | telegram: paired | sessions: 3 | errors |
 +----------------------------------------------------------------------------------+
 | Fleet rail            | Main workspace                                             |
@@ -474,25 +474,25 @@ Common editable fields:
 
 ## Feature Coverage Matrix
 
-The web console should eventually cover all current AutoAide actions.
+The web console should eventually cover all current CodexBridge actions.
 
 ### Terminal command coverage
 
 Should cover:
 
-- `autoaide bots`
-- `autoaide bot current`
-- `autoaide bot create`
-- `autoaide bot use`
-- `autoaide bot show`
-- `autoaide bot config`
-- `autoaide bot start`
-- `autoaide bot stop`
-- `autoaide bot restart`
-- `autoaide bot enable`
-- `autoaide bot disable`
-- `autoaide bot logs`
-- `autoaide web`
+- `codexbridge bots`
+- `codexbridge bot current`
+- `codexbridge bot create`
+- `codexbridge bot use`
+- `codexbridge bot show`
+- `codexbridge bot config`
+- `codexbridge bot start`
+- `codexbridge bot stop`
+- `codexbridge bot restart`
+- `codexbridge bot enable`
+- `codexbridge bot disable`
+- `codexbridge bot logs`
+- `codexbridge web`
 - rollout commands
 
 ### In-shell command coverage
@@ -594,9 +594,9 @@ It will need expansion.
 
 The web console should treat these as canonical:
 
-- `~/.autoaide/control/registry.json`
+- `~/.codexbridge/control/registry.json`
 - current active bot state
-- `~/.autoaide/bots/<id>/config.json`
+- `~/.codexbridge/bots/<id>/config.json`
 - `cli-sessions.json`
 - `bootstrap-state.json`
 - `schedules.json`
@@ -662,7 +662,7 @@ Include:
 
 Goal:
 
-- web covers the rest of AutoAide product operations
+- web covers the rest of CodexBridge product operations
 
 Include:
 

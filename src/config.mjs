@@ -14,20 +14,20 @@ function trimEnv(name) {
   return process.env[name]?.trim() || "";
 }
 
-export function getAutoAideHome() {
-  return trimEnv("AUTOAIDE_HOME") || path.join(os.homedir(), ".autoaide");
+export function getCodexBridgeHome() {
+  return trimEnv("CODEXBRIDGE_HOME") || path.join(os.homedir(), ".codexbridge");
 }
 
 export function getControlHome() {
-  return path.join(getAutoAideHome(), "control");
+  return path.join(getCodexBridgeHome(), "control");
 }
 
 export function getBotsRoot() {
-  return path.join(getAutoAideHome(), "bots");
+  return path.join(getCodexBridgeHome(), "bots");
 }
 
 export function getSharedLogsPath() {
-  return path.join(getAutoAideHome(), "logs");
+  return path.join(getCodexBridgeHome(), "logs");
 }
 
 export function resolveBotHome(botId = null) {
@@ -35,7 +35,7 @@ export function resolveBotHome(botId = null) {
   if (explicitHome) {
     return explicitHome;
   }
-  const resolvedBotId = botId || trimEnv("AUTOAIDE_BOT_ID") || DEFAULT_BOT_ID;
+  const resolvedBotId = botId || trimEnv("CODEXBRIDGE_BOT_ID") || DEFAULT_BOT_ID;
   return path.join(getBotsRoot(), resolvedBotId);
 }
 
@@ -148,7 +148,7 @@ export function getFeishuBridgeLogPath(botHome = resolveBotHome()) {
   return getChannelBridgeLogPath("feishu", botHome);
 }
 
-export const AUTOAIDE_HOME = getAutoAideHome();
+export const CODEXBRIDGE_HOME = getCodexBridgeHome();
 export const CONFIG_PATH = getBotConfigPath();
 export const CLI_STATE_PATH = getCliStatePath();
 export const BOOTSTRAP_STATE_PATH = getBootstrapStatePath();
@@ -383,7 +383,7 @@ export async function ensureBotHome(botHome = resolveBotHome()) {
   await mkdir(getMemoryPath(botHome), { recursive: true });
 }
 
-export async function ensureAutoAideHome() {
+export async function ensureCodexBridgeHome() {
   await ensureControlPlaneHome();
   await ensureBotHome();
 }

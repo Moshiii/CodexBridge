@@ -1,10 +1,10 @@
-# AutoAide Test Plan
+# CodexBridge Test Plan
 
 > Historical draft. Parts of this plan assume the removed single-daemon architecture. Treat it as archive material, not the current test contract.
 
 ## 1. Purpose
 
-This document defines a practical test strategy for the current AutoAide project.
+This document defines a practical test strategy for the current CodexBridge project.
 
 The goal is not to claim infinite coverage.
 The goal is to cover all currently implemented product surfaces with a clear mix of:
@@ -114,8 +114,8 @@ These should be short and intentional, not exhaustive.
 
 ### Local Automated Test Environment
 
-- isolated temp `AUTOAIDE_HOME`
-- no dependency on real `~/.autoaide`
+- isolated temp `CODEXBRIDGE_HOME`
+- no dependency on real `~/.codexbridge`
 - no dependency on real Telegram
 - no dependency on real Codex unless explicitly running smoke tests
 
@@ -137,7 +137,7 @@ These should be short and intentional, not exhaustive.
 
 ### Automated Cases
 
-1. `ensureAutoAideHome()` creates:
+1. `ensureCodexBridgeHome()` creates:
    - `workspace/`
    - `logs/`
    - `telegram/`
@@ -149,8 +149,8 @@ These should be short and intentional, not exhaustive.
 ### Manual Smoke
 
 1. Delete a temp runtime home.
-2. Run `autoaide`.
-3. Confirm `~/.autoaide` structure exists and CLI still boots.
+2. Run `codexbridge`.
+3. Confirm `~/.codexbridge` structure exists and CLI still boots.
 
 ## 6.2 Workspace Bootstrap
 
@@ -220,7 +220,7 @@ These should be short and intentional, not exhaustive.
 
 ### Manual Smoke
 
-1. Launch `autoaide`.
+1. Launch `codexbridge`.
 2. Ask a question that triggers shell commands.
 3. Confirm `[status] ...` lines appear before the final answer.
 
@@ -382,7 +382,7 @@ These should be short and intentional, not exhaustive.
 
 1. `npm install`
 2. `npm link`
-3. `autoaide`
+3. `codexbridge`
 4. verify README quickstart still works as written
 5. verify Telegram README command examples still match behavior
 
@@ -415,7 +415,7 @@ test/
 Each test should create a unique temp directory and set:
 
 ```text
-AUTOAIDE_HOME=<temp-dir>
+CODEXBRIDGE_HOME=<temp-dir>
 ```
 
 This avoids cross-test pollution and avoids touching the real user runtime.
@@ -456,7 +456,7 @@ Before any release or demo build, require:
 2. Integration suite passes.
 3. Manual CLI smoke passes.
 4. Manual Telegram smoke passes if Telegram is enabled in the release.
-5. `npm link` and `autoaide` launch are verified from a clean shell.
+5. `npm link` and `codexbridge` launch are verified from a clean shell.
 
 ## 10. High-Risk Areas
 

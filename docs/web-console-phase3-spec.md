@@ -1,4 +1,4 @@
-# AutoAide Web Console Phase 3 Spec
+# CodexBridge Web Console Phase 3 Spec
 
 ## Purpose
 

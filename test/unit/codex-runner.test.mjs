@@ -5,7 +5,7 @@ import { importFresh, withTempHome } from "../helpers/module.js";
 
 test("getShellSpec defaults to non-login shell on unix", async () => {
   await withTempHome(async () => {
-    delete process.env.AUTOAIDE_LOGIN_SHELL;
+    delete process.env.CODEXBRIDGE_LOGIN_SHELL;
     const { getShellSpec } = await importFresh("../../src/codex-runner.mjs");
 
     if (process.platform === "win32") {
@@ -19,7 +19,7 @@ test("getShellSpec defaults to non-login shell on unix", async () => {
 
 test("getShellSpec supports explicit login-shell opt-in", async () => {
   await withTempHome(async () => {
-    process.env.AUTOAIDE_LOGIN_SHELL = "true";
+    process.env.CODEXBRIDGE_LOGIN_SHELL = "true";
     const { getShellSpec } = await importFresh("../../src/codex-runner.mjs");
 
     if (process.platform === "win32") {
@@ -28,7 +28,7 @@ test("getShellSpec supports explicit login-shell opt-in", async () => {
     }
 
     assert.deepEqual(getShellSpec().args, ["-lc"]);
-    delete process.env.AUTOAIDE_LOGIN_SHELL;
+    delete process.env.CODEXBRIDGE_LOGIN_SHELL;
   });
 });
 

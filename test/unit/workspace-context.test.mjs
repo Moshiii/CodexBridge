@@ -29,7 +29,7 @@ test("buildWorkspacePrompt injects default workspace files in stable order", asy
     const { buildWorkspacePrompt } = await importFresh("../../src/workspace-context.mjs");
     const prompt = await buildWorkspacePrompt("do work");
 
-    assert.match(prompt, /\[AutoAide Workspace Context\]/);
+    assert.match(prompt, /\[CodexBridge Workspace Context\]/);
     assert.match(prompt, /\[SOUL\.md\]\nSoul/);
     assert.match(prompt, /\[IDENTITY\.md\]\nIdentity/);
     assert.match(prompt, /\[USER\.md\]\nUser/);

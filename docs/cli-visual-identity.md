@@ -1,8 +1,8 @@
-# AutoAide CLI 视觉识别与启动动效设计
+# CodexBridge CLI 视觉识别与启动动效设计
 
 ## 1. 目标
 
-这份文档只定义 AutoAide CLI 启动区的视觉方案，不涉及具体代码实现。
+这份文档只定义 CodexBridge CLI 启动区的视觉方案，不涉及具体代码实现。
 
 本次设计目标有两个：
 
@@ -67,11 +67,11 @@
               ######      ######
 
 ╭───────────────────────────────────────────╮
-│ AutoAide                                  │
+│ CodexBridge                                  │
 │ personal AI shell                         │
 │                                           │
 │ model:     gpt-5.4                        │
-│ workspace: ~/.autoaide/bots/default/workspace │
+│ workspace: ~/.codexbridge/bots/default/workspace │
 ╰───────────────────────────────────────────╯
 
 booting local operator layer
@@ -91,7 +91,7 @@ booting local operator layer
 - 中间留出狭窄负空间，形成隐性的 `A` 结构
 - 整体对称，适合在终端中稳定显示
 
-不采用纯文字 `AUTOAIDE` 大字标的原因：
+不采用纯文字 `CODEXBRIDGE` 大字标的原因：
 
 - 英文字母在 ASCII 中要做得厚重，宽度会很大
 - 启动区需要和状态卡共存，不能横向占太多空间
@@ -165,7 +165,7 @@ logo 下方配一张简洁信息卡，用来承接产品信息。
 
 建议内容：
 
-- 产品名：`AutoAide`
+- 产品名：`CodexBridge`
 - 副标题：`personal AI shell`
 - model
 - workspace
@@ -353,7 +353,7 @@ logo 区坚持 ASCII。
 
 - 有启动阶段感
 - 不装饰过度
-- 和 AutoAide 的产品定位一致
+- 和 CodexBridge 的产品定位一致
 
 ## 10. 不做的事情
 
@@ -366,7 +366,7 @@ logo 区坚持 ASCII。
 - 无限循环动画
 - 输入期间继续动画
 
-这些效果虽然“更炫”，但对当前 AutoAide 这种轻 CLI 来说收益不高，而且风险明显更大。
+这些效果虽然“更炫”，但对当前 CodexBridge 这种轻 CLI 来说收益不高，而且风险明显更大。
 
 ## 11. 最终建议
 

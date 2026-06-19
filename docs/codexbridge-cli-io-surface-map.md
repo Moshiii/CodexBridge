@@ -1,8 +1,8 @@
-# AutoAide CLI I/O Surface Map
+# CodexBridge CLI I/O Surface Map
 
 ## 一、文档目的
 
-这份文档用于穷举 AutoAide 当前 CLI 与 in-shell 的输入输出面。
+这份文档用于穷举 CodexBridge 当前 CLI 与 in-shell 的输入输出面。
 
 它回答的问题是：
 
@@ -21,26 +21,26 @@
 
 ## 二、总览
 
-当前 AutoAide 的用户输入面一共分为两层：
+当前 CodexBridge 的用户输入面一共分为两层：
 
 1. 系统 shell 层
-   - 例如 `autoaide bot show default`
+   - 例如 `codexbridge bot show default`
 
-2. AutoAide 交互 shell 层
-   - 例如在 `autoaide:default>` 里输入 `/status` 或普通文本
+2. CodexBridge 交互 shell 层
+   - 例如在 `codexbridge:default>` 里输入 `/status` 或普通文本
 
 ## 三、系统 shell 层输入
 
 入口文件：
 
-- [autoaide.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/bin/autoaide.mjs)
+- [codexbridge.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/bin/codexbridge.mjs)
 
-### 3.1 `autoaide`
+### 3.1 `codexbridge`
 
 输入：
 
 ```bash
-autoaide
+codexbridge
 ```
 
 行为：
@@ -55,15 +55,15 @@ autoaide
 - bootstrap 提示
 - 交互式 prompt
 
-### 3.2 `autoaide web ...`
+### 3.2 `codexbridge web ...`
 
 支持输入：
 
-- `autoaide web`
-- `autoaide web run`
-- `autoaide web status`
-- `autoaide web stop`
-- `autoaide web restart`
+- `codexbridge web`
+- `codexbridge web run`
+- `codexbridge web status`
+- `codexbridge web stop`
+- `codexbridge web restart`
 
 可选参数：
 
@@ -72,17 +72,17 @@ autoaide
 
 输出可能包括：
 
-- `AutoAide control plane web running at ...`
+- `CodexBridge control plane web running at ...`
 - web runtime 状态 JSON
 - stop/restart 结果
 
-### 3.3 `autoaide skills ...`
+### 3.3 `codexbridge skills ...`
 
 支持输入：
 
-- `autoaide skills`
-- `autoaide skills list`
-- `autoaide skills install <zip-or-path>`
+- `codexbridge skills`
+- `codexbridge skills list`
+- `codexbridge skills install <zip-or-path>`
 
 输出可能包括：
 
@@ -90,35 +90,35 @@ autoaide
 - 安装结果
 - usage 错误
 
-### 3.4 `autoaide bots`
+### 3.4 `codexbridge bots`
 
 支持输入：
 
-- `autoaide bots`
+- `codexbridge bots`
 
 输出：
 
 - 所有 bot 的 JSON 列表
 
-### 3.5 `autoaide bot ...`
+### 3.5 `codexbridge bot ...`
 
 支持输入：
 
-- `autoaide bot create <id> [--name <name>] [--enabled true|false]`
-- `autoaide bot show <id>`
-- `autoaide bot use <id>`
-- `autoaide bot current`
-- `autoaide bot run <id>`
-- `autoaide bot start <id>`
-- `autoaide bot stop <id>`
-- `autoaide bot restart <id>`
-- `autoaide bot enable <id>`
-- `autoaide bot disable <id>`
-- `autoaide bot delete <id>`
-- `autoaide bot logs <id>`
-- `autoaide bot config <id>`
-- `autoaide bot set-config <id> --json '<json>'`
-- `autoaide bot health <id>`
+- `codexbridge bot create <id> [--name <name>] [--enabled true|false]`
+- `codexbridge bot show <id>`
+- `codexbridge bot use <id>`
+- `codexbridge bot current`
+- `codexbridge bot run <id>`
+- `codexbridge bot start <id>`
+- `codexbridge bot stop <id>`
+- `codexbridge bot restart <id>`
+- `codexbridge bot enable <id>`
+- `codexbridge bot disable <id>`
+- `codexbridge bot delete <id>`
+- `codexbridge bot logs <id>`
+- `codexbridge bot config <id>`
+- `codexbridge bot set-config <id> --json '<json>'`
+- `codexbridge bot health <id>`
 
 输出可能包括：
 
@@ -128,13 +128,13 @@ autoaide
 - pid / stopped 状态 JSON
 - usage 错误
 
-### 3.6 `autoaide rollout ...`
+### 3.6 `codexbridge rollout ...`
 
 支持输入：
 
-- `autoaide rollout restart-all`
-- `autoaide rollout canary --bots <id1,id2> --version <version>`
-- `autoaide rollout rollback <id> --to <version>`
+- `codexbridge rollout restart-all`
+- `codexbridge rollout canary --bots <id1,id2> --version <version>`
+- `codexbridge rollout rollback <id> --to <version>`
 
 输出可能包括：
 
@@ -145,12 +145,12 @@ autoaide
 
 交互 shell 入口：
 
-- [cli.mjs](/Users/moshiwei/Documents/GitHub/AutoAide/src/cli.mjs)
+- [cli.mjs](/Users/moshiwei/Documents/GitHub/CodexBridge/src/cli.mjs)
 
 prompt 形式：
 
 ```text
-autoaide:<botId>>
+codexbridge:<botId>>
 ```
 
 进入交互 shell 后，所有输入只分成四类：
@@ -331,7 +331,7 @@ autoaide:<botId>>
 
 两块状态卡：
 
-1. `AutoAide Status`
+1. `CodexBridge Status`
 2. `Run State`
 
 当前可能显示的字段包括：
@@ -569,7 +569,7 @@ summarize this repo
 
 例如：
 
-- `AutoAide Status`
+- `CodexBridge Status`
 - `Run State`
 - `Bot`
 - `Telegram Paired`
@@ -607,10 +607,10 @@ summarize this repo
 
 仅出现在系统 shell 层命令中，例如：
 
-- `autoaide bot show ...`
-- `autoaide bots`
-- `autoaide bot health ...`
-- `autoaide web status`
+- `codexbridge bot show ...`
+- `codexbridge bots`
+- `codexbridge bot health ...`
+- `codexbridge web status`
 
 ## 十一、当前 CLI 的“隐藏状态依赖”
 
@@ -656,7 +656,7 @@ summarize this repo
 
 ## 十三、总结
 
-当前 AutoAide CLI / in-shell 的所有用户输入，本质上可以完整归纳为：
+当前 CodexBridge CLI / in-shell 的所有用户输入，本质上可以完整归纳为：
 
 1. 系统 shell 外部命令
 2. 交互 shell slash commands
@@ -673,5 +673,5 @@ summarize this repo
 5. 普通文本回答
 6. JSON
 
-这就是当前 AutoAide CLI I/O Surface 的完整轮廓。
+这就是当前 CodexBridge CLI I/O Surface 的完整轮廓。
 

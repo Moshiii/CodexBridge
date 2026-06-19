@@ -1,9 +1,9 @@
-# AutoAide Workspace Templates
+# CodexBridge Workspace Templates
 
 These are starter templates for the runtime workspace:
 
 ```text
-~/.autoaide/bots/default/workspace/
+~/.codexbridge/bots/default/workspace/
 ```
 
 Recommended v1 seed set:
@@ -21,4 +21,4 @@ Optional later:
 - `MEMORY.md`
 - `memory/YYYY-MM-DD.md`
 
-These files are inspired by OpenClaw's workspace Markdown system, but tuned for AutoAide's lighter CLI-first product model.
+These files are inspired by OpenClaw's workspace Markdown system, but tuned for CodexBridge's lighter CLI-first product model.

@@ -458,7 +458,7 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
       client,
       chatId,
       [
-        "AutoAide is ready.",
+        "CodexBridge is ready.",
         "Send a normal message to chat.",
         "Supported commands:",
         "/help",
@@ -504,7 +504,7 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
         "/credits",
         "/stop",
         "",
-        "Send a normal message to chat with AutoAide.",
+        "Send a normal message to chat with CodexBridge.",
         "Management actions belong in the local CLI or web control plane.",
       ].join("\n"),
       options,

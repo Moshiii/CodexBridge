@@ -1,8 +1,8 @@
-# AutoAide Capability Overview
+# CodexBridge Capability Overview
 
 ## Purpose
 
-This document is a current-state panorama of AutoAide.
+This document is a current-state panorama of CodexBridge.
 
 It summarizes:
 
@@ -16,11 +16,11 @@ It summarizes:
 
 It is intended to answer one question clearly:
 
-What can AutoAide do today, and through which surface?
+What ca CodexBridge do today, and through which surface?
 
 ## 1. Product Model
 
-AutoAide is a persistent local assistant runtime built around bot-scoped state under `~/.autoaide`.
+CodexBridge is a persistent local assistant runtime built around bot-scoped state under `~/.codexbridge`.
 
 At a high level, it provides:
 
@@ -42,7 +42,7 @@ Current architecture is organized around:
 
 ## 2. Runtime Layout
 
-Per bot, AutoAide maintains:
+Per bot, CodexBridge maintains:
 
 - `config.json`
 - `cli-sessions.json`
@@ -56,12 +56,12 @@ Per bot, AutoAide maintains:
 
 Shared control-plane state lives under:
 
-- `~/.autoaide/control/registry.json`
-- `~/.autoaide/control/active-bot.json`
+- `~/.codexbridge/control/registry.json`
+- `~/.codexbridge/control/active-bot.json`
 
 ## 3. Core Surfaces
 
-AutoAide currently has four main operating surfaces:
+CodexBridge currently has four main operating surfaces:
 
 1. Local interactive CLI
 2. Bot-scoped background runtime
@@ -72,7 +72,7 @@ AutoAide currently has four main operating surfaces:
 
 ## 4. Local CLI
 
-The local `autoaide` CLI is the primary operator surface.
+The local `codexbridge` CLI is the primary operator surface.
 
 ### 4.1 Plain-text Codex chat
 
@@ -123,6 +123,7 @@ Telegram onboarding:
 Feishu onboarding:
 
 - walks user through self-built app checklist
+- explains that Feishu-side bot capability, IM permissions, and `im.message.receive_v1` event subscription must be configured first
 - asks for `appId` and `appSecret`
 - switches active bot channel to `feishu`
 - restarts runtime so Feishu bridge takes over
@@ -136,7 +137,7 @@ The CLI can:
 
 ## 5. Bot Management
 
-AutoAide supports multiple persistent bots.
+CodexBridge supports multiple persistent bots.
 
 Current bot-management capabilities include:
 
@@ -151,17 +152,17 @@ Current bot-management capabilities include:
 
 Available operator commands outside the interactive shell include:
 
-- `autoaide bots`
-- `autoaide bot current`
-- `autoaide bot create <id> --name ...`
-- `autoaide bot use <id>`
-- `autoaide bot show <id>`
-- `autoaide bot config <id>`
-- `autoaide bot start <id>`
-- `autoaide bot stop <id>`
-- `autoaide bot restart <id>`
-- `autoaide bot health <id>`
-- `autoaide bot logs <id>`
+- `codexbridge bots`
+- `codexbridge bot current`
+- `codexbridge bot create <id> --name ...`
+- `codexbridge bot use <id>`
+- `codexbridge bot show <id>`
+- `codexbridge bot config <id>`
+- `codexbridge bot start <id>`
+- `codexbridge bot stop <id>`
+- `codexbridge bot restart <id>`
+- `codexbridge bot health <id>`
+- `codexbridge bot logs <id>`
 
 ## 6. Workspace And Bootstrap
 
@@ -184,7 +185,7 @@ Bootstrap seeds and tracks:
 
 ## 7. Web Control Plane
 
-AutoAide includes a local web console.
+CodexBridge includes a local web console.
 
 ### 7.1 Current web capabilities
 
@@ -217,7 +218,7 @@ Specifically:
 
 ## 8. Channel System
 
-AutoAide now has a channel-adapter model.
+CodexBridge now has a channel-adapter model.
 
 Current registered channels:
 
@@ -243,7 +244,7 @@ Telegram uses a bot bridge process that:
 
 - polls Telegram updates
 - persists Telegram routing state under the bot home
-- maps Telegram chats to AutoAide sessions
+- maps Telegram chats to CodexBridge sessions
 
 ### 9.2 Access control
 
@@ -380,10 +381,11 @@ The setup flow currently expects:
 
 - a self-built Feishu app
 - bot ability enabled
+- IM message permissions enabled for receiving and sending messages
 - event subscription enabled
 - long-connection mode enabled
 - `im.message.receive_v1` subscribed
-- app installed in the tenant
+- app installed or published in the tenant
 - `appId` and `appSecret` pasted into CLI
 
 ### 10.3 Feishu normal chat behavior
@@ -450,7 +452,7 @@ Feishu is currently:
 
 ## 11. Shared Goal System
 
-AutoAide has already undergone a goal-model refactor.
+CodexBridge has already undergone a goal-model refactor.
 
 ### 11.1 Current goal model
 
@@ -501,7 +503,7 @@ Current goal support by surface:
 
 ## 12. Shared Schedule System
 
-AutoAide also has a schedule subsystem.
+CodexBridge also has a schedule subsystem.
 
 ### 12.1 Current schedule model
 
@@ -539,7 +541,7 @@ Current schedule support by surface:
 
 ## 13. Skills System
 
-AutoAide can discover and install skills.
+CodexBridge can discover and install skills.
 
 Current skills functionality includes:
 
@@ -623,10 +625,9 @@ The biggest current product gaps are:
 
 For channel-specific details:
 
-- [feishu-channel-current-state.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/feishu-channel-current-state.md)
-- [telegram-file-bridge.md](/Users/moshiwei/Documents/GitHub/AutoAide/docs/telegram-file-bridge.md)
+- [feishu-channel-current-state.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/feishu-channel-current-state.md)
+- [telegram-file-bridge.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/telegram-file-bridge.md)
 
 For implementation context:
 
-- [README.md](/Users/moshiwei/Documents/GitHub/AutoAide/README.md)
-
+- [README.md](/Users/moshiwei/Documents/GitHub/CodexBridge/README.md)

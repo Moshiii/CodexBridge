@@ -702,7 +702,7 @@ The correct lightweight design is:
 - lightweight reinjection into origin session
 - shared visibility policy
 
-This gives the user the behavior they want without turning `AutoAide` into a heavy conversation database.
+This gives the user the behavior they want without turning `CodexBridge` into a heavy conversation database.
 
 ## Final Conclusion
 
@@ -724,4 +724,4 @@ while keeping:
 - thin state
 - minimal reinjection
 
-This is the most defensible path for `AutoAide`.
+This is the most defensible path for `CodexBridge`.

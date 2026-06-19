@@ -169,14 +169,14 @@ test("runBotRuntime shuts down the Telegram bridge when the runtime receives SIG
       },
     });
 
-    const runtimeEntry = path.join(process.cwd(), "bin", "autoaide.mjs");
+    const runtimeEntry = path.join(process.cwd(), "bin", "codexbridge.mjs");
     const botHome = path.join(tempHome, "bots", "theta");
     const runtime = spawn(process.execPath, [runtimeEntry, "bot", "run", "theta"], {
       cwd: process.cwd(),
       env: {
         ...process.env,
-        AUTOAIDE_HOME: tempHome,
-        AUTOAIDE_BOT_ID: "theta",
+        CODEXBRIDGE_HOME: tempHome,
+        CODEXBRIDGE_BOT_ID: "theta",
         BOT_HOME: botHome,
       },
       stdio: ["ignore", "ignore", "ignore"],
@@ -207,12 +207,12 @@ test("runBotRuntime shuts down the Telegram bridge when the runtime receives SIG
   });
 });
 
-test("autoaide starts the configured default bot before entering the CLI", async () => {
+test("codexbridge starts the configured default bot before entering the CLI", async () => {
   await withTempHome(async (tempHome) => {
     const { readConfig } = await importFresh("../../src/config.mjs");
     const { ensureDefaultBot, readPidFile, updateBotConfig } = await importFresh("../../src/bots.mjs");
 
-    const entry = path.join(process.cwd(), "bin", "autoaide.mjs");
+    const entry = path.join(process.cwd(), "bin", "codexbridge.mjs");
     const botHome = path.join(tempHome, "bots", "default");
 
     await ensureDefaultBot();
@@ -234,7 +234,7 @@ test("autoaide starts the configured default bot before entering the CLI", async
       cwd: process.cwd(),
       env: {
         ...process.env,
-        AUTOAIDE_HOME: tempHome,
+        CODEXBRIDGE_HOME: tempHome,
       },
       stdio: ["pipe", "ignore", "ignore"],
     });
@@ -257,12 +257,12 @@ test("autoaide starts the configured default bot before entering the CLI", async
   });
 });
 
-test("autoaide does not start a configured default bot when it is disabled", async () => {
+test("codexbridge does not start a configured default bot when it is disabled", async () => {
   await withTempHome(async (tempHome) => {
     const { readConfig } = await importFresh("../../src/config.mjs");
     const { ensureDefaultBot, updateBotConfig } = await importFresh("../../src/bots.mjs");
 
-    const entry = path.join(process.cwd(), "bin", "autoaide.mjs");
+    const entry = path.join(process.cwd(), "bin", "codexbridge.mjs");
     const botHome = path.join(tempHome, "bots", "default");
 
     await ensureDefaultBot();
@@ -284,7 +284,7 @@ test("autoaide does not start a configured default bot when it is disabled", asy
       cwd: process.cwd(),
       env: {
         ...process.env,
-        AUTOAIDE_HOME: tempHome,
+        CODEXBRIDGE_HOME: tempHome,
       },
       stdio: ["pipe", "ignore", "ignore"],
     });
@@ -302,12 +302,12 @@ test("autoaide does not start a configured default bot when it is disabled", asy
   });
 });
 
-test("autoaide starts the configured active bot before entering the CLI", async () => {
+test("codexbridge starts the configured active bot before entering the CLI", async () => {
   await withTempHome(async (tempHome) => {
     const { readConfig } = await importFresh("../../src/config.mjs");
     const { createBot, setActiveBot, updateBotConfig } = await importFresh("../../src/bots.mjs");
 
-    const entry = path.join(process.cwd(), "bin", "autoaide.mjs");
+    const entry = path.join(process.cwd(), "bin", "codexbridge.mjs");
     const botHome = path.join(tempHome, "bots", "omega");
 
     await createBot({ id: "omega", name: "Omega", enabled: true });
@@ -330,7 +330,7 @@ test("autoaide starts the configured active bot before entering the CLI", async 
       cwd: process.cwd(),
       env: {
         ...process.env,
-        AUTOAIDE_HOME: tempHome,
+        CODEXBRIDGE_HOME: tempHome,
       },
       stdio: ["pipe", "ignore", "ignore"],
     });

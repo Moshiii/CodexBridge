@@ -55,11 +55,25 @@ function colorize(text, color) {
   return `${color}${text}${ANSI.reset}`;
 }
 
+export function stripAnsi(text) {
+  return String(text || "").replace(/\x1b\[[0-9;]*m/g, "");
+}
+
+export function countRenderedRows(lines, columns = stdout.columns || 80) {
+  const safeColumns = Math.max(1, Number(columns) || 80);
+  return lines.reduce((total, line) => {
+    const plain = stripAnsi(line);
+    // Terminals may auto-wrap when a line exactly fills the viewport width.
+    // Count with a +1 sentinel so full-width border lines do not under-clear.
+    return total + Math.max(1, Math.ceil((plain.length + 1) / safeColumns));
+  }, 0);
+}
+
 function supportsAnimation() {
-  if (process.env.AUTOAIDE_NO_ANIMATION === "1") {
+  if (process.env.CODEXBRIDGE_NO_ANIMATION === "1") {
     return false;
   }
-  if (process.env.AUTOAIDE_FORCE_ANIMATION === "1") {
+  if (process.env.CODEXBRIDGE_FORCE_ANIMATION === "1") {
     return true;
   }
   return Boolean(stdout.isTTY && stdout.columns >= 60 && stdout.rows >= 16 && !process.env.CI);
@@ -79,7 +93,7 @@ function formatPath(filePath) {
 
 function buildCardLines({ model, workspacePath }) {
   return [
-    colorize("AutoAide", ANSI.bold + ANSI.brightCyan),
+    colorize("CodexBridge", ANSI.bold + ANSI.brightCyan),
     colorize("personal AI shell", ANSI.dim),
     "",
     `model:     ${model}`,
@@ -88,7 +102,7 @@ function buildCardLines({ model, workspacePath }) {
 }
 
 export function renderCard(lines) {
-  const plainLines = lines.map((line) => line.replace(/\x1b\[[0-9;]*m/g, ""));
+  const plainLines = lines.map((line) => stripAnsi(line));
   const innerWidth = Math.max(...plainLines.map((line) => line.length));
   const top = `╭${"─".repeat(innerWidth + 2)}╮`;
   const bottom = `╰${"─".repeat(innerWidth + 2)}╯`;
@@ -172,7 +186,7 @@ function printLines(lines) {
 export async function showStartupBanner(config) {
   const bannerConfig = {
     model: config.model || "gpt-5.4",
-    workspacePath: config.workspacePath || path.join(os.homedir(), ".autoaide", "workspace"),
+    workspacePath: config.workspacePath || path.join(os.homedir(), ".codexbridge", "workspace"),
   };
 
   if (!supportsAnimation()) {
@@ -188,7 +202,7 @@ export async function showStartupBanner(config) {
       clearFrame(printedLines);
     }
     printLines(lines);
-    printedLines = lines.length;
+    printedLines = countRenderedRows(lines);
     const delay = FRAME_DELAYS_MS[index];
     if (delay > 0) {
       await sleep(delay);
@@ -200,7 +214,7 @@ export async function showStartupBanner(config) {
   const finalFrame = makeHarderSolidFrame(LOGO_FRAMES.at(-1));
   const glitched = composeBannerWithGlitch(finalFrame, bannerConfig);
   printLines(glitched);
-  printedLines = glitched.length;
+  printedLines = countRenderedRows(glitched);
   await sleep(180);
   clearFrame(printedLines);
   printLines(composeBanner(finalFrame, bannerConfig));

@@ -30,7 +30,7 @@ import { getChannelAdapter } from "./channel-adapters.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const BIN_PATH = path.join(PROJECT_ROOT, "bin", "autoaide.mjs");
+const BIN_PATH = path.join(PROJECT_ROOT, "bin", "codexbridge.mjs");
 
 function nowIso() {
   return new Date().toISOString();
@@ -433,7 +433,7 @@ export async function startBot(botId) {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,
-      AUTOAIDE_BOT_ID: bot.id,
+      CODEXBRIDGE_BOT_ID: bot.id,
       BOT_HOME: bot.homePath,
     },
     detached: true,
@@ -648,7 +648,7 @@ export async function runBotRuntime(botId) {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,
-      AUTOAIDE_BOT_ID: bot.id,
+      CODEXBRIDGE_BOT_ID: bot.id,
       BOT_HOME: botHome,
     },
     stdio: ["ignore", bridgeLog.fd, bridgeLog.fd],

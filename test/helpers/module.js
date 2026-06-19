@@ -6,15 +6,15 @@ let sharedHomePromise = null;
 
 async function getSharedHome() {
   if (!sharedHomePromise) {
-    sharedHomePromise = mkdtemp(path.join(os.tmpdir(), "autoaide-test-"));
+    sharedHomePromise = mkdtemp(path.join(os.tmpdir(), "codexbridge-test-"));
   }
   return await sharedHomePromise;
 }
 
 export async function withTempHome(fn) {
-  const previousHome = process.env.AUTOAIDE_HOME;
+  const previousHome = process.env.CODEXBRIDGE_HOME;
   const tempHome = await getSharedHome();
-  process.env.AUTOAIDE_HOME = tempHome;
+  process.env.CODEXBRIDGE_HOME = tempHome;
 
   try {
     const entries = await readdir(tempHome).catch(() => []);
@@ -24,9 +24,9 @@ export async function withTempHome(fn) {
     return await fn(tempHome);
   } finally {
     if (previousHome == null) {
-      delete process.env.AUTOAIDE_HOME;
+      delete process.env.CODEXBRIDGE_HOME;
     } else {
-      process.env.AUTOAIDE_HOME = previousHome;
+      process.env.CODEXBRIDGE_HOME = previousHome;
     }
   }
 }

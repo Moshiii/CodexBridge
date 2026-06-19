@@ -2,14 +2,14 @@
 
 ## Goal
 
-Add a minimal but useful file bridge between Telegram and the AutoAide workspace.
+Add a minimal but useful file bridge between Telegram and the CodexBridge workspace.
 
 The MVP flow is:
 
 1. user uploads a file to the Telegram bot
-2. AutoAide downloads it into `~/.autoaide/bots/default/workspace/inbox/`
-3. the user can ask AutoAide to process it
-4. AutoAide can send a file back from a safe workspace directory
+2. CodexBridge downloads it into `~/.codexbridge/bots/default/workspace/inbox/`
+3. the user can ask CodexBridge to process it
+4. CodexBridge can send a file back from a safe workspace directory
 
 ## Why This Matters
 
@@ -45,7 +45,7 @@ That is much easier for users to understand than abstract memory or agent featur
 
 ## Workspace Contract
 
-AutoAide uses three directories for the file bridge:
+CodexBridge uses three directories for the file bridge:
 
 - `workspace/inbox/`
 - `workspace/outbox/`
@@ -78,7 +78,7 @@ Send a document and include a caption such as:
 Result:
 
 - file is saved to `workspace/inbox/`
-- AutoAide runs Codex with the saved relative path included in the prompt
+- CodexBridge runs Codex with the saved relative path included in the prompt
 
 ### List files
 

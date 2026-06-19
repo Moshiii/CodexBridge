@@ -1,10 +1,10 @@
-# AutoAide Session Routing Refactor Checklist
+# CodexBridge Session Routing Refactor Checklist
 
 ## 一、文档目的
 
 这份文档把最新产品决策转成可执行的代码重构设计清单。
 
-目标是把 AutoAide 从当前的：
+目标是把 CodexBridge 从当前的：
 
 - 各 channel 各自管理 session
 - 用户可见多 session
@@ -536,7 +536,7 @@ Feishu：
 2. 再统一决定这条消息该路由到哪条内部会话
 3. 最后再根据上下文决定开放哪些能力
 
-当这套结构完成以后，AutoAide 才会真正具备：
+当这套结构完成以后，CodexBridge 才会真正具备：
 
 - 跨 channel 一致性
 - 群聊可扩展性

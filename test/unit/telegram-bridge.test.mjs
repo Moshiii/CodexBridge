@@ -41,7 +41,7 @@ test("parseCommand strips command targeting suffix", async () => {
   await withTempHome(async () => {
     const { parseCommand } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
 
-    assert.deepEqual(parseCommand("/skills@AutoAideBot install /tmp/demo.zip"), {
+    assert.deepEqual(parseCommand("/skills@CodexBridgeBot install /tmp/demo.zip"), {
       command: "skills",
       argsText: "install /tmp/demo.zip",
     });
@@ -52,17 +52,17 @@ test("extractBotMention finds explicit group mentions", async () => {
   await withTempHome(async () => {
     const { extractBotMention } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
 
-    const text = "@AutoAideBot hi there";
+    const text = "@CodexBridgeBot hi there";
     const mention = extractBotMention(
       text,
-      [{ type: "mention", offset: 0, length: 12 }],
-      "AutoAideBot",
+      [{ type: "mention", offset: 0, length: 15 }],
+      "CodexBridgeBot",
     );
 
     assert.deepEqual(mention, {
       offset: 0,
-      length: 12,
-      text: "@AutoAideBot",
+      length: 15,
+      text: "@CodexBridgeBot",
     });
   });
 });
@@ -72,7 +72,7 @@ test("stripExplicitBotMention removes the mention and preserves the request", as
     const { stripExplicitBotMention } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
 
     assert.equal(
-      stripExplicitBotMention("@AutoAideBot summarize this", { offset: 0, length: 12 }),
+      stripExplicitBotMention("@CodexBridgeBot summarize this", { offset: 0, length: 15 }),
       "summarize this",
     );
   });
@@ -82,7 +82,7 @@ test("resolveBotRuntimeContext reads bot-scoped config from BOT_HOME", async () 
   await withTempHome(async (tempHome) => {
     const botHome = `${tempHome}/bots/alpha`;
     process.env.BOT_HOME = botHome;
-    process.env.AUTOAIDE_BOT_ID = "alpha";
+    process.env.CODEXBRIDGE_BOT_ID = "alpha";
     try {
       const configModule = await importFresh("../../src/config.mjs");
       await configModule.writeConfig(
@@ -124,7 +124,7 @@ test("resolveBotRuntimeContext reads bot-scoped config from BOT_HOME", async () 
       assert.match(runtime.codexCwd, /bots\/alpha\/workspace$/);
     } finally {
       delete process.env.BOT_HOME;
-      delete process.env.AUTOAIDE_BOT_ID;
+      delete process.env.CODEXBRIDGE_BOT_ID;
     }
   });
 });

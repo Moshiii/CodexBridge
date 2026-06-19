@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document defines how `AutoAide` should unify:
+This document defines how `CodexBridge` should unify:
 
 - execution visibility
 - final output semantics
@@ -18,7 +18,7 @@ The aim is to remove current inconsistencies in Telegram and future-proof the pr
 
 ## Problem
 
-Today `AutoAide` has three different execution experiences:
+Today `CodexBridge` has three different execution experiences:
 
 1. normal Telegram or CLI task
 2. `/goal` task with worker / evaluator
@@ -85,7 +85,7 @@ Every task type that can complete should have a clearly modeled final output.
 
 ### 3. Preserve current thin-shell philosophy
 
-This should not turn `AutoAide` into a giant orchestrator or log platform.
+This should not turn `CodexBridge` into a giant orchestrator or log platform.
 
 ### 4. Keep Telegram as a channel surface, not the source of truth
 
@@ -412,7 +412,7 @@ Instead:
 
 If we later want a single auditable timeline, add:
 
-- `~/.autoaide/history/events.jsonl`
+- `~/.codexbridge/history/events.jsonl`
 
 Each task would append a small normalized event record there.
 
@@ -428,7 +428,7 @@ Needs to become the shared event extraction layer for:
 - command execution events
 - status summaries
 
-This should remain thin, but it should be the canonical place for converting Codex JSON stream into `AutoAide` execution events.
+This should remain thin, but it should be the canonical place for converting Codex JSON stream into `CodexBridge` execution events.
 
 ## 2. normal task execution in Telegram bridge
 

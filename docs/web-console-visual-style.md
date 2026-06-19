@@ -1,8 +1,8 @@
-# AutoAide Web Console Visual Style
+# CodexBridge Web Console Visual Style
 
 ## Goal
 
-Define a visual direction for the AutoAide web console that feels:
+Define a visual direction for the CodexBridge web console that feels:
 
 - hard sci-fi
 - cyberpunk-adjacent
@@ -15,7 +15,7 @@ The target is a durable product surface that still feels distinctive.
 
 ## Core Direction
 
-The right visual direction for AutoAide is:
+The right visual direction for CodexBridge is:
 
 `industrial sci-fi terminal`
 
@@ -50,7 +50,7 @@ If the cyberpunk percentage goes too high:
 
 ## Visual Thesis
 
-AutoAide should look like:
+CodexBridge should look like:
 
 - a system you trust to run long-lived work
 - a console for bots, sessions, goals, schedules, and logs
@@ -438,7 +438,7 @@ Never sacrifice:
 
 ## Visual Target In One Sentence
 
-AutoAide should feel like:
+CodexBridge should feel like:
 
 `a trusted local bot operations console built inside a hard-sci-fi terminal environment`
 

@@ -188,9 +188,9 @@ async function inspectSkillSource(sourcePath) {
     name: String(frontmatter.name).trim(),
     description: frontmatter.description.trim(),
     compatibility: formatCompatibility(frontmatter.compatibility),
-    autoaide:
-      frontmatter.metadata?.autoaide && typeof frontmatter.metadata.autoaide === "object"
-        ? frontmatter.metadata.autoaide
+    codexbridge:
+      frontmatter.metadata?.codexbridge && typeof frontmatter.metadata.codexbridge === "object"
+        ? frontmatter.metadata.codexbridge
         : {},
     body,
   };
@@ -204,7 +204,7 @@ export async function installSkillFromPath(sourcePath, options = {}) {
   let tempDir = null;
 
   if (source.toLowerCase().endsWith(".zip")) {
-    tempDir = await mkdtemp(path.join(os.tmpdir(), "autoaide-skill-"));
+    tempDir = await mkdtemp(path.join(os.tmpdir(), "codexbridge-skill-"));
     if (process.platform === "darwin") {
       await runCommand("/usr/bin/ditto", ["-x", "-k", source, tempDir]);
     } else {
@@ -280,9 +280,9 @@ export async function listSkills() {
                 ? frontmatter.description.trim()
                 : "No description.",
             compatibility: formatCompatibility(frontmatter.compatibility),
-            autoaide:
-              frontmatter.metadata?.autoaide && typeof frontmatter.metadata.autoaide === "object"
-                ? frontmatter.metadata.autoaide
+            codexbridge:
+              frontmatter.metadata?.codexbridge && typeof frontmatter.metadata.codexbridge === "object"
+                ? frontmatter.metadata.codexbridge
                 : {},
           };
         }),
@@ -294,11 +294,11 @@ export async function listSkills() {
 
 export function formatSkillSummary(skill) {
   const tags = [];
-  if (Array.isArray(skill.autoaide?.triggers) && skill.autoaide.triggers.length) {
-    tags.push(`${skill.autoaide.triggers.length} triggers`);
+  if (Array.isArray(skill.codexbridge?.triggers) && skill.codexbridge.triggers.length) {
+    tags.push(`${skill.codexbridge.triggers.length} triggers`);
   }
-  if (skill.autoaide?.preferred_mode) {
-    tags.push(`mode=${skill.autoaide.preferred_mode}`);
+  if (skill.codexbridge?.preferred_mode) {
+    tags.push(`mode=${skill.codexbridge.preferred_mode}`);
   }
   return `- ${skill.id}: ${skill.description}${tags.length ? ` [${tags.join(", ")}]` : ""}`;
 }

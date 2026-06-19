@@ -80,7 +80,7 @@ test("ensureWorkspaceBootstrap stays pending when placeholders remain", async ()
     await rm(path.join(workspacePath(tempHome), "BOOTSTRAP.md"), { force: true });
     await writeFile(
       identityPath,
-      (await readFile(identityPath, "utf8")).replace(/(\*\*Name:\*\*).*/, "$1 AutoAide"),
+      (await readFile(identityPath, "utf8")).replace(/(\*\*Name:\*\*).*/, "$1 CodexBridge"),
       "utf8",
     );
     await writeFile(userPath, (await readFile(userPath, "utf8")).replace(/(\*\*What to call them:\*\*).*/, "$1 "), "utf8");

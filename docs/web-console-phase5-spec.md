@@ -1,4 +1,4 @@
-# AutoAide Web Console Phase 5 Spec
+# CodexBridge Web Console Phase 5 Spec
 
 ## Purpose
 

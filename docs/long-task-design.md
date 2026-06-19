@@ -1,4 +1,4 @@
-# AutoAide 长任务机制设计
+# CodexBridge 长任务机制设计
 
 > Historical draft. This document predates the current bot-scoped runtime and still references the removed daemon model.
 
@@ -6,7 +6,7 @@
 
 这个设计解决的问题是：
 
-> 用户给 AutoAide 一个较长的任务后，AutoAide 不应该只跑一轮然后停下。
+> 用户给 CodexBridge 一个较长的任务后，CodexBridge 不应该只跑一轮然后停下。
 > 它应该能在每轮执行结束后，对比原始目标和当前进度，判断是否继续，并在不需要用户输入时自动推进下一轮。
 
 这里的重点不是“模型自己幻想自己醒来”，而是：
@@ -26,11 +26,11 @@
 - 不重做多 agent 控制面
 - 不做一个重型 enterprise orchestrator
 
-AutoAide 仍然坚持“薄壳”路线。
+CodexBridge 仍然坚持“薄壳”路线。
 
 ## 3. 核心结论
 
-最合理的方案不是让模型通过 prompt “自觉继续”，而是在 AutoAide 里增加一层：
+最合理的方案不是让模型通过 prompt “自觉继续”，而是在 CodexBridge 里增加一层：
 
 `Long Task Controller`
 
@@ -54,7 +54,7 @@ AutoAide 仍然坚持“薄壳”路线。
 换句话说：
 
 - Codex 负责做事和评估
-- AutoAide 宿主负责循环和调度
+- CodexBridge 宿主负责循环和调度
 
 ## 4. 为什么不能只靠 prompt
 
@@ -74,7 +74,7 @@ AutoAide 仍然坚持“薄壳”路线。
 
 ## 5. 当前仓库已有基础
 
-当前 AutoAide 已经有三块关键基础：
+当前 CodexBridge 已经有三块关键基础：
 
 ### 5.1 持久 session
 
@@ -83,7 +83,7 @@ AutoAide 仍然坚持“薄壳”路线。
 
 ### 5.2 持久 workspace
 
-- `~/.autoaide/workspace`
+- `~/.codexbridge/workspace`
 - `AGENTS.md`
 - `SOUL.md`
 - `IDENTITY.md`
@@ -174,7 +174,7 @@ Codex Runtime
 建议新增：
 
 ```text
-~/.autoaide/tasks.json
+~/.codexbridge/tasks.json
 ```
 
 或者后续迁移到 SQLite。
@@ -587,10 +587,10 @@ MVP 建议只做：
 
 ## 18. 一句话总结
 
-AutoAide 的长任务能力，不应该依赖“模型自己记得继续”。
+CodexBridge 的长任务能力，不应该依赖“模型自己记得继续”。
 
 它应该建立在这条闭环上：
 
 > 持久 session + 持久 workspace + 结构化任务状态 + evaluator + scheduler
 
-只有这样，AutoAide 才能从“会话型助手”真正升级为“可持续推进任务的个人 AI operator”。
+只有这样，CodexBridge 才能从“会话型助手”真正升级为“可持续推进任务的个人 AI operator”。

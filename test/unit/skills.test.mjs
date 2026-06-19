@@ -13,10 +13,10 @@ test("listSkills reads SKILL.md frontmatter and formats the overview", async () 
       path.join(skillDir, "SKILL.md"),
       `---
 name: Demo Skill
-description: Test skill for AutoAide.
+description: Test skill for CodexBridge.
 compatibility: Requires a local workspace.
 metadata:
-  autoaide:
+  codexbridge:
     preferred_mode: goal
     output_target: outbox
     triggers:
@@ -37,14 +37,14 @@ This is a test skill.
     assert.equal(skills.length, 1);
     assert.equal(skills[0].id, "demo-skill");
     assert.equal(skills[0].name, "Demo Skill");
-    assert.equal(skills[0].autoaide.preferred_mode, "goal");
-    assert.deepEqual(skills[0].autoaide.triggers, ["demo", "test"]);
+    assert.equal(skills[0].codexbridge.preferred_mode, "goal");
+    assert.deepEqual(skills[0].codexbridge.triggers, ["demo", "test"]);
     assert.match(formatSkillsList(skills), /Installed skills \(1\):/);
     assert.match(formatSkillsOverview(skills), /Known skill sources:/);
   });
 });
 
-test("installSkillFromPath copies an external skill package into AutoAide home", async () => {
+test("installSkillFromPath copies an external skill package into CodexBridge home", async () => {
   await withTempHome(async (homePath) => {
     const sourceDir = path.join(homePath, "external-skill");
     await mkdir(sourceDir, { recursive: true });

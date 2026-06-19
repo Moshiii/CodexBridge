@@ -21,7 +21,7 @@ function applyModelToCommand(command, model) {
 }
 
 function useLoginShell() {
-  const raw = process.env.AUTOAIDE_LOGIN_SHELL?.trim().toLowerCase();
+  const raw = process.env.CODEXBRIDGE_LOGIN_SHELL?.trim().toLowerCase();
   return raw === "1" || raw === "true" || raw === "yes";
 }
 

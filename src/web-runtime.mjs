@@ -18,7 +18,7 @@ import { readPidFile } from "./bots.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const BIN_PATH = path.join(PROJECT_ROOT, "bin", "autoaide.mjs");
+const BIN_PATH = path.join(PROJECT_ROOT, "bin", "codexbridge.mjs");
 
 function nowIso() {
   return new Date().toISOString();
