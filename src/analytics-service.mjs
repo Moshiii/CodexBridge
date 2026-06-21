@@ -2,6 +2,7 @@ import { resolveBotHome } from "./config.mjs";
 import { listUsers } from "./repositories/users-repository.mjs";
 import { listUsageLedgerEvents } from "./repositories/usage-ledger-repository.mjs";
 import { listRuns } from "./repositories/runs-repository.mjs";
+import { listConversationLogEvents } from "./conversation-log.mjs";
 
 function createCounter(keys = []) {
   return Object.fromEntries(keys.map((key) => [key, 0]));
@@ -27,14 +28,18 @@ function sumRunDurationMs(runs = []) {
 }
 
 export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 } = {}) {
-  const [users, usageEvents, runs] = await Promise.all([
+  const [users, usageEvents, runs, conversationEvents] = await Promise.all([
     listUsers({ botHome }),
     listUsageLedgerEvents({ limit }, { botHome }),
     listRuns({ limit }, { botHome }),
+    listConversationLogEvents({ limit, botHome }),
   ]);
   const userStatusCounts = createCounter(["free", "paid", "banned", "admin"]);
   const runStatusCounts = createCounter(["queued", "running", "completed", "failed", "stopped", "denied"]);
   const usageEventCounts = createCounter(["grant", "charge", "refund", "adjustment", "deny"]);
+  const conversationDirectionCounts = createCounter(["input", "output", "system", "error"]);
+  const policyActionCounts = createCounter(["allow", "review", "block", "unknown"]);
+  const riskLabelCounts = {};
   const creditTotals = {
     dailyFreeCharged: 0,
     paidCreditsCharged: 0,
@@ -45,6 +50,9 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
   };
   const groupTrialUsers = new Set();
   const paidActiveUsers = new Set();
+  const loggedUsers = new Set();
+  const riskyUsers = new Map();
+  let riskyEvents = 0;
 
   for (const user of users) {
     increment(userStatusCounts, user.status || "free");
@@ -78,6 +86,25 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
     increment(runStatusCounts, run.status || "unknown");
   }
 
+  for (const event of conversationEvents) {
+    increment(conversationDirectionCounts, event.direction || "unknown");
+    const action = event.metadata?.policy?.action || "unknown";
+    increment(policyActionCounts, action);
+    if (event.userId) {
+      loggedUsers.add(event.userId);
+    }
+    const labels = Array.isArray(event.riskLabels) ? event.riskLabels : [];
+    if (labels.length > 0) {
+      riskyEvents += 1;
+      if (event.userId) {
+        riskyUsers.set(event.userId, (riskyUsers.get(event.userId) || 0) + 1);
+      }
+    }
+    for (const label of labels) {
+      increment(riskLabelCounts, label);
+    }
+  }
+
   const finishedRuns = runs.filter((run) => ["completed", "failed", "stopped", "denied"].includes(run.status));
   const duration = sumRunDurationMs(finishedRuns);
   const totalUsers = users.length;
@@ -93,9 +120,26 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
       finishedRuns: finishedRuns.length,
       averageRunLatencyMs: duration.count > 0 ? Math.round(duration.total / duration.count) : 0,
     },
+    conversationTotals: {
+      events: conversationEvents.length,
+      inputs: conversationDirectionCounts.input || 0,
+      outputs: conversationDirectionCounts.output || 0,
+      system: conversationDirectionCounts.system || 0,
+      errors: conversationDirectionCounts.error || 0,
+      riskyEvents,
+      blockedEvents: policyActionCounts.block || 0,
+      uniqueLoggedUsers: loggedUsers.size,
+    },
     userStatusCounts,
     runStatusCounts,
     usageEventCounts,
+    conversationDirectionCounts,
+    policyActionCounts,
+    riskLabelCounts,
+    topRiskUsers: Array.from(riskyUsers.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, 10)
+      .map(([userId, events]) => ({ userId, events })),
     creditTotals,
   };
 }

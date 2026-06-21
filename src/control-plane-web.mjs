@@ -2140,6 +2140,11 @@ Skills: installed capabilities</pre>
           ["paid credits charged", metrics.creditTotals?.paidCreditsCharged ?? 0],
           ["paid credits refunded", metrics.creditTotals?.paidCreditsRefunded ?? 0],
           ["avg latency", (metrics.totals?.averageRunLatencyMs ?? 0) + "ms"],
+          ["conversation events", metrics.conversationTotals?.events ?? 0],
+          ["risky events", metrics.conversationTotals?.riskyEvents ?? 0],
+          ["policy blocked", metrics.conversationTotals?.blockedEvents ?? 0],
+          ["prompt injection", metrics.riskLabelCounts?.prompt_injection_signal ?? 0],
+          ["possible secrets", metrics.riskLabelCounts?.possible_secret ?? 0],
         ];
         document.getElementById("operations-metrics").innerHTML = renderList(
           metricRows.map(([label, value]) => renderBotItem(label, String(value))),
