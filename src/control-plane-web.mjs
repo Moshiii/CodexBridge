@@ -62,6 +62,7 @@ const PLACEHOLDER_TOKEN_PATTERNS = [
   /^test[-_\s]?token/i,
 ];
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
+const QUICK_TEST_PROMPT = "Reply with one short sentence confirming CodexBridge is ready.";
 const REDACTED_SECRET = "[redacted]";
 const activeChatRuns = new Map();
 const activeGoalRuns = new Map();
@@ -537,6 +538,13 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   });
 
   return await readChatStatus(botId, label);
+}
+
+async function startQuickTestForBot(botId) {
+  return await startBotChat(botId, {
+    prompt: QUICK_TEST_PROMPT,
+    sessionLabel: "main",
+  });
 }
 
 async function stopBotChat(botId, sessionLabel = null) {
@@ -1615,6 +1623,9 @@ function renderHtmlPage() {
                 <div class="section-kicker">Quick Start</div>
                 <h3>Setup Checklist</h3>
                 <div class="list" id="setup-checklist">Loading...</div>
+                <div class="toolbar" style="margin-top:14px;">
+                  <button class="primary" id="quick-test-chat">Run Quick Test</button>
+                </div>
               </div>
               <div class="card">
                 <div class="section-kicker">Modes</div>
@@ -2185,6 +2196,28 @@ Skills: installed capabilities</pre>
         }
       }
 
+      async function runChatPrompt(prompt, sessionLabel = null) {
+        if (!state.selectedBotId) return;
+        const label = sessionLabel || document.getElementById('chat-session-label').textContent.trim() || "main";
+        document.getElementById('chat-session-label').textContent = label;
+        document.getElementById('chat-input').value = prompt;
+        await request('/api/bots/' + state.selectedBotId + '/chat', {
+          method: 'POST',
+          body: JSON.stringify({ prompt, sessionLabel: label }),
+        });
+        showToast('Chat run started');
+        await loadChatStatus(state.selectedBotId);
+      }
+
+      async function runQuickTest() {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/quick-test', { method: 'POST' });
+        document.getElementById('chat-session-label').textContent = "main";
+        document.getElementById('chat-input').value = '${QUICK_TEST_PROMPT}';
+        showToast('Quick test started');
+        await loadChatStatus(state.selectedBotId);
+      }
+
       async function loadGoals(botId) {
         const payload = await request('/api/bots/' + botId + '/goals');
         document.getElementById("goals-list").innerHTML = renderList(
@@ -2525,13 +2558,7 @@ Skills: installed capabilities</pre>
       document.getElementById('run-chat').onclick = async () => {
         if (!state.selectedBotId) return;
         const prompt = document.getElementById('chat-input').value;
-        const sessionLabel = document.getElementById('chat-session-label').textContent.trim();
-        await request('/api/bots/' + state.selectedBotId + '/chat', {
-          method: 'POST',
-          body: JSON.stringify({ prompt, sessionLabel }),
-        });
-        showToast('Chat run started');
-        await loadChatStatus(state.selectedBotId);
+        await runChatPrompt(prompt);
       };
       document.getElementById('stop-chat').onclick = async () => {
         if (!state.selectedBotId) return;
@@ -2545,6 +2572,9 @@ Skills: installed capabilities</pre>
       };
       document.getElementById('send-chat').onclick = async () => {
         document.getElementById('run-chat').click();
+      };
+      document.getElementById('quick-test-chat').onclick = async () => {
+        await runQuickTest();
       };
       document.getElementById('create-goal').onclick = async () => {
         if (!state.selectedBotId) return;
@@ -2890,6 +2920,11 @@ async function handleApi(request, response, pathname) {
     const botId = decodeURIComponent(botChatStopMatch[1]);
     const body = await readJsonBody(request);
     return json(response, 200, await stopBotChat(botId, body.sessionLabel));
+  }
+
+  const botQuickTestMatch = pathname.match(/^\/api\/bots\/([^/]+)\/quick-test$/);
+  if (request.method === "POST" && botQuickTestMatch) {
+    return json(response, 200, await startQuickTestForBot(decodeURIComponent(botQuickTestMatch[1])));
   }
 
   const botTelegramPairMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/pair$/);

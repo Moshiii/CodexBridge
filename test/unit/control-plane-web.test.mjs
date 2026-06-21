@@ -304,6 +304,45 @@ test("control plane web server returns classified safe API errors", async () => 
   });
 });
 
+test("control plane quick test starts a main-session smoke prompt", async () => {
+  const previousStartCommand = process.env.CODEX_START_COMMAND;
+  try {
+    await withTempHome(async () => {
+      process.env.CODEX_START_COMMAND = "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"quick-thread\"}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"CodexBridge is ready.\"}}'";
+      const { createBot } = await importFresh("../../src/bots.mjs");
+      const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+
+      await createBot({ id: "smoke", name: "Smoke" });
+      const runtime = await startControlPlaneWebServer({ port: 0 });
+      try {
+        const quickResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/smoke/quick-test`, {
+          method: "POST",
+        });
+        assert.equal(quickResponse.status, 200);
+        const quickPayload = await quickResponse.json();
+        assert.equal(quickPayload.sessionLabel, "main");
+        assert.equal(quickPayload.prompt, "Reply with one short sentence confirming CodexBridge is ready.");
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const statusResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/smoke/chat?sessionLabel=main`);
+        assert.equal(statusResponse.status, 200);
+        const statusPayload = await statusResponse.json();
+        assert.equal(statusPayload.sessionLabel, "main");
+        assert.equal(statusPayload.status, "completed");
+        assert.equal(statusPayload.output, "CodexBridge is ready.");
+      } finally {
+        await runtime.close();
+      }
+    });
+  } finally {
+    if (previousStartCommand == null) {
+      delete process.env.CODEX_START_COMMAND;
+    } else {
+      process.env.CODEX_START_COMMAND = previousStartCommand;
+    }
+  }
+});
+
 test("bot set-config style nested patch should preserve sibling telegram fields", async () => {
   await withTempHome(async () => {
     const { createBot, updateBotConfig } = await importFresh("../../src/bots.mjs");
