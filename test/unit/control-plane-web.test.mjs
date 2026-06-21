@@ -38,6 +38,50 @@ test("getBotControlPlaneDetail includes inspect, health, and logs", async () => 
     assert.equal(detail.health.id, "beta");
     assert.match(detail.logs.logPath, /bots\/beta\/logs\/runtime\.log$/);
     assert.match(detail.logs.content, /line-2/);
+    assert.equal(detail.setupGuide.ready, false);
+    assert.equal(detail.setupGuide.total, 5);
+    assert.equal(detail.setupGuide.nextStep.id, "configure_channel");
+  });
+});
+
+test("getBotControlPlaneDetail includes setup guide for quick start readiness", async () => {
+  await withTempHome(async () => {
+    const { createBot } = await importFresh("../../src/bots.mjs");
+    const { getBotControlPlaneDetail } = await importFresh("../../src/control-plane-web.mjs");
+    const runs = await importFresh("../../src/runs-state.mjs");
+
+    await createBot({
+      id: "quick",
+      name: "Quick",
+      config: {
+        channels: {
+          telegram: {
+            enabled: true,
+            botToken: "123456:ABCDEF",
+            botUsername: "quick_bot",
+            groups: {
+              allowedUserIds: ["123"],
+            },
+          },
+        },
+      },
+    });
+    await runs.createRunRecord({
+      userId: "telegram:123",
+      channel: "telegram",
+      chatType: "group",
+      status: "completed",
+    }, path.join(process.env.CODEXBRIDGE_HOME, "bots", "quick"));
+
+    const detail = await getBotControlPlaneDetail("quick");
+    const steps = Object.fromEntries(detail.setupGuide.steps.map((step) => [step.id, step.status]));
+
+    assert.equal(detail.setupGuide.completed, 4);
+    assert.equal(detail.setupGuide.nextStep.id, "start_runtime");
+    assert.equal(steps.configure_channel, "done");
+    assert.equal(steps.pair_identity, "done");
+    assert.equal(steps.allow_audience, "done");
+    assert.equal(steps.send_first_message, "done");
   });
 });
 

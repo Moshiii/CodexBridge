@@ -237,6 +237,67 @@ async function getBotHome(botId) {
   return detail.bot.homePath;
 }
 
+async function buildSetupGuide(detail, health, access) {
+  const config = detail.config || {};
+  const telegram = config.channels?.telegram || {};
+  const feishu = config.channels?.feishu || {};
+  const runs = await listRunRecords({ limit: 1, botHome: detail.bot.homePath }).catch(() => []);
+  const hasImChannel = Boolean(telegram.enabled || feishu.enabled);
+  const hasTelegramToken = Boolean(telegram.botToken);
+  const hasTelegramIdentity = Boolean(telegram.botUsername || telegram.metadata?.bot?.username);
+  const hasAnyAudience = Boolean(
+    access.privateChats.length ||
+    access.groupChats.length ||
+    access.groupUsers.length ||
+    feishu.enabled,
+  );
+  const steps = [
+    {
+      id: "configure_channel",
+      label: "Connect an IM channel",
+      status: hasImChannel && (hasTelegramToken || feishu.enabled) ? "done" : "todo",
+      action: "Add a Telegram token or enable Feishu in Config.",
+      targetTab: telegram.enabled ? "telegram" : "config",
+    },
+    {
+      id: "pair_identity",
+      label: "Confirm bot identity",
+      status: hasTelegramIdentity || feishu.enabled ? "done" : "todo",
+      action: "Use Telegram Pair / Re-pair after pasting the BotFather token.",
+      targetTab: "telegram",
+    },
+    {
+      id: "allow_audience",
+      label: "Allow a test group or user",
+      status: hasAnyAudience ? "done" : "todo",
+      action: "Add a group, private chat, or allowed group user so someone can try it.",
+      targetTab: "telegram",
+    },
+    {
+      id: "start_runtime",
+      label: "Start the bridge runtime",
+      status: health.healthy ? "done" : "todo",
+      action: "Click Start in the top toolbar.",
+      targetTab: "overview",
+    },
+    {
+      id: "send_first_message",
+      label: "Send one test message",
+      status: runs.length > 0 ? "done" : "todo",
+      action: "Use Chat or send a message from the connected IM group.",
+      targetTab: "chat",
+    },
+  ];
+  const completed = steps.filter((step) => step.status === "done").length;
+  return {
+    ready: completed === steps.length,
+    completed,
+    total: steps.length,
+    nextStep: steps.find((step) => step.status !== "done") || null,
+    steps,
+  };
+}
+
 async function withBotHome(botHome, work) {
   const previousBotHome = process.env.BOT_HOME;
   process.env.BOT_HOME = botHome;
@@ -931,6 +992,7 @@ export async function getControlPlaneSnapshot() {
 export async function getBotControlPlaneDetail(botId) {
   const detail = await inspectBot(botId);
   detail.config = await hydrateTelegramMetadata(detail.bot.homePath).catch(() => detail.config);
+  const health = await healthCheckBot(botId);
   const telegram = detail.config.channels?.telegram ?? {};
   const metadata = telegram.metadata ?? { chats: {}, users: {} };
   const formatEntry = (id, source) => {
@@ -946,15 +1008,17 @@ export async function getBotControlPlaneDetail(botId) {
     }
     return String(id);
   };
+  const access = {
+    privateChats: (telegram.private?.allowedChatIds ?? []).map((id) => formatEntry(id, metadata.chats)),
+    groupChats: (telegram.groups?.allowedChatIds ?? []).map((id) => formatEntry(id, metadata.chats)),
+    groupUsers: (telegram.groups?.allowedUserIds ?? []).map((id) => formatEntry(id, metadata.users)),
+  };
   return {
     detail,
-    health: await healthCheckBot(botId),
+    health,
     logs: await readBotLogs(botId, 50),
-    access: {
-      privateChats: (telegram.private?.allowedChatIds ?? []).map((id) => formatEntry(id, metadata.chats)),
-      groupChats: (telegram.groups?.allowedChatIds ?? []).map((id) => formatEntry(id, metadata.chats)),
-      groupUsers: (telegram.groups?.allowedUserIds ?? []).map((id) => formatEntry(id, metadata.users)),
-    },
+    access,
+    setupGuide: await buildSetupGuide(detail, health, access),
   };
 }
 
@@ -1545,15 +1609,12 @@ function renderHtmlPage() {
               <div class="card">
                 <div class="section-kicker">Overview</div>
                 <h3>Control Room</h3>
-                <p class="subtle">Use the left rail to switch bots, the center surface to operate on sessions, goals, schedules, workspace, and skills, and the right inspector for system state.</p>
+                <p class="subtle" id="setup-summary">Loading setup status...</p>
               </div>
               <div class="card">
-                <div class="section-kicker">Workflow</div>
-                <h3>Recommended Sequence</h3>
-                <pre>1. Select bot
-2. Verify runtime + Telegram state
-3. Open session or create goal
-4. Use diagnostics strip for live faults</pre>
+                <div class="section-kicker">Quick Start</div>
+                <h3>Setup Checklist</h3>
+                <div class="list" id="setup-checklist">Loading...</div>
               </div>
               <div class="card">
                 <div class="section-kicker">Modes</div>
@@ -2164,6 +2225,21 @@ Skills: installed capabilities</pre>
         ].filter(Boolean).join(" | ");
       }
 
+      function renderSetupGuide(setupGuide) {
+        const guide = setupGuide || { completed: 0, total: 0, steps: [] };
+        const next = guide.nextStep;
+        document.getElementById("setup-summary").textContent = guide.ready
+          ? "Ready to use. The bot has a channel, audience, runtime, and at least one test run."
+          : "Setup " + (guide.completed ?? 0) + "/" + (guide.total ?? 0) + " complete. Next: " + (next?.label || "check configuration") + ".";
+        document.getElementById("setup-checklist").innerHTML = renderList(
+          (guide.steps || []).map((step) => renderBotItem(
+            (step.status === "done" ? "Done: " : "Next: ") + step.label,
+            [step.action, step.targetTab ? "tab " + step.targetTab : null].filter(Boolean).join(" | "),
+          )),
+          "No setup steps available."
+        );
+      }
+
       async function loadOperations(botId) {
         const [users, usage, runs, metrics, conversationLogs] = await Promise.all([
           request('/api/bots/' + botId + '/users'),
@@ -2302,6 +2378,7 @@ Skills: installed capabilities</pre>
           bot.id + " | " + bot.homePath + " | desired " + (payload.health.desiredVersion || "v1");
         renderBadges(bot, config);
         setTopStatus(payload);
+        renderSetupGuide(payload.setupGuide);
         document.getElementById("metric-bot").textContent = bot.name;
         document.getElementById("metric-runtime").textContent = payload.health.healthy ? "Online" : "Offline";
         document.getElementById("metric-telegram").textContent = config.channels?.telegram?.enabled ? "Paired" : "Unpaired";

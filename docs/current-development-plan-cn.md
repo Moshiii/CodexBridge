@@ -171,6 +171,11 @@
    - 已新增 conversation review ledger，可对风险日志标记 confirmed_risk / false_positive / handled，并在日志查询和 metrics 中回显复盘结果。
    - conversation log API 已支持按时间窗口、riskOnly、riskLabel、reviewStatus 筛选，方便做风险复盘和样本分析。
 
+9. **Phase 9：开箱即用和使用体验**
+   - Web Overview 已新增 Setup Checklist，按当前 bot 状态提示连接 IM、确认身份、允许测试用户/群、启动 runtime、发送第一条消息。
+   - Bot detail API 已返回 `setupGuide`，后续 CLI、IM 管理命令、Web UI 可以复用同一套 readiness 判断。
+   - 首屏从静态说明改为动态下一步提示，降低第一次打开控制台时的理解成本。
+
 ### 本轮审计已修复的严重问题
 
 1. 新用户默认 100 paid credits，已改为 0。
@@ -617,7 +622,7 @@ denied
 
 ## 六、下一阶段建议优先级
 
-当前最高优先级已经从“补商业闭环”转为“把已跑通的商业闭环整理成长期可维护的工程架构”。
+当前最高优先级已经从“补商业闭环”和“可观测闭环”转为“开箱即用、操作简洁、直观易懂”。
 
 下一阶段最高优先级已经完成：
 
@@ -635,14 +640,15 @@ denied
 12. Web/API conversation log 默认脱敏展示，减少敏感内容二次泄漏
 13. 增加 conversation review ledger 和 API，支持运营复盘标记 confirmed risk / false positive / handled
 14. 增加 conversation log 复盘筛选：时间窗口、riskOnly、riskLabel、reviewStatus
+15. 增加 Web Overview Setup Checklist，让用户一眼看到当前 bot 还差哪一步才能可用
 
 接下来再考虑：
 
-1. 数据库迁移和 state migration 的生产化执行器。
-2. 支付、订单和自动充值。
-3. worker queue / 多实例并发。
-4. Web 控制台拆分和更完整的权限保护。
-5. conversation log 留存、可配置脱敏、Web 复盘交互和误报标注分析。
+1. 把 Telegram/飞书配置从 raw config 继续拆成表单化向导。
+2. 增加“一键试聊”和测试结果说明：成功、未启动、未配置、无权限分别给出清楚文案。
+3. 简化 Operations：普通用户运营只看用户、充值、封禁、风险日志，隐藏低频调试信息。
+4. 增加空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
+5. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
 
 ## 七、当前已有规划需要调整的地方
 
