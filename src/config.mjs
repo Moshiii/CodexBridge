@@ -117,6 +117,10 @@ export function getConversationLogPath(botHome = resolveBotHome()) {
   return path.join(botHome, "conversation-log.jsonl");
 }
 
+export function getConversationReviewPath(botHome = resolveBotHome()) {
+  return path.join(botHome, "conversation-review.jsonl");
+}
+
 export function getRunsStatePath(botHome = resolveBotHome()) {
   return path.join(botHome, "runs.jsonl");
 }

@@ -9,6 +9,7 @@ test("getBotMetrics aggregates users, credits, usage, and run health", async () 
     const credits = await importFresh("../../src/repositories/credits-repository.mjs");
     const runs = await importFresh("../../src/repositories/runs-repository.mjs");
     const conversationLog = await importFresh("../../src/conversation-log.mjs");
+    const conversationReview = await importFresh("../../src/conversation-review.mjs");
     const analytics = await importFresh("../../src/analytics-service.mjs");
 
     await users.saveUser({
@@ -89,6 +90,16 @@ test("getBotMetrics aggregates users, credits, usage, and run health", async () 
         policy: { action: "allow" },
       },
     });
+    await conversationReview.appendConversationReviewEvent({
+      eventId: "event_reviewed_1",
+      status: "confirmed_risk",
+      reviewer: "operator",
+    });
+    await conversationReview.appendConversationReviewEvent({
+      eventId: "event_reviewed_2",
+      status: "false_positive",
+      reviewer: "operator",
+    });
 
     const metrics = await analytics.getBotMetrics();
 
@@ -110,10 +121,13 @@ test("getBotMetrics aggregates users, credits, usage, and run health", async () 
     assert.equal(metrics.conversationTotals.outputs, 1);
     assert.equal(metrics.conversationTotals.riskyEvents, 2);
     assert.equal(metrics.conversationTotals.blockedEvents, 1);
+    assert.equal(metrics.conversationTotals.reviewedEvents, 2);
     assert.equal(metrics.conversationTotals.uniqueLoggedUsers, 2);
     assert.equal(metrics.policyActionCounts.review, 1);
     assert.equal(metrics.policyActionCounts.block, 1);
     assert.equal(metrics.policyActionCounts.allow, 1);
+    assert.equal(metrics.reviewStatusCounts.confirmed_risk, 1);
+    assert.equal(metrics.reviewStatusCounts.false_positive, 1);
     assert.equal(metrics.riskLabelCounts.prompt_injection_signal, 1);
     assert.equal(metrics.riskLabelCounts.possible_email, 1);
     assert.equal(metrics.riskLabelCounts.possible_secret, 1);

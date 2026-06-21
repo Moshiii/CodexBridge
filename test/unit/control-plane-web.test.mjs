@@ -547,6 +547,30 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       assert.equal(conversationLogPayload[0].contentRedacted, true);
       assert.equal(conversationLogPayload[0].content.includes("demo@example.com"), false);
       assert.equal(conversationLogPayload[0].content.includes("[redacted-email]"), true);
+
+      const reviewResponse = await fetch(
+        `http://${runtime.host}:${runtime.port}/api/bots/theta/conversation-logs/${encodeURIComponent(conversationLogPayload[0].eventId)}/review`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status: "confirmed_risk", reviewer: "operator", note: "prompt injection" }),
+        },
+      );
+      assert.equal(reviewResponse.status, 200);
+      const reviewPayload = await reviewResponse.json();
+      assert.equal(reviewPayload.eventId, conversationLogPayload[0].eventId);
+      assert.equal(reviewPayload.status, "confirmed_risk");
+
+      const reviewsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/conversation-reviews?status=confirmed_risk`);
+      assert.equal(reviewsResponse.status, 200);
+      const reviewsPayload = await reviewsResponse.json();
+      assert.equal(reviewsPayload.length, 1);
+      assert.equal(reviewsPayload[0].eventId, conversationLogPayload[0].eventId);
+
+      const reviewedLogResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/conversation-logs?riskLabel=prompt_injection_signal`);
+      assert.equal(reviewedLogResponse.status, 200);
+      const reviewedLogPayload = await reviewedLogResponse.json();
+      assert.equal(reviewedLogPayload[0].review.status, "confirmed_risk");
     } finally {
       await runtime.close();
     }

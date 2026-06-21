@@ -46,6 +46,11 @@ import { appendAdminAuditEvent, listAdminAuditEvents } from "./admin-audit-log.m
 import { getBotMetrics } from "./analytics-service.mjs";
 import { NotFoundError, UserInputError, toPublicError } from "./errors.mjs";
 import { appendConversationLogEvent, listConversationLogEvents } from "./conversation-log.mjs";
+import {
+  appendConversationReviewEvent,
+  getLatestConversationReviews,
+  listConversationReviewEvents,
+} from "./conversation-review.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -859,15 +864,46 @@ async function getMetricsForBot(botId) {
 
 async function listConversationLogsForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
-  return await listConversationLogEvents({
+  const [events, latestReviews] = await Promise.all([
+    listConversationLogEvents({
+      botHome,
+      userId: options.userId || null,
+      runId: options.runId || null,
+      direction: options.direction || null,
+      riskLabel: options.riskLabel || null,
+      redactContent: true,
+      limit: options.limit || 100,
+    }),
+    getLatestConversationReviews({ botHome }),
+  ]);
+  return events.map((event) => ({
+    ...event,
+    review: latestReviews.get(event.eventId) || null,
+  }));
+}
+
+async function listConversationReviewsForBot(botId, options = {}) {
+  const botHome = await getBotHome(botId);
+  return await listConversationReviewEvents({
     botHome,
-    userId: options.userId || null,
-    runId: options.runId || null,
-    direction: options.direction || null,
-    riskLabel: options.riskLabel || null,
-    redactContent: true,
+    eventId: options.eventId || null,
+    status: options.status || null,
     limit: options.limit || 100,
   });
+}
+
+async function reviewConversationLogForBot(botId, eventId, body = {}) {
+  const botHome = await getBotHome(botId);
+  const normalizedEventId = String(eventId || "").trim();
+  if (!normalizedEventId) {
+    throw new UserInputError("Conversation event id is required.", { code: "conversation_event_id_required" });
+  }
+  return await appendConversationReviewEvent({
+    eventId: normalizedEventId,
+    status: body.status,
+    reviewer: body.reviewer || "local-web",
+    note: body.note || "",
+  }, botHome);
 }
 
 export async function getControlPlaneSnapshot() {
@@ -2144,6 +2180,9 @@ Skills: installed capabilities</pre>
           ["conversation events", metrics.conversationTotals?.events ?? 0],
           ["risky events", metrics.conversationTotals?.riskyEvents ?? 0],
           ["policy blocked", metrics.conversationTotals?.blockedEvents ?? 0],
+          ["reviewed events", metrics.conversationTotals?.reviewedEvents ?? 0],
+          ["confirmed risks", metrics.reviewStatusCounts?.confirmed_risk ?? 0],
+          ["false positives", metrics.reviewStatusCounts?.false_positive ?? 0],
           ["prompt injection", metrics.riskLabelCounts?.prompt_injection_signal ?? 0],
           ["possible secrets", metrics.riskLabelCounts?.possible_secret ?? 0],
         ];
@@ -2197,6 +2236,7 @@ Skills: installed capabilities</pre>
               event.chatType,
               event.runId,
               event.riskLabels?.length ? ("risk " + event.riskLabels.join(",")) : null,
+              event.review?.status ? ("review " + event.review.status) : null,
               event.content ? event.content.slice(0, 180) : null,
               event.createdAt,
             ].filter(Boolean).join(" | "),
@@ -2924,6 +2964,26 @@ async function handleApi(request, response, pathname) {
       riskLabel: url.searchParams.get("riskLabel"),
       limit: url.searchParams.get("limit"),
     }));
+  }
+
+  const botConversationReviewsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-reviews$/);
+  if (request.method === "GET" && botConversationReviewsMatch) {
+    const url = new URL(request.url || "/", "http://localhost");
+    return json(response, 200, await listConversationReviewsForBot(decodeURIComponent(botConversationReviewsMatch[1]), {
+      eventId: url.searchParams.get("eventId"),
+      status: url.searchParams.get("status"),
+      limit: url.searchParams.get("limit"),
+    }));
+  }
+
+  const botConversationReviewMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs\/([^/]+)\/review$/);
+  if (request.method === "POST" && botConversationReviewMatch) {
+    const body = await readJsonBody(request);
+    return json(response, 200, await reviewConversationLogForBot(
+      decodeURIComponent(botConversationReviewMatch[1]),
+      decodeURIComponent(botConversationReviewMatch[2]),
+      body,
+    ));
   }
 
   const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);

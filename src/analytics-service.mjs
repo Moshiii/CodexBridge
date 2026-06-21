@@ -3,6 +3,7 @@ import { listUsers } from "./repositories/users-repository.mjs";
 import { listUsageLedgerEvents } from "./repositories/usage-ledger-repository.mjs";
 import { listRuns } from "./repositories/runs-repository.mjs";
 import { listConversationLogEvents } from "./conversation-log.mjs";
+import { listConversationReviewEvents } from "./conversation-review.mjs";
 
 function createCounter(keys = []) {
   return Object.fromEntries(keys.map((key) => [key, 0]));
@@ -28,17 +29,19 @@ function sumRunDurationMs(runs = []) {
 }
 
 export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 } = {}) {
-  const [users, usageEvents, runs, conversationEvents] = await Promise.all([
+  const [users, usageEvents, runs, conversationEvents, reviewEvents] = await Promise.all([
     listUsers({ botHome }),
     listUsageLedgerEvents({ limit }, { botHome }),
     listRuns({ limit }, { botHome }),
     listConversationLogEvents({ limit, botHome }),
+    listConversationReviewEvents({ limit, botHome }),
   ]);
   const userStatusCounts = createCounter(["free", "paid", "banned", "admin"]);
   const runStatusCounts = createCounter(["queued", "running", "completed", "failed", "stopped", "denied"]);
   const usageEventCounts = createCounter(["grant", "charge", "refund", "adjustment", "deny"]);
   const conversationDirectionCounts = createCounter(["input", "output", "system", "error"]);
   const policyActionCounts = createCounter(["allow", "review", "block", "unknown"]);
+  const reviewStatusCounts = createCounter(["unreviewed", "confirmed_risk", "false_positive", "handled"]);
   const riskLabelCounts = {};
   const creditTotals = {
     dailyFreeCharged: 0,
@@ -105,6 +108,10 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
     }
   }
 
+  for (const event of reviewEvents) {
+    increment(reviewStatusCounts, event.status || "unknown");
+  }
+
   const finishedRuns = runs.filter((run) => ["completed", "failed", "stopped", "denied"].includes(run.status));
   const duration = sumRunDurationMs(finishedRuns);
   const totalUsers = users.length;
@@ -128,6 +135,7 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
       errors: conversationDirectionCounts.error || 0,
       riskyEvents,
       blockedEvents: policyActionCounts.block || 0,
+      reviewedEvents: reviewEvents.length,
       uniqueLoggedUsers: loggedUsers.size,
     },
     userStatusCounts,
@@ -135,6 +143,7 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
     usageEventCounts,
     conversationDirectionCounts,
     policyActionCounts,
+    reviewStatusCounts,
     riskLabelCounts,
     topRiskUsers: Array.from(riskyUsers.entries())
       .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
