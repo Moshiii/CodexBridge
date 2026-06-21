@@ -58,6 +58,7 @@ import {
   renderPrivateChatLockedMessage,
   upsertUser,
 } from "../../src/users-state.mjs";
+import { writeLogEvent } from "../../src/structured-logger.mjs";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const POLL_TIMEOUT_SECONDS = 30;
@@ -240,12 +241,11 @@ function renderStopRequestedMessage(sessionLabel) {
 }
 
 function logBridgeEvent(message, details = null) {
-  const timestamp = new Date().toISOString();
-  if (details == null) {
-    console.log(`[${timestamp}] ${message}`);
-    return;
-  }
-  console.log(`[${timestamp}] ${message}`, details);
+  writeLogEvent(console.log, {
+    level: "info",
+    event: message,
+    details,
+  });
 }
 
 function buildCommandConfig(model = "gpt-5.4") {
