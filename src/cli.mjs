@@ -23,7 +23,7 @@ import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstr
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
 import { createBot, ensureDefaultBot, getBot, listBots, normalizeBotId, restartBot, setActiveBot, startBot, stopBot, updateBotConfig } from "./bots.mjs";
 import { promptSelect } from "./interactive-menu.mjs";
-import { chargeTurnCredits, getUserCredits, renderInsufficientCreditsMessage, resolveCliCreditsUserId } from "./user-credits.mjs";
+import { getUserCredits, resolveCliCreditsUserId } from "./user-credits.mjs";
 import {
   formatSkillInstallResult,
   formatSkillsList,
@@ -898,16 +898,6 @@ async function startCliMessage(line, rl, botContextRef, cliState, config, runnin
   const active = cliState.sessions[cliState.activeSessionLabel];
   if (getRunningTurn(runningTurns, active.label)) {
     console.log(`${formatMessageCard("Session Busy", [`${active.label} is already running. Use /stop first.`])}\n`);
-    restoreCliPrompt(rl, botContextRef.current.botId);
-    return;
-  }
-  const billingUserId = resolveCliCreditsUserId(config);
-  const chargeResult = await chargeTurnCredits({
-    userId: billingUserId,
-    botHome: botContextRef.current.botHome,
-  });
-  if (!chargeResult.ok) {
-    console.log(`${formatMessageCard("No Credits", [renderInsufficientCreditsMessage(chargeResult, { userId: billingUserId })])}\n`);
     restoreCliPrompt(rl, botContextRef.current.botId);
     return;
   }

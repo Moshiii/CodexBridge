@@ -23,11 +23,12 @@ test("chargeTurnCredits deducts one credit by default", async () => {
   await withTempHome(async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
 
+    await credits.grantPaidCredits({ userId: "user-1", amount: 3 });
     const charge = await credits.chargeTurnCredits({ userId: "user-1" });
 
     assert.equal(charge.ok, true);
-    assert.equal(charge.balanceBefore, credits.DEFAULT_INITIAL_CREDITS);
-    assert.equal(charge.balanceAfter, credits.DEFAULT_INITIAL_CREDITS - credits.DEFAULT_TURN_COST);
+    assert.equal(charge.balanceBefore, 3);
+    assert.equal(charge.balanceAfter, 3 - credits.DEFAULT_TURN_COST);
     assert.equal(charge.account.totalConsumed, credits.DEFAULT_TURN_COST);
   });
 });
@@ -52,6 +53,7 @@ test("chargeUsage falls back to paid credits after group daily free quota is exh
   await withTempHome(async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
 
+    await credits.grantPaidCredits({ userId: "user-1", amount: 3 });
     for (let index = 0; index < credits.DEFAULT_DAILY_FREE_LIMIT; index += 1) {
       const charge = await credits.chargeUsage({ userId: "user-1", chatType: "group" });
       assert.equal(charge.costSource, "daily_free");
@@ -60,8 +62,25 @@ test("chargeUsage falls back to paid credits after group daily free quota is exh
 
     assert.equal(paidCharge.ok, true);
     assert.equal(paidCharge.costSource, "paid_credit");
-    assert.equal(paidCharge.balanceBefore, credits.DEFAULT_INITIAL_CREDITS);
-    assert.equal(paidCharge.balanceAfter, credits.DEFAULT_INITIAL_CREDITS - 1);
+    assert.equal(paidCharge.balanceBefore, 3);
+    assert.equal(paidCharge.balanceAfter, 2);
+  });
+});
+
+test("chargeUsage denies group usage after daily free quota when no paid credits exist", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    for (let index = 0; index < credits.DEFAULT_DAILY_FREE_LIMIT; index += 1) {
+      const charge = await credits.chargeUsage({ userId: "user-1", chatType: "group" });
+      assert.equal(charge.ok, true);
+      assert.equal(charge.costSource, "daily_free");
+    }
+    const denied = await credits.chargeUsage({ userId: "user-1", chatType: "group" });
+
+    assert.equal(denied.ok, false);
+    assert.equal(denied.costSource, "insufficient");
+    assert.equal(denied.account.paidCredits, 0);
   });
 });
 
@@ -91,13 +110,14 @@ test("private chat usage only charges paid credits", async () => {
   await withTempHome(async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
 
+    await credits.grantPaidCredits({ userId: "user-1", amount: 2 });
     const charge = await credits.chargeUsage({ userId: "user-1", chatType: "direct" });
     const current = await credits.getUserCredits("user-1");
 
     assert.equal(charge.ok, true);
     assert.equal(charge.costSource, "paid_credit");
     assert.equal(current.account.dailyFreeUsed, 0);
-    assert.equal(current.account.paidCredits, credits.DEFAULT_INITIAL_CREDITS - 1);
+    assert.equal(current.account.paidCredits, 1);
   });
 });
 
@@ -105,12 +125,11 @@ test("grantPaidCredits increases paid credit balance", async () => {
   await withTempHome(async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
 
-    await credits.chargeUsage({ userId: "user-1", chatType: "direct" });
     const grant = await credits.grantPaidCredits({ userId: "user-1", amount: 10 });
 
     assert.equal(grant.ok, true);
     assert.equal(grant.granted, 10);
-    assert.equal(grant.balanceAfter, credits.DEFAULT_INITIAL_CREDITS - 1 + 10);
+    assert.equal(grant.balanceAfter, 10);
   });
 });
 
@@ -122,10 +141,10 @@ test("adjustPaidCredits supports manual credit increases and decreases", async (
     const decrease = await credits.adjustPaidCredits({ userId: "user-1", amount: -3 });
 
     assert.equal(increase.ok, true);
-    assert.equal(increase.balanceAfter, credits.DEFAULT_INITIAL_CREDITS + 5);
+    assert.equal(increase.balanceAfter, 5);
     assert.equal(decrease.ok, true);
     assert.equal(decrease.adjusted, -3);
-    assert.equal(decrease.balanceAfter, credits.DEFAULT_INITIAL_CREDITS + 2);
+    assert.equal(decrease.balanceAfter, 2);
   });
 });
 
@@ -134,7 +153,7 @@ test("adjustPaidCredits rejects negative resulting balances", async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
 
     await assert.rejects(
-      () => credits.adjustPaidCredits({ userId: "user-1", amount: -(credits.DEFAULT_INITIAL_CREDITS + 1) }),
+      () => credits.adjustPaidCredits({ userId: "user-1", amount: -1 }),
       /negative/,
     );
   });
@@ -143,11 +162,6 @@ test("adjustPaidCredits rejects negative resulting balances", async () => {
 test("chargeTurnCredits blocks turns once balance is exhausted", async () => {
   await withTempHome(async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
-
-    for (let index = 0; index < credits.DEFAULT_INITIAL_CREDITS; index += 1) {
-      const charge = await credits.chargeTurnCredits({ userId: "user-1" });
-      assert.equal(charge.ok, true);
-    }
 
     const denied = await credits.chargeTurnCredits({ userId: "user-1" });
 
@@ -165,11 +179,12 @@ test("credit accounts are isolated per bot", async () => {
   await withTempHome(async (tempHome) => {
     const credits = await importFresh("../../src/user-credits.mjs");
 
+    await credits.grantPaidCredits({ userId: "user-1", amount: 2, botHome: `${tempHome}/bots/alpha` });
     await credits.chargeTurnCredits({ userId: "user-1", botHome: `${tempHome}/bots/alpha` });
     const alpha = await credits.getUserCredits("user-1", `${tempHome}/bots/alpha`);
     const beta = await credits.getUserCredits("user-1", `${tempHome}/bots/beta`);
 
-    assert.equal(alpha.account.balance, credits.DEFAULT_INITIAL_CREDITS - credits.DEFAULT_TURN_COST);
+    assert.equal(alpha.account.balance, 1);
     assert.equal(beta.account.balance, credits.DEFAULT_INITIAL_CREDITS);
   });
 });
@@ -178,11 +193,12 @@ test("getUserCredits returns the current remaining balance after charges", async
   await withTempHome(async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
 
+    await credits.grantPaidCredits({ userId: "user-1", amount: 3 });
     await credits.chargeTurnCredits({ userId: "user-1" });
     await credits.chargeTurnCredits({ userId: "user-1" });
     const current = await credits.getUserCredits("user-1");
 
-    assert.equal(current.account.balance, credits.DEFAULT_INITIAL_CREDITS - (credits.DEFAULT_TURN_COST * 2));
+    assert.equal(current.account.balance, 3 - (credits.DEFAULT_TURN_COST * 2));
     assert.equal(current.account.totalConsumed, credits.DEFAULT_TURN_COST * 2);
   });
 });

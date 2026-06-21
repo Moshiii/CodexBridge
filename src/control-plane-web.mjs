@@ -52,6 +52,7 @@ const PLACEHOLDER_TOKEN_PATTERNS = [
   /^test[-_\s]?token/i,
 ];
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
+const REDACTED_SECRET = "[redacted]";
 const activeChatRuns = new Map();
 const activeGoalRuns = new Map();
 
@@ -111,6 +112,41 @@ function assertSafeTelegramToken(token) {
   if (isPlaceholderToken(token)) {
     throw new Error("Refusing to save placeholder Telegram token.");
   }
+}
+
+function isRedactedSecret(value) {
+  return String(value || "").trim() === REDACTED_SECRET;
+}
+
+function redactSecret(value) {
+  return String(value || "").trim() ? REDACTED_SECRET : "";
+}
+
+function redactConfigSecrets(config) {
+  return {
+    ...config,
+    channels: {
+      ...(config.channels || {}),
+      telegram: {
+        ...(config.channels?.telegram || {}),
+        botToken: redactSecret(config.channels?.telegram?.botToken),
+      },
+      feishu: {
+        ...(config.channels?.feishu || {}),
+        appSecret: redactSecret(config.channels?.feishu?.appSecret),
+      },
+    },
+  };
+}
+
+function redactControlPlaneDetail(detail) {
+  return {
+    ...detail,
+    detail: {
+      ...detail.detail,
+      config: redactConfigSecrets(detail.detail.config),
+    },
+  };
 }
 
 function getRunKey(botId, sessionLabel) {
@@ -471,11 +507,22 @@ function applySafeConfigPatch(currentConfig, patch) {
   const nextConfig = deepMergeConfig(currentConfig, patch);
   const nextToken = nextConfig.channels?.telegram?.botToken;
   const currentToken = currentConfig.channels?.telegram?.botToken || "";
+  if (isRedactedSecret(nextToken)) {
+    nextConfig.channels.telegram.botToken = currentToken;
+  }
   if (typeof nextToken === "string" && nextToken.trim() !== currentToken.trim()) {
     if (!nextToken.trim()) {
       return nextConfig;
     }
-    assertSafeTelegramToken(nextToken);
+    if (!isRedactedSecret(nextToken)) {
+      assertSafeTelegramToken(nextToken);
+    }
+  }
+
+  const nextFeishuSecret = nextConfig.channels?.feishu?.appSecret;
+  const currentFeishuSecret = currentConfig.channels?.feishu?.appSecret || "";
+  if (isRedactedSecret(nextFeishuSecret)) {
+    nextConfig.channels.feishu.appSecret = currentFeishuSecret;
   }
   return nextConfig;
 }
@@ -2396,7 +2443,7 @@ async function handleApi(request, response, pathname) {
 
   const botMatch = pathname.match(/^\/api\/bots\/([^/]+)$/);
   if (request.method === "GET" && botMatch) {
-    return json(response, 200, await getBotControlPlaneDetail(decodeURIComponent(botMatch[1])));
+    return json(response, 200, redactControlPlaneDetail(await getBotControlPlaneDetail(decodeURIComponent(botMatch[1]))));
   }
 
   const botDeleteMatch = pathname.match(/^\/api\/bots\/([^/]+)$/);
@@ -2448,11 +2495,9 @@ async function handleApi(request, response, pathname) {
     const botId = decodeURIComponent(botConfigMatch[1]);
     const body = await readJsonBody(request);
     const currentConfig = (await inspectBot(botId)).config;
-    return json(
-      response,
-      200,
-      await updateBotConfig(botId, () => applySafeConfigPatch(currentConfig, body)),
-    );
+    await updateBotConfig(botId, () => applySafeConfigPatch(currentConfig, body));
+    const persistedConfig = (await inspectBot(botId)).config;
+    return json(response, 200, redactConfigSecrets(persistedConfig));
   }
 
   const botSessionsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/sessions$/);
@@ -2496,7 +2541,11 @@ async function handleApi(request, response, pathname) {
   const botTelegramPairMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/pair$/);
   if (request.method === "POST" && botTelegramPairMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await pairTelegramForBot(decodeURIComponent(botTelegramPairMatch[1]), body.token));
+    const payload = await pairTelegramForBot(decodeURIComponent(botTelegramPairMatch[1]), body.token);
+    return json(response, 200, {
+      ...payload,
+      detail: redactControlPlaneDetail(payload.detail),
+    });
   }
 
   const botTelegramRefreshMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/refresh$/);
@@ -2504,7 +2553,7 @@ async function handleApi(request, response, pathname) {
     const botId = decodeURIComponent(botTelegramRefreshMatch[1]);
     const detail = await inspectBot(botId);
     await hydrateTelegramMetadata(detail.bot.homePath);
-    return json(response, 200, await getBotControlPlaneDetail(botId));
+    return json(response, 200, redactControlPlaneDetail(await getBotControlPlaneDetail(botId)));
   }
 
   const botGoalsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/goals$/);

@@ -1,5 +1,6 @@
 import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import * as Lark from "@larksuiteoapi/node-sdk";
 
@@ -30,6 +31,7 @@ import {
 const DEFAULT_BOT_HOME = resolveBotHome();
 const DEFAULT_PID_PATH = getFeishuBridgePidPath(DEFAULT_BOT_HOME);
 const ROUTER_STATE_PATH = path.join(getChannelStatePath("feishu", DEFAULT_BOT_HOME), "router.json");
+const __filename = fileURLToPath(import.meta.url);
 
 function nowIso() {
   return new Date().toISOString();
@@ -402,7 +404,7 @@ async function upsertFeishuUserFromEvent(event, botHome) {
   }, botHome);
 }
 
-function renderCreditsStatus(creditsInfo, user = null) {
+export function renderCreditsStatus(creditsInfo, user = null) {
   const account = creditsInfo.account;
   return [
     `Credits for ${account.userId}:`,
@@ -414,7 +416,7 @@ function renderCreditsStatus(creditsInfo, user = null) {
   ].join("\n");
 }
 
-function canFeishuUserAccessChat(user, envelope) {
+export function canFeishuUserAccessChat(user, envelope) {
   if (envelope.isDirect || envelope.chatType === "direct") {
     return canUsePrivateChat(user);
   }
@@ -892,4 +894,9 @@ async function main() {
   await new Promise(() => {});
 }
 
-await main();
+if (process.argv[1] === __filename) {
+  main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
+}

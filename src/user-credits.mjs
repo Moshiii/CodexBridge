@@ -4,7 +4,7 @@ import path from "node:path";
 import { getUserCreditsStatePath, resolveBotHome } from "./config.mjs";
 import { appendUsageEvent } from "./usage-ledger.mjs";
 
-export const DEFAULT_INITIAL_CREDITS = 100;
+export const DEFAULT_INITIAL_CREDITS = 0;
 export const DEFAULT_TURN_COST = 1;
 export const DEFAULT_DAILY_FREE_LIMIT = 5;
 const LOCK_RETRY_MS = 25;

@@ -40,9 +40,6 @@ test("chargeUsage writes charge and deny events", async () => {
       messageId: "10",
       runId: "run_1",
     });
-    for (let index = 0; index < credits.DEFAULT_INITIAL_CREDITS; index += 1) {
-      await credits.chargeUsage({ userId: "empty", chatType: "direct" });
-    }
     await credits.chargeUsage({ userId: "empty", chatType: "direct", runId: "run_denied" });
 
     const charged = await ledger.listUsageEvents({ userId: "telegram:1" });

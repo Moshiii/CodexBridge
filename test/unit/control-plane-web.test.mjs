@@ -86,11 +86,23 @@ test("control plane web server exposes logs and config update endpoints", async 
         },
         body: JSON.stringify({
           name: "Gamma Two",
+          channels: {
+            telegram: {
+              botToken: "123456:ABCDEF",
+            },
+          },
         }),
       });
       assert.equal(configResponse.status, 200);
       const configPayload = await configResponse.json();
       assert.equal(configPayload.name, "Gamma Two");
+      assert.equal(configPayload.channels.telegram.botToken, "[redacted]");
+
+      const detailResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma`);
+      assert.equal(detailResponse.status, 200);
+      const detailPayload = await detailResponse.json();
+      assert.equal(detailPayload.detail.config.channels.telegram.botToken, "[redacted]");
+      assert.equal(JSON.stringify(detailPayload).includes("123456:ABCDEF"), false);
 
       const nestedResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",
@@ -107,9 +119,48 @@ test("control plane web server exposes logs and config update endpoints", async 
       });
       assert.equal(nestedResponse.status, 200);
 
+      const feishuSecretResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channels: {
+            feishu: {
+              enabled: true,
+              appId: "cli_a",
+              appSecret: "secret-gamma",
+            },
+          },
+        }),
+      });
+      assert.equal(feishuSecretResponse.status, 200);
+      const feishuSecretPayload = await feishuSecretResponse.json();
+      assert.equal(feishuSecretPayload.channels.feishu.appSecret, "[redacted]");
+
+      const redactedSaveResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channels: {
+            telegram: {
+              botToken: "[redacted]",
+            },
+            feishu: {
+              appId: "cli_a",
+              appSecret: "[redacted]",
+            },
+          },
+        }),
+      });
+      assert.equal(redactedSaveResponse.status, 200);
+
       const persisted = await readConfig(path.join(tempHome, "bots", "gamma"));
       assert.equal(persisted.channels.telegram.enabled, false);
-      assert.equal(persisted.channels.telegram.botToken, "token-gamma");
+      assert.equal(persisted.channels.telegram.botToken, "123456:ABCDEF");
+      assert.equal(persisted.channels.feishu.appSecret, "secret-gamma");
       assert.deepEqual(persisted.channels.telegram.private.allowedChatIds, ["100"]);
       assert.deepEqual(persisted.channels.telegram.groups.allowedUserIds, ["300"]);
     } finally {
