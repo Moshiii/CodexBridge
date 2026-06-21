@@ -60,6 +60,34 @@ test("prepareChatRequest denies locked private chat without charging", async () 
   });
 });
 
+test("prepareChatRequest blocks obvious secrets before charging", async () => {
+  await withTempHome(async () => {
+    const service = await importFresh("../../src/chat-request-service.mjs");
+    const ledger = await importFresh("../../src/usage-ledger.mjs");
+
+    const result = await service.prepareChatRequest({
+      channel: "telegram",
+      externalUserId: "1",
+      envelope: {
+        channel: "telegram",
+        userId: "1",
+        chatType: "group",
+      },
+      chatId: "-100",
+      messageId: "m-secret",
+      content: "Please use sk-1234567890abcdef for this request.",
+    });
+    const events = await ledger.listUsageEvents({ userId: "telegram:1" });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "conversation_policy_blocked");
+    assert.equal(result.run.status, "denied");
+    assert.equal(result.policy.action, "block");
+    assert.equal(result.policy.blockingLabels.includes("possible_secret"), true);
+    assert.equal(events.length, 0);
+  });
+});
+
 test("prepareChatRequest denies group chat after free quota when paid credits are empty", async () => {
   await withTempHome(async () => {
     const service = await importFresh("../../src/chat-request-service.mjs");

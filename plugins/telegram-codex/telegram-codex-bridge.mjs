@@ -1781,6 +1781,7 @@ async function processUpdate(update, context) {
     chatId: envelope.chatId,
     messageId: envelope.messageId,
     conversationId: routedSession.sessionKey || activeLabel,
+    content: normalizedText,
     botHome: context.botHome,
   });
   if (!preparedRequest.ok) {
@@ -1797,6 +1798,7 @@ async function processUpdate(update, context) {
       metadata: {
         decision: preparedRequest.decision,
         reason: preparedRequest.reason,
+        policy: preparedRequest.policy,
       },
     }, context.botHome).catch((error) => {
       logBridgeEvent("telegram conversation input log failed", {
@@ -1818,6 +1820,7 @@ async function processUpdate(update, context) {
       metadata: {
         decision: preparedRequest.decision,
         reason: preparedRequest.reason,
+        policy: preparedRequest.policy,
       },
     }, context.botHome).catch((error) => {
       logBridgeEvent("telegram conversation output log failed", {
@@ -1850,6 +1853,7 @@ async function processUpdate(update, context) {
       hasUploadedDocument: Boolean(uploadedDocument),
       costSource: chargeResult.costSource,
       creditsCharged: chargeResult.charged,
+      policy: preparedRequest.policy,
     },
   }, context.botHome).catch((error) => {
     logBridgeEvent("telegram conversation input log failed", {

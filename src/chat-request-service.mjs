@@ -1,6 +1,7 @@
 import { resolveBotHome } from "./config.mjs";
 import { chargeRequestUsage, renderBillingDeniedMessage } from "./billing-service.mjs";
 import { createQueuedRun, markRunDenied } from "./run-service.mjs";
+import { evaluateConversationPolicy } from "./conversation-policy.mjs";
 import {
   buildUserId,
   canUseGroupChat,
@@ -58,6 +59,7 @@ export async function prepareChatRequest({
   chatId = "",
   messageId = "",
   conversationId = "",
+  content = "",
   amount,
   botHome = resolveBotHome(),
 } = {}) {
@@ -83,6 +85,23 @@ export async function prepareChatRequest({
   };
 
   const run = await createQueuedRun(runFields, botHome);
+  const policy = evaluateConversationPolicy(content);
+  if (policy.action === "block") {
+    const deniedRun = await markRunDenied(run.runId, "conversation_policy_blocked", {
+      reason: policy.reason,
+    }, botHome);
+    return {
+      ok: false,
+      decision: "denied",
+      reason: "conversation_policy_blocked",
+      message: policy.userMessage,
+      user,
+      run: deniedRun,
+      charged: null,
+      policy,
+    };
+  }
+
   if (!canUserAccessChat(user, chatType, isDirect)) {
     const reason = accessDeniedReason(user, chatType, isDirect);
     const deniedRun = await markRunDenied(run.runId, reason, {}, botHome);
@@ -94,6 +113,7 @@ export async function prepareChatRequest({
       user,
       run: deniedRun,
       charged: null,
+      policy,
     };
   }
 
@@ -117,6 +137,7 @@ export async function prepareChatRequest({
       user,
       run: deniedRun,
       charged: charge,
+      policy,
     };
   }
 
@@ -128,5 +149,6 @@ export async function prepareChatRequest({
     user,
     run,
     charged: charge,
+    policy,
   };
 }

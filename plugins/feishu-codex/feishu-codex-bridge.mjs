@@ -781,6 +781,7 @@ async function main() {
             chatId,
             messageId,
             conversationId: envelope.conversationId,
+            content: promptText,
             botHome,
           });
           if (!preparedRequest.ok) {
@@ -797,6 +798,7 @@ async function main() {
               metadata: {
                 decision: preparedRequest.decision,
                 reason: preparedRequest.reason,
+                policy: preparedRequest.policy,
               },
             }, botHome).catch((error) => {
               console.error("feishu conversation input log failed", error);
@@ -814,6 +816,7 @@ async function main() {
               metadata: {
                 decision: preparedRequest.decision,
                 reason: preparedRequest.reason,
+                policy: preparedRequest.policy,
               },
             }, botHome).catch((error) => {
               console.error("feishu conversation output log failed", error);
@@ -842,6 +845,7 @@ async function main() {
             metadata: {
               costSource: chargeResult.costSource,
               creditsCharged: chargeResult.charged,
+              policy: preparedRequest.policy,
             },
           }, botHome).catch((error) => {
             console.error("feishu conversation input log failed", error);
