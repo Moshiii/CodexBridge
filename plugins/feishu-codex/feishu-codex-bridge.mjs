@@ -27,6 +27,7 @@ import {
   markRunRunning,
   markRunStopped,
 } from "../../src/run-service.mjs";
+import { settleFailedRunBilling } from "../../src/billing-service.mjs";
 import { prepareChatRequest } from "../../src/chat-request-service.mjs";
 import {
   buildUserId,
@@ -843,6 +844,19 @@ async function main() {
                   }, botHome);
                 } else {
                   await markRunFailed(runRecord.runId, result.stderr || result.output || "Unknown error.", {}, botHome);
+                  await settleFailedRunBilling({
+                    userId: runRecord.userId,
+                    chargeResult,
+                    failureType: "failed",
+                    botHome,
+                    channel: envelope.channel,
+                    chatType: envelope.chatType,
+                    chatId,
+                    messageId,
+                    runId: runRecord.runId,
+                  }).catch((error) => {
+                    console.error("feishu refund failed", error);
+                  });
                 }
                 const failureResponse = await sendText(client, chatId, `Request failed.\n${result.stderr || result.output || "Unknown error."}`, {
                   replyToMessageId: messageId,

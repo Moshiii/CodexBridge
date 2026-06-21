@@ -161,6 +161,7 @@
    - paid credit refund 已有基础实现；daily free 扣费不会退款。
    - 已新增 state migration runner，可通过 CLI `/migrate` 对当前 bot 执行幂等迁移。
    - Web 控制台已支持可选 operator token 鉴权，设置 `CODEXBRIDGE_WEB_TOKEN` 后启用。
+   - Telegram / 飞书普通请求失败路径已接入 paid credit refund；用户主动 stop 默认不退。
 
 ### 本轮审计已修复的严重问题
 
@@ -226,15 +227,20 @@ run record
 
 这样 Web/API/IM 回复可以稳定且不泄漏内部细节。
 
-### 4. 失败、stop、退款策略还没有产品化
+### 4. 失败、stop、退款策略已有第一版，但还不够产品化
 
-当前已能记录 failed / stopped，但扣费策略仍较简单。需要明确：
+当前已能记录 failed / stopped，并已接入第一版退款规则：
 
-- 权限拒绝：不扣
-- 额度拒绝：不扣，写 deny
-- Codex 启动失败：是否退
-- 用户 stop：是否退
-- Codex 失败但消耗资源：是否扣
+- 权限拒绝：不扣。
+- 额度拒绝：不扣，写 deny。
+- Codex 启动/执行失败：退还 paid credits；daily free 不退。
+- 用户 stop：默认不退。
+
+后续仍需补：
+
+- 更明确的失败类型枚举。
+- 面向用户的退款提示文案。
+- 长任务 stop 是否部分退费的可配置策略。
 
 ### 5. Web 控制台仍是单文件实现，权限模型还很轻
 
@@ -663,9 +669,10 @@ denied
 
 - 权限拒绝：不扣费，只写 denied run。
 - 额度拒绝：不扣费，写 deny usage event。
-- Codex 未启动成功：当前已有 paid credit refund 基础能力，下一步要接入实际失败路径。
+- Codex 未启动成功：已接入实际失败路径，退还 paid credits。
 - 用户 stop：短任务不退，长任务后续可配置。
-- Codex 执行失败：先不自动退，但 run 记录 failure reason。
+- Codex 执行失败：已退还 paid credits，run 记录 failure reason。
+- 后续补用户可见的退款提示和更细失败类型。
 
 ### Step 2：state migration / 数据库准备
 

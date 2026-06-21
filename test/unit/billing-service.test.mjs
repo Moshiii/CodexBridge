@@ -108,3 +108,60 @@ test("refundPaidCreditCharge skips daily-free charges", async () => {
     assert.equal(refund.refunded, 0);
   });
 });
+
+test("settleFailedRunBilling refunds paid failures but not daily-free or user stops", async () => {
+  await withTempHome(async () => {
+    const billing = await importFresh("../../src/billing-service.mjs");
+    const ledger = await importFresh("../../src/usage-ledger.mjs");
+
+    await billing.grantCredits({ userId: "telegram:1", amount: 2 });
+    const paidCharge = await billing.chargeRequestUsage({
+      userId: "telegram:1",
+      chatType: "direct",
+      channel: "telegram",
+      runId: "run_paid_failed",
+    });
+    const paidRefund = await billing.settleFailedRunBilling({
+      userId: "telegram:1",
+      chargeResult: paidCharge,
+      failureType: "start_failed",
+      channel: "telegram",
+      chatType: "direct",
+      runId: "run_paid_failed",
+    });
+    const dailyCharge = await billing.chargeRequestUsage({
+      userId: "telegram:1",
+      chatType: "group",
+      channel: "telegram",
+      runId: "run_daily_failed",
+    });
+    const dailyRefund = await billing.settleFailedRunBilling({
+      userId: "telegram:1",
+      chargeResult: dailyCharge,
+      failureType: "failed",
+      runId: "run_daily_failed",
+    });
+    const stoppedCharge = await billing.chargeRequestUsage({
+      userId: "telegram:1",
+      chatType: "direct",
+      channel: "telegram",
+      runId: "run_user_stop",
+    });
+    const stoppedRefund = await billing.settleFailedRunBilling({
+      userId: "telegram:1",
+      chargeResult: stoppedCharge,
+      failureType: "user_stop",
+      runId: "run_user_stop",
+    });
+    const account = await billing.getBillingAccount("telegram:1");
+    const events = await ledger.listUsageEvents({ userId: "telegram:1" });
+
+    assert.equal(paidRefund.refunded, 1);
+    assert.equal(dailyRefund.skipped, true);
+    assert.equal(stoppedRefund.skipped, true);
+    assert.equal(stoppedRefund.reason, "user_stop_no_refund");
+    assert.equal(account.account.paidCredits, 1);
+    assert.equal(events.filter((event) => event.eventType === "refund").length, 1);
+    assert.equal(events.find((event) => event.eventType === "refund").reason, "codex_start_failed");
+  });
+});

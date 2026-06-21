@@ -93,6 +93,39 @@ export async function refundPaidCreditCharge({
   });
 }
 
+export async function settleFailedRunBilling({
+  userId,
+  chargeResult = {},
+  failureType = "failed",
+  botHome = resolveBotHome(),
+  channel = "",
+  chatType = "",
+  chatId = "",
+  messageId = "",
+  runId = "",
+} = {}) {
+  const normalizedFailureType = String(failureType || "").trim().toLowerCase();
+  if (normalizedFailureType === "stopped" || normalizedFailureType === "user_stop") {
+    return {
+      ok: true,
+      refunded: 0,
+      skipped: true,
+      reason: "user_stop_no_refund",
+    };
+  }
+  return await refundPaidCreditCharge({
+    userId,
+    chargeResult,
+    reason: normalizedFailureType === "start_failed" ? "codex_start_failed" : "codex_run_failed",
+    botHome,
+    channel,
+    chatType,
+    chatId,
+    messageId,
+    runId,
+  });
+}
+
 export function renderBillingDeniedMessage(result, options = {}) {
   return renderInsufficientCreditsMessage(result, options);
 }

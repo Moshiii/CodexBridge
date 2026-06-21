@@ -50,6 +50,7 @@ import {
   markRunRunning,
   markRunStopped,
 } from "../../src/run-service.mjs";
+import { settleFailedRunBilling } from "../../src/billing-service.mjs";
 import { prepareChatRequest } from "../../src/chat-request-service.mjs";
 import {
   buildUserId,
@@ -1873,6 +1874,24 @@ async function processUpdate(update, context) {
         codexThreadId: finalResult.cliSessionRef || "",
         outputPreview: typeof messageText === "string" ? messageText.slice(0, 500) : "",
       }, context.botHome);
+      await settleFailedRunBilling({
+        userId: run.userId,
+        chargeResult,
+        failureType: "failed",
+        botHome: context.botHome,
+        channel: envelope.channel,
+        chatType: envelope.chatType,
+        chatId: envelope.chatId,
+        messageId: envelope.messageId,
+        runId: run.runId,
+      }).catch((error) => {
+        logBridgeEvent("telegram refund failed", {
+          chatId,
+          activeLabel,
+          runId: run.runId,
+          error: error.message,
+        });
+      });
     }
 
     await sendMessage(
@@ -1889,6 +1908,24 @@ async function processUpdate(update, context) {
       error: error.message,
     });
     await markRunFailed(run.runId, error, {}, context.botHome).catch(() => {});
+    await settleFailedRunBilling({
+      userId: run.userId,
+      chargeResult,
+      failureType: "start_failed",
+      botHome: context.botHome,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      runId: run.runId,
+    }).catch((refundError) => {
+      logBridgeEvent("telegram refund failed", {
+        chatId,
+        activeLabel,
+        runId: run.runId,
+        error: refundError.message,
+      });
+    });
     await sendMessage(
       context.token,
       message.chat.id,
