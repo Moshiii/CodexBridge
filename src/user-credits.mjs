@@ -213,6 +213,37 @@ export async function grantPaidCredits({ userId, amount, botHome = resolveBotHom
   });
 }
 
+export async function adjustPaidCredits({ userId, amount, reason = "manual_adjustment", botHome = resolveBotHome() } = {}) {
+  const normalizedAmount = Number.isFinite(Number(amount)) ? Math.trunc(Number(amount)) : 0;
+  return await withCreditsLock(botHome, async (state, statePath) => {
+    const account = ensureAccount(state, userId);
+    const balanceBefore = account.paidCredits;
+    const balanceAfter = balanceBefore + normalizedAmount;
+    if (balanceAfter < 0) {
+      throw new Error(`Adjustment would make paid credits negative for ${account.userId}.`);
+    }
+    account.paidCredits = balanceAfter;
+    account.balance = account.paidCredits;
+    account.updatedAt = nowIso();
+    await writeCreditsState(statePath, state);
+    await appendUsageEvent({
+      eventType: "adjustment",
+      userId,
+      amount: normalizedAmount,
+      source: "manual",
+      reason,
+    }, botHome);
+    return {
+      ok: true,
+      adjusted: normalizedAmount,
+      balanceBefore,
+      balanceAfter: account.paidCredits,
+      account: { ...account },
+      defaults: { ...state.defaults },
+    };
+  });
+}
+
 export async function chargeUsage({
   userId,
   chatType = "group",
@@ -345,5 +376,6 @@ export function renderInsufficientCreditsMessage(result, options = {}) {
     `No credits left${label} on this bot.`,
     `Paid credits: ${balance}. Each turn costs ${cost} credit${cost === 1 ? "" : "s"}.`,
     `Daily free quota: ${freeUsed}/${freeLimit}.`,
+    "Top up paid credits to continue.",
   ].join(" ");
 }

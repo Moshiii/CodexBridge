@@ -325,6 +325,15 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       const grantPayload = await grantResponse.json();
       assert.equal(grantPayload.credits.granted, 10);
 
+      const adjustResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:123")}/adjust`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount: -2, reason: "manual_deduct" }),
+      });
+      assert.equal(adjustResponse.status, 200);
+      const adjustPayload = await adjustResponse.json();
+      assert.equal(adjustPayload.credits.adjusted, -2);
+
       const privateResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:123")}/private`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -348,6 +357,7 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       const usagePayload = await usageResponse.json();
       assert.equal(usagePayload.some((event) => event.eventType === "charge"), true);
       assert.equal(usagePayload.some((event) => event.eventType === "grant"), true);
+      assert.equal(usagePayload.some((event) => event.eventType === "adjustment"), true);
 
       const runsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/runs?userId=${encodeURIComponent("telegram:123")}`);
       assert.equal(runsResponse.status, 200);

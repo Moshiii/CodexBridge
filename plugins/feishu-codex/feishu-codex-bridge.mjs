@@ -17,7 +17,15 @@ import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 import { normalizeFeishuEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
-import { chargeTurnCredits, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
+import { chargeUsage, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
+import { createRunRecord, updateRunRecord } from "../../src/runs-state.mjs";
+import {
+  buildUserId,
+  canUseGroupChat,
+  canUsePrivateChat,
+  renderPrivateChatLockedMessage,
+  upsertUser,
+} from "../../src/users-state.mjs";
 
 const DEFAULT_BOT_HOME = resolveBotHome();
 const DEFAULT_PID_PATH = getFeishuBridgePidPath(DEFAULT_BOT_HOME);
@@ -371,6 +379,48 @@ function buildFeishuPrompt(text, event) {
   ].join("\n");
 }
 
+function getFeishuUserDisplayName(event) {
+  const sender = event?.sender || {};
+  return (
+    sender.sender_id?.union_id ||
+    sender.sender_id?.open_id ||
+    sender.sender_id?.user_id ||
+    ""
+  );
+}
+
+async function upsertFeishuUserFromEvent(event, botHome) {
+  const externalUserId = event?.sender?.sender_id?.open_id == null ? "" : String(event.sender.sender_id.open_id);
+  if (!externalUserId) {
+    return null;
+  }
+  return await upsertUser({
+    id: buildUserId("feishu", externalUserId),
+    channel: "feishu",
+    externalUserId,
+    displayName: getFeishuUserDisplayName(event),
+  }, botHome);
+}
+
+function renderCreditsStatus(creditsInfo, user = null) {
+  const account = creditsInfo.account;
+  return [
+    `Credits for ${account.userId}:`,
+    ...(user ? [`Status: ${user.status}`, `Private chat: ${canUsePrivateChat(user) ? "unlocked" : "locked"}`] : []),
+    `Daily free: ${account.dailyFreeUsed}/${account.dailyFreeLimit}`,
+    `Paid credits: ${account.paidCredits}`,
+    `Turn cost: ${creditsInfo.defaults.turnCost}`,
+    `Total consumed: ${account.totalConsumed}`,
+  ].join("\n");
+}
+
+function canFeishuUserAccessChat(user, envelope) {
+  if (envelope.isDirect || envelope.chatType === "direct") {
+    return canUsePrivateChat(user);
+  }
+  return canUseGroupChat(user);
+}
+
 function normalizeFeishuOutput(text) {
   const trimmed = String(text || "").trim();
   if (!trimmed) {
@@ -478,18 +528,9 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
   }
 
   if (command === "/credits") {
-    const creditsInfo = await getUserCredits(envelope.userId, options.botHome || DEFAULT_BOT_HOME);
-    await sendText(
-      client,
-      chatId,
-      [
-        `Credits for ${creditsInfo.account.userId}:`,
-        `Remaining: ${creditsInfo.account.balance}`,
-        `Turn cost: ${creditsInfo.defaults.turnCost}`,
-        `Total consumed: ${creditsInfo.account.totalConsumed}`,
-      ].join("\n"),
-      options,
-    );
+    const userId = options.user?.id || buildUserId("feishu", envelope.userId);
+    const creditsInfo = await getUserCredits(userId, options.botHome || DEFAULT_BOT_HOME);
+    await sendText(client, chatId, renderCreditsStatus(creditsInfo, options.user || null), options);
     return true;
   }
 
@@ -654,6 +695,31 @@ async function main() {
             text: normalizedText,
             explicitlyMentionedBot,
           });
+          const accessUser = await upsertFeishuUserFromEvent(event, botHome);
+          const usageUserId = accessUser?.id || buildUserId("feishu", envelope.userId);
+          if (accessUser && !canFeishuUserAccessChat(accessUser, envelope)) {
+            const deniedRun = await createRunRecord({
+              userId: usageUserId,
+              conversationId: envelope.conversationId,
+              channel: envelope.channel,
+              chatType: envelope.chatType,
+              chatId,
+              messageId,
+              visibility: envelope.isDirect ? "private" : "public",
+              status: "denied",
+              reason: accessUser.status === "banned" ? "user_banned" : "private_chat_locked",
+            }, botHome);
+            await updateRunRecord(deniedRun.id, { status: "denied" }, botHome);
+            const response = await sendText(
+              client,
+              chatId,
+              accessUser.status === "banned" ? "This user is banned from CodexBridge." : renderPrivateChatLockedMessage(accessUser),
+              { replyToMessageId: messageId },
+            );
+            rememberBotOpenId(botIdentity, response);
+            return;
+          }
+
           const chatState = ensureConversationState(routerState, envelope);
           const routeKey = chatState.sessionKey || chatState.sessionLabel;
           chatState.updatedAt = nowIso();
@@ -661,7 +727,7 @@ async function main() {
           await writeRouterState(ROUTER_STATE_PATH, routerState);
 
           const slashCommand = parseSlashCommand(normalizedText);
-          if (slashCommand && await handleSlashCommand(slashCommand, chatState, client, chatId, activeRuns, routeKey, config, envelope, { replyToMessageId: messageId, botHome })) {
+          if (slashCommand && await handleSlashCommand(slashCommand, chatState, client, chatId, activeRuns, routeKey, config, envelope, { replyToMessageId: messageId, botHome, user: accessUser })) {
             return;
           }
 
@@ -671,33 +737,74 @@ async function main() {
           }
 
           const pendingBefore = pendingCounts.get(routeKey) || 0;
-          pendingCounts.set(routeKey, pendingBefore + 1);
-          if (pendingBefore > 0) {
-            const queuedResponse = await sendText(client, chatId, renderQueuedMessage(chatState.sessionLabel, pendingBefore), {
-              replyToMessageId: messageId,
-            });
-            rememberBotOpenId(botIdentity, queuedResponse);
+          if (pendingBefore > 0 || activeRuns.has(routeKey)) {
+            const deniedRun = await createRunRecord({
+              userId: usageUserId,
+              conversationId: envelope.conversationId,
+              channel: envelope.channel,
+              chatType: envelope.chatType,
+              chatId,
+              messageId,
+              visibility: envelope.isDirect ? "private" : "public",
+              status: "denied",
+              reason: "running_session",
+            }, botHome);
+            await updateRunRecord(deniedRun.id, { status: "denied" }, botHome);
+            const busyResponse = await sendText(
+              client,
+              chatId,
+              `A request is already running for [${chatState.sessionLabel}]. Please wait for it to finish, then send the next request.`,
+              { replyToMessageId: messageId },
+            );
+            rememberBotOpenId(botIdentity, busyResponse);
+            return;
           }
+
+          const runRecord = await createRunRecord({
+            userId: usageUserId,
+            conversationId: envelope.conversationId,
+            channel: envelope.channel,
+            chatType: envelope.chatType,
+            chatId,
+            messageId,
+            visibility: envelope.isDirect ? "private" : "public",
+            status: "queued",
+          }, botHome);
+          pendingCounts.set(routeKey, 1);
 
           const previous = chatQueues.get(routeKey) ?? Promise.resolve();
           const next = previous
             .catch(() => {})
             .then(async () => {
-              const chargeResult = await chargeTurnCredits({
-                userId: envelope.userId,
+              const chargeResult = await chargeUsage({
+                userId: usageUserId,
+                chatType: envelope.chatType,
                 botHome,
+                channel: envelope.channel,
+                chatId,
+                messageId,
+                runId: runRecord.id,
               });
               if (!chargeResult.ok) {
+                await updateRunRecord(runRecord.id, {
+                  status: "denied",
+                  reason: "insufficient_credits",
+                }, botHome);
                 const deniedResponse = await sendText(
                   client,
                   chatId,
-                  renderInsufficientCreditsMessage(chargeResult, { userId: envelope.userId }),
+                  renderInsufficientCreditsMessage(chargeResult, { userId: usageUserId }),
                   { replyToMessageId: messageId },
                 );
                 rememberBotOpenId(botIdentity, deniedResponse);
                 return;
               }
 
+              await updateRunRecord(runRecord.id, {
+                status: "running",
+                costSource: chargeResult.costSource,
+                creditsCharged: chargeResult.charged,
+              }, botHome);
               const runningResponse = await sendText(client, chatId, renderRunningMessage(chatState.sessionLabel, Boolean(chatState.cliSessionRef)), {
                 replyToMessageId: messageId,
               });
@@ -732,6 +839,10 @@ async function main() {
               await writeCliState(cliState, botHome);
 
               if (!result.ok) {
+                await updateRunRecord(runRecord.id, {
+                  status: result.stopped ? "stopped" : "failed",
+                  error: result.stderr || result.output || "Unknown error.",
+                }, botHome);
                 const failureResponse = await sendText(client, chatId, `Request failed.\n${result.stderr || result.output || "Unknown error."}`, {
                   replyToMessageId: messageId,
                 });
@@ -739,6 +850,11 @@ async function main() {
                 return;
               }
 
+              await updateRunRecord(runRecord.id, {
+                status: "completed",
+                codexThreadId: result.cliSessionRef || latestChatState.cliSessionRef || null,
+                outputPreview: normalizeFeishuOutput(result.output || "Done.").slice(0, 500),
+              }, botHome);
               const successResponse = await sendText(client, chatId, result.output || "Done.", {
                 replyToMessageId: messageId,
               });

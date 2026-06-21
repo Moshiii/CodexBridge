@@ -37,7 +37,7 @@ import { installSkillFromPath } from "./skills.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
-import { getUserCredits, grantPaidCredits } from "./user-credits.mjs";
+import { adjustPaidCredits, getUserCredits, grantPaidCredits } from "./user-credits.mjs";
 import { listUsageEvents } from "./usage-ledger.mjs";
 import { listRunRecords } from "./runs-state.mjs";
 import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.mjs";
@@ -596,6 +596,15 @@ async function listBotUsers(botId) {
 async function grantCreditsForBot(botId, userId, amount) {
   const botHome = await getBotHome(botId);
   const result = await grantPaidCredits({ userId, amount, botHome });
+  return {
+    user: (await readUsersState(botHome)).users[userId] || null,
+    credits: result,
+  };
+}
+
+async function adjustCreditsForBot(botId, userId, amount, reason) {
+  const botHome = await getBotHome(botId);
+  const result = await adjustPaidCredits({ userId, amount, reason, botHome });
   return {
     user: (await readUsersState(botHome)).users[userId] || null,
     credits: result,
@@ -1251,6 +1260,7 @@ function renderHtmlPage() {
               <button class="tab" data-tab="chat">Chat</button>
               <button class="tab" data-tab="goals">Goals</button>
               <button class="tab" data-tab="schedules">Schedules</button>
+              <button class="tab" data-tab="operations">Operations</button>
               <button class="tab" data-tab="workspace">Workspace</button>
               <button class="tab" data-tab="skills">Skills</button>
               <button class="tab" data-tab="config">Config</button>
@@ -1395,6 +1405,43 @@ Skills: installed capabilities</pre>
               </div>
             </div>
             <div class="list" id="schedules-list"></div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-operations">
+            <div class="two-col">
+              <div class="card">
+                <div class="section-title">
+                  <h3>Users</h3>
+                  <button id="operations-refresh">Refresh</button>
+                </div>
+                <div class="list" id="operations-users">Loading...</div>
+              </div>
+              <div class="card">
+                <h3>Admin Actions</h3>
+                <div class="modal-grid">
+                  <label>User ID<input id="operations-user-id" placeholder="telegram:123" /></label>
+                  <label>Credits<input id="operations-credit-amount" type="number" min="1" step="1" value="10" /></label>
+                </div>
+                <div class="toolbar">
+                  <button class="primary" id="operations-grant">Grant</button>
+                  <button id="operations-deduct">Deduct</button>
+                  <button id="operations-unlock">Unlock Private</button>
+                  <button id="operations-lock">Lock Private</button>
+                  <button id="operations-ban" class="danger">Ban</button>
+                  <button id="operations-unban">Unban</button>
+                </div>
+              </div>
+            </div>
+            <div class="two-col" style="margin-top:14px;">
+              <div class="card">
+                <h3>Usage Ledger</h3>
+                <div class="list" id="operations-usage">Loading...</div>
+              </div>
+              <div class="card">
+                <h3>Runs</h3>
+                <div class="list" id="operations-runs">Loading...</div>
+              </div>
+            </div>
           </section>
 
           <section class="panel tab-panel" id="tab-workspace">
@@ -1822,6 +1869,64 @@ Skills: installed capabilities</pre>
         );
       }
 
+      function formatCredits(user) {
+        const credits = user.credits || {};
+        return [
+          user.channel,
+          user.status,
+          user.privateEnabled ? "private unlocked" : "private locked",
+          "paid " + (credits.paidCredits ?? 0),
+          "free " + (credits.dailyFreeUsed ?? 0) + "/" + (credits.dailyFreeLimit ?? 0),
+          user.lastSeenAt ? "seen " + user.lastSeenAt : null,
+        ].filter(Boolean).join(" | ");
+      }
+
+      async function loadOperations(botId) {
+        const [users, usage, runs] = await Promise.all([
+          request('/api/bots/' + botId + '/users'),
+          request('/api/bots/' + botId + '/usage?limit=100'),
+          request('/api/bots/' + botId + '/runs?limit=100'),
+        ]);
+        document.getElementById("operations-users").innerHTML = renderList(
+          users.map((user) => renderBotItem(
+            user.displayName || user.id,
+            formatCredits(user),
+            [
+              "<button onclick=\\\"window.__selectOperationsUser(decodeURIComponent('" + encodeURIComponent(user.id) + "'))\\\">Select</button>",
+            ],
+          )),
+          "No users recorded yet."
+        );
+        document.getElementById("operations-usage").innerHTML = renderList(
+          usage.map((event) => renderBotItem(
+            event.eventType + " " + (event.amount ?? 0) + " " + (event.source || ""),
+            [
+              event.userId,
+              event.chatType,
+              event.reason,
+              event.runId,
+              event.createdAt,
+            ].filter(Boolean).join(" | "),
+          )),
+          "No usage events yet."
+        );
+        document.getElementById("operations-runs").innerHTML = renderList(
+          runs.map((run) => renderBotItem(
+            run.status + " " + run.id,
+            [
+              run.userId,
+              run.channel,
+              run.chatType,
+              run.costSource,
+              run.creditsCharged != null ? "credits " + run.creditsCharged : null,
+              run.error,
+              run.updatedAt || run.createdAt,
+            ].filter(Boolean).join(" | "),
+          )),
+          "No runs recorded yet."
+        );
+      }
+
       async function loadWorkspace(botId) {
         const files = await request('/api/bots/' + botId + '/workspace');
         document.getElementById("workspace-tree").innerHTML = renderList(
@@ -1929,6 +2034,7 @@ Skills: installed capabilities</pre>
           loadSessions(botId),
           loadGoals(botId),
           loadSchedules(botId),
+          loadOperations(botId),
           loadWorkspace(botId),
           loadSkills(botId),
           loadLogs(botId),
@@ -2064,6 +2170,45 @@ Skills: installed capabilities</pre>
         document.getElementById('schedule-objective-input').value = '';
         await loadSchedules(state.selectedBotId);
       };
+      document.getElementById('operations-refresh').onclick = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-grant').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const userId = document.getElementById('operations-user-id').value.trim();
+        const amount = Number.parseInt(document.getElementById('operations-credit-amount').value, 10);
+        await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/grant', {
+          method: 'POST',
+          body: JSON.stringify({ amount }),
+        });
+        showToast('Credits granted');
+        await loadOperations(state.selectedBotId);
+      };
+      document.getElementById('operations-deduct').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const userId = document.getElementById('operations-user-id').value.trim();
+        const amount = Number.parseInt(document.getElementById('operations-credit-amount').value, 10);
+        await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/adjust', {
+          method: 'POST',
+          body: JSON.stringify({ amount: -Math.abs(amount), reason: 'manual_deduct' }),
+        });
+        showToast('Credits deducted');
+        await loadOperations(state.selectedBotId);
+      };
+      document.getElementById('operations-unlock').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await updateOperationsPrivate(true);
+      };
+      document.getElementById('operations-lock').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await updateOperationsPrivate(false);
+      };
+      document.getElementById('operations-ban').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await updateOperationsStatus('banned');
+      };
+      document.getElementById('operations-unban').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await updateOperationsStatus('free');
+      };
       document.getElementById('workspace-open').onclick = async () => {
         if (!state.selectedBotId) return;
         await openWorkspaceFile(state.selectedBotId, document.getElementById('workspace-file-path').value.trim());
@@ -2191,6 +2336,31 @@ Skills: installed capabilities</pre>
         showToast('Schedule ' + action + 'd');
         await loadSchedules(state.selectedBotId);
       };
+
+      window.__selectOperationsUser = (userId) => {
+        document.getElementById('operations-user-id').value = userId;
+        setSelectedTab('operations');
+      };
+
+      async function updateOperationsPrivate(privateEnabled) {
+        const userId = document.getElementById('operations-user-id').value.trim();
+        await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/private', {
+          method: 'POST',
+          body: JSON.stringify({ privateEnabled }),
+        });
+        showToast(privateEnabled ? 'Private unlocked' : 'Private locked');
+        await loadOperations(state.selectedBotId);
+      }
+
+      async function updateOperationsStatus(status) {
+        const userId = document.getElementById('operations-user-id').value.trim();
+        await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/status', {
+          method: 'POST',
+          body: JSON.stringify({ status }),
+        });
+        showToast('Status set to ' + status);
+        await loadOperations(state.selectedBotId);
+      }
 
       void loadBots().then(async () => {
         if (state.selectedBotId) {
@@ -2385,6 +2555,21 @@ async function handleApi(request, response, pathname) {
         decodeURIComponent(botUserGrantMatch[1]),
         decodeURIComponent(botUserGrantMatch[2]),
         body.amount,
+      ),
+    );
+  }
+
+  const botUserAdjustMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/adjust$/);
+  if (request.method === "POST" && botUserAdjustMatch) {
+    const body = await readJsonBody(request);
+    return json(
+      response,
+      200,
+      await adjustCreditsForBot(
+        decodeURIComponent(botUserAdjustMatch[1]),
+        decodeURIComponent(botUserAdjustMatch[2]),
+        body.amount,
+        body.reason || "manual_adjustment",
       ),
     );
   }

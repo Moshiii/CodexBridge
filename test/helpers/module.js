@@ -11,6 +11,24 @@ async function getSharedHome() {
   return await sharedHomePromise;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function rmWithRetry(targetPath) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(targetPath, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      lastError = error;
+      await sleep(25 * (attempt + 1));
+    }
+  }
+  throw lastError;
+}
+
 export async function withTempHome(fn) {
   const previousHome = process.env.CODEXBRIDGE_HOME;
   const tempHome = await getSharedHome();
@@ -18,9 +36,9 @@ export async function withTempHome(fn) {
 
   try {
     const entries = await readdir(tempHome).catch(() => []);
-    await Promise.all(
-      entries.map((entry) => rm(path.join(tempHome, entry), { recursive: true, force: true })),
-    );
+    for (const entry of entries) {
+      await rmWithRetry(path.join(tempHome, entry));
+    }
     return await fn(tempHome);
   } finally {
     if (previousHome == null) {

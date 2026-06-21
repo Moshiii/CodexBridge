@@ -114,6 +114,32 @@ test("grantPaidCredits increases paid credit balance", async () => {
   });
 });
 
+test("adjustPaidCredits supports manual credit increases and decreases", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    const increase = await credits.adjustPaidCredits({ userId: "user-1", amount: 5 });
+    const decrease = await credits.adjustPaidCredits({ userId: "user-1", amount: -3 });
+
+    assert.equal(increase.ok, true);
+    assert.equal(increase.balanceAfter, credits.DEFAULT_INITIAL_CREDITS + 5);
+    assert.equal(decrease.ok, true);
+    assert.equal(decrease.adjusted, -3);
+    assert.equal(decrease.balanceAfter, credits.DEFAULT_INITIAL_CREDITS + 2);
+  });
+});
+
+test("adjustPaidCredits rejects negative resulting balances", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    await assert.rejects(
+      () => credits.adjustPaidCredits({ userId: "user-1", amount: -(credits.DEFAULT_INITIAL_CREDITS + 1) }),
+      /negative/,
+    );
+  });
+});
+
 test("chargeTurnCredits blocks turns once balance is exhausted", async () => {
   await withTempHome(async () => {
     const credits = await importFresh("../../src/user-credits.mjs");
