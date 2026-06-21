@@ -159,6 +159,7 @@
    - 已新增 config schema validator，配置写入前会做结构校验，并拒绝持久化 `[redacted]` secret。
    - 已新增结构化 JSONL bridge logging。
    - paid credit refund 已有基础实现；daily free 扣费不会退款。
+   - 已新增 state migration runner，可通过 CLI `/migrate` 对当前 bot 执行幂等迁移。
 
 ### 本轮审计已修复的严重问题
 
@@ -197,7 +198,7 @@ run record
 
 目标是让 channel bridge 只负责收消息、发消息、平台适配。
 
-### 2. 持久化层已有 repository wrapper，但还没有迁移执行器
+### 2. 持久化层已有 repository wrapper 和 migration runner，但还没有数据库迁移
 
 现在 users / credits / usage / runs 仍使用 JSON / JSONL 状态文件，并已新增：
 
@@ -205,13 +206,14 @@ run record
 - `credits-repository.mjs`
 - `usage-ledger-repository.mjs`
 - `runs-repository.mjs`
+- `state-migrations.mjs`
 
-后续缺口不再是“有没有 repository”，而是：
+后续缺口不再是“有没有 repository / migration 入口”，而是：
 
-- state version
-- migration runner
+- 更完整的 state version 策略
 - 文件锁或单进程写入约束
 - SQLite/Postgres 迁移判断标准
+- 从 JSON / JSONL 到数据库的真实数据迁移
 
 ### 3. 错误类型和统一错误处理还不够正式
 
@@ -582,7 +584,7 @@ denied
 
 接下来再考虑：
 
-1. 数据库迁移和 state migration 的实际执行器。
+1. 数据库迁移和 state migration 的生产化执行器。
 2. 支付、订单和自动充值。
 3. worker queue / 多实例并发。
 4. Web 控制台拆分和权限保护。
@@ -665,12 +667,11 @@ denied
 
 ### Step 2：state migration / 数据库准备
 
-现在已有 repository wrapper，但底层仍是 JSON / JSONL。下一步应补：
+现在已有 repository wrapper 和基础 state migration runner，但底层仍是 JSON / JSONL。下一步应补：
 
-- state version。
-- migration runner。
 - 文件锁或单进程写入约束说明。
 - SQLite / Postgres 迁移判断标准。
+- JSON / JSONL 到数据库的迁移脚本。
 
 ### Step 3：Web 控制台拆分和鉴权
 

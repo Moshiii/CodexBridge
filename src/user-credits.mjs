@@ -104,6 +104,14 @@ async function writeCreditsState(filePath, state) {
   await writeFile(filePath, `${JSON.stringify(normalizeCreditsState(state), null, 2)}\n`, "utf8");
 }
 
+export async function readUserCreditsState(botHome = resolveBotHome()) {
+  return await readCreditsState(getUserCreditsStatePath(botHome));
+}
+
+export async function writeUserCreditsState(state, botHome = resolveBotHome()) {
+  await writeCreditsState(getUserCreditsStatePath(botHome), state);
+}
+
 async function acquireLock(lockPath) {
   const startedAt = Date.now();
   while (true) {

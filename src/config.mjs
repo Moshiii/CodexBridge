@@ -121,6 +121,10 @@ export function getAdminAuditLogPath(botHome = resolveBotHome()) {
   return path.join(botHome, "admin-audit.jsonl");
 }
 
+export function getStateMigrationsPath(botHome = resolveBotHome()) {
+  return path.join(botHome, "state-migrations.json");
+}
+
 export function getTelegramStatePath(botHome = resolveBotHome()) {
   return path.join(botHome, "telegram");
 }

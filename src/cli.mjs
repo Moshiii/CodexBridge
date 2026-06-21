@@ -19,6 +19,7 @@ import {
 import { DEFAULT_BOT_ID } from "./config.mjs";
 import { buildCommandConfig, startCliTurn } from "./codex-runner.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
+import { getStateMigrationStatus, runStateMigrations } from "./state-migrations.mjs";
 import { completeBootstrap, ensureWorkspaceBootstrap } from "./workspace-bootstrap.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
 import { createBot, ensureDefaultBot, getBot, listBots, normalizeBotId, restartBot, setActiveBot, startBot, stopBot, updateBotConfig } from "./bots.mjs";
@@ -953,6 +954,7 @@ function printHelpCard() {
       "/me       show a compact status summary",
       "/status   same as /me, use /status full for full details",
       "/credits  show remaining credits for this bot",
+      "/migrate  run state migrations for this bot",
       "/stop     stop the current running turn",
       "/restart  restart the current bot runtime",
       "/exit     quit CodexBridge",
@@ -1181,6 +1183,38 @@ async function handleSlashCommand(line, rl, botContextRef, configRef, bridgeProc
           ["total consumed", String(creditsInfo.account.totalConsumed)],
         ])}\n`,
       );
+      return true;
+    }
+    case "/migrate": {
+      try {
+        const dryRun = rest.includes("--dry-run") || rest.includes("dry-run");
+        const before = await getStateMigrationStatus({ botHome: botContextRef.current.botHome });
+        const result = await runStateMigrations({
+          botHome: botContextRef.current.botHome,
+          dryRun,
+        });
+        const after = await getStateMigrationStatus({ botHome: botContextRef.current.botHome });
+        console.log(
+          `${formatKeyValueCard(dryRun ? "State Migration Dry Run" : "State Migration", [
+            ["bot", botContextRef.current.botId],
+            ["schema before", String(before.schemaVersion)],
+            ["schema after", String(after.schemaVersion)],
+            ["executed", String(result.executed.length)],
+            ["pending", String(after.pending.length)],
+          ])}\n`,
+        );
+        const visibleItems = dryRun ? result.pending : result.executed;
+        if (visibleItems.length) {
+          console.log(
+            `${formatListCard(
+              dryRun ? "Pending Migrations" : "Executed Migrations",
+              visibleItems.map((migration) => `- ${migration.id}: ${migration.description}`),
+            )}\n`,
+          );
+        }
+      } catch (error) {
+        console.log(`${formatMessageCard("Migration Failed", [error.message])}\n`);
+      }
       return true;
     }
     case "/stop": {
