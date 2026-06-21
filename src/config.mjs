@@ -3,6 +3,8 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
+import { assertValidBotConfig } from "./config-validator.mjs";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -454,7 +456,9 @@ export async function readConfig(botHome = resolveBotHome()) {
 
 export async function writeConfig(config, botHome = resolveBotHome()) {
   await ensureBotHome(botHome);
-  await writeJson(getBotConfigPath(botHome), normalizeBotConfig(config));
+  const normalized = normalizeBotConfig(config);
+  assertValidBotConfig(normalized);
+  await writeJson(getBotConfigPath(botHome), normalized);
 }
 
 export function createDefaultCliState() {
