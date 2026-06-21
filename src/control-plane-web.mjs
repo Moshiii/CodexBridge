@@ -299,6 +299,28 @@ async function buildSetupGuide(detail, health, access) {
   };
 }
 
+function buildQuickTestPreflight(setupGuide) {
+  const missing = (setupGuide?.steps || [])
+    .filter((step) => step.status !== "done" && step.id !== "send_first_message");
+  if (missing.length === 0) {
+    return {
+      readyForIm: true,
+      message: "Quick test can run now. IM setup also looks ready.",
+      missingSteps: [],
+    };
+  }
+  return {
+    readyForIm: false,
+    message: `Quick test can still verify local Codex. Before inviting users, finish: ${missing.map((step) => step.label).join(", ")}.`,
+    missingSteps: missing.map((step) => ({
+      id: step.id,
+      label: step.label,
+      action: step.action,
+      targetTab: step.targetTab,
+    })),
+  };
+}
+
 async function withBotHome(botHome, work) {
   const previousBotHome = process.env.BOT_HOME;
   process.env.BOT_HOME = botHome;
@@ -552,10 +574,15 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
 }
 
 async function startQuickTestForBot(botId) {
-  return await startBotChat(botId, {
+  const detail = await getBotControlPlaneDetail(botId);
+  const run = await startBotChat(botId, {
     prompt: QUICK_TEST_PROMPT,
     sessionLabel: "main",
   });
+  return {
+    ...run,
+    preflight: buildQuickTestPreflight(detail.setupGuide),
+  };
 }
 
 async function stopBotChat(botId, sessionLabel = null) {
@@ -1032,12 +1059,14 @@ export async function getBotControlPlaneDetail(botId) {
     groupChats: (telegram.groups?.allowedChatIds ?? []).map((id) => formatEntry(id, metadata.chats)),
     groupUsers: (telegram.groups?.allowedUserIds ?? []).map((id) => formatEntry(id, metadata.users)),
   };
+  const setupGuide = await buildSetupGuide(detail, health, access);
   return {
     detail,
     health,
     logs: await readBotLogs(botId, 50),
     access,
-    setupGuide: await buildSetupGuide(detail, health, access),
+    setupGuide,
+    quickTestPreflight: buildQuickTestPreflight(setupGuide),
   };
 }
 
@@ -2222,9 +2251,12 @@ Skills: installed capabilities</pre>
 
       async function runQuickTest() {
         if (!state.selectedBotId) return;
-        await request('/api/bots/' + state.selectedBotId + '/quick-test', { method: 'POST' });
+        const payload = await request('/api/bots/' + state.selectedBotId + '/quick-test', { method: 'POST' });
         document.getElementById('chat-session-label').textContent = "main";
         document.getElementById('chat-input').value = '${QUICK_TEST_PROMPT}';
+        if (payload.preflight?.message) {
+          document.getElementById('chat-output').textContent = payload.preflight.message;
+        }
         showToast('Quick test started');
         await loadChatStatus(state.selectedBotId);
       }

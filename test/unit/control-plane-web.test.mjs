@@ -41,6 +41,8 @@ test("getBotControlPlaneDetail includes inspect, health, and logs", async () => 
     assert.equal(detail.setupGuide.ready, false);
     assert.equal(detail.setupGuide.total, 5);
     assert.equal(detail.setupGuide.nextStep.id, "configure_channel");
+    assert.equal(detail.quickTestPreflight.readyForIm, false);
+    assert.equal(detail.quickTestPreflight.missingSteps[0].id, "configure_channel");
   });
 });
 
@@ -319,9 +321,11 @@ test("control plane quick test starts a main-session smoke prompt", async () => 
           method: "POST",
         });
         assert.equal(quickResponse.status, 200);
-        const quickPayload = await quickResponse.json();
-        assert.equal(quickPayload.sessionLabel, "main");
-        assert.equal(quickPayload.prompt, "Reply with one short sentence confirming CodexBridge is ready.");
+      const quickPayload = await quickResponse.json();
+      assert.equal(quickPayload.sessionLabel, "main");
+      assert.equal(quickPayload.prompt, "Reply with one short sentence confirming CodexBridge is ready.");
+      assert.equal(quickPayload.preflight.readyForIm, false);
+      assert.equal(quickPayload.preflight.missingSteps.some((step) => step.id === "configure_channel"), true);
 
         await new Promise((resolve) => setTimeout(resolve, 50));
         const statusResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/smoke/chat?sessionLabel=main`);
@@ -334,6 +338,53 @@ test("control plane quick test starts a main-session smoke prompt", async () => 
     } finally {
       await runtime.close();
     }
+    });
+  } finally {
+    if (previousStartCommand == null) {
+      delete process.env.CODEX_START_COMMAND;
+    } else {
+      process.env.CODEX_START_COMMAND = previousStartCommand;
+    }
+  }
+});
+
+test("control plane quick test preflight recognizes configured IM setup", async () => {
+  const previousStartCommand = process.env.CODEX_START_COMMAND;
+  try {
+    await withTempHome(async () => {
+      process.env.CODEX_START_COMMAND = "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"ready-thread\"}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Ready.\"}}'";
+      const { createBot } = await importFresh("../../src/bots.mjs");
+      const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+
+      await createBot({
+        id: "ready-smoke",
+        name: "Ready Smoke",
+        config: {
+          channels: {
+            telegram: {
+              enabled: true,
+              botToken: "123456:ABCDEF",
+              botUsername: "ready_bot",
+              groups: {
+                allowedUserIds: ["123"],
+              },
+            },
+          },
+        },
+      });
+      const runtime = await startControlPlaneWebServer({ port: 0 });
+      try {
+        const quickResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/ready-smoke/quick-test`, {
+          method: "POST",
+        });
+        assert.equal(quickResponse.status, 200);
+        const quickPayload = await quickResponse.json();
+        assert.equal(quickPayload.preflight.readyForIm, false);
+        assert.equal(quickPayload.preflight.missingSteps.length, 1);
+        assert.equal(quickPayload.preflight.missingSteps[0].id, "start_runtime");
+      } finally {
+        await runtime.close();
+      }
     });
   } finally {
     if (previousStartCommand == null) {
