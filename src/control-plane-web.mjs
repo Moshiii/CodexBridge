@@ -871,15 +871,21 @@ async function listConversationLogsForBot(botId, options = {}) {
       runId: options.runId || null,
       direction: options.direction || null,
       riskLabel: options.riskLabel || null,
+      riskOnly: options.riskOnly === true || options.riskOnly === "true",
+      createdAfter: options.createdAfter || null,
+      createdBefore: options.createdBefore || null,
       redactContent: true,
       limit: options.limit || 100,
     }),
     getLatestConversationReviews({ botHome }),
   ]);
-  return events.map((event) => ({
-    ...event,
-    review: latestReviews.get(event.eventId) || null,
-  }));
+  const reviewStatus = String(options.reviewStatus || "").trim();
+  return events
+    .map((event) => ({
+      ...event,
+      review: latestReviews.get(event.eventId) || null,
+    }))
+    .filter((event) => !reviewStatus || event.review?.status === reviewStatus);
 }
 
 async function listConversationReviewsForBot(botId, options = {}) {
@@ -2962,6 +2968,10 @@ async function handleApi(request, response, pathname) {
       runId: url.searchParams.get("runId"),
       direction: url.searchParams.get("direction"),
       riskLabel: url.searchParams.get("riskLabel"),
+      riskOnly: url.searchParams.get("riskOnly"),
+      reviewStatus: url.searchParams.get("reviewStatus"),
+      createdAfter: url.searchParams.get("createdAfter"),
+      createdBefore: url.searchParams.get("createdBefore"),
       limit: url.searchParams.get("limit"),
     }));
   }

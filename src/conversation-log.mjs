@@ -23,6 +23,14 @@ function unique(values = []) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function parseDateMs(value) {
+  if (value == null || value === "") {
+    return null;
+  }
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function detectConversationRiskLabels(content = "") {
   const text = String(content || "");
   const labels = [];
@@ -101,6 +109,9 @@ export async function listConversationLogEvents({
   runId = null,
   direction = null,
   riskLabel = null,
+  riskOnly = false,
+  createdAfter = null,
+  createdBefore = null,
   redactContent = false,
   limit = 100,
   botHome = resolveBotHome(),
@@ -115,6 +126,8 @@ export async function listConversationLogEvents({
   const normalizedRunId = runId == null ? null : normalizeString(runId);
   const normalizedDirection = direction == null ? null : normalizeDirection(direction);
   const normalizedRiskLabel = riskLabel == null ? null : normalizeString(riskLabel);
+  const createdAfterMs = parseDateMs(createdAfter);
+  const createdBeforeMs = parseDateMs(createdBefore);
   const events = [];
   for (const line of raw.split(/\r?\n/)) {
     const trimmed = line.trim();
@@ -133,6 +146,16 @@ export async function listConversationLogEvents({
         continue;
       }
       if (normalizedRiskLabel && !event.riskLabels.includes(normalizedRiskLabel)) {
+        continue;
+      }
+      if (riskOnly && event.riskLabels.length === 0) {
+        continue;
+      }
+      const createdAtMs = parseDateMs(event.createdAt);
+      if (createdAfterMs != null && (createdAtMs == null || createdAtMs < createdAfterMs)) {
+        continue;
+      }
+      if (createdBeforeMs != null && (createdAtMs == null || createdAtMs > createdBeforeMs)) {
         continue;
       }
       events.push(redactContent ? redactConversationLogEvent(event) : event);
