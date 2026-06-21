@@ -43,6 +43,7 @@ import { listUsageEvents } from "./usage-ledger.mjs";
 import { listRunRecords } from "./runs-state.mjs";
 import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.mjs";
 import { appendAdminAuditEvent, listAdminAuditEvents } from "./admin-audit-log.mjs";
+import { getBotMetrics } from "./analytics-service.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -779,6 +780,11 @@ async function listAdminAuditForBot(botId, options = {}) {
     userId: options.userId || null,
     limit: options.limit || 100,
   });
+}
+
+async function getMetricsForBot(botId) {
+  const botHome = await getBotHome(botId);
+  return await getBotMetrics({ botHome });
 }
 
 export async function getControlPlaneSnapshot() {
@@ -1550,6 +1556,12 @@ Skills: installed capabilities</pre>
           </section>
 
           <section class="panel tab-panel" id="tab-operations">
+            <div class="card" style="margin-bottom:14px;">
+              <div class="section-title">
+                <h3>Metrics</h3>
+              </div>
+              <div class="list" id="operations-metrics">Loading...</div>
+            </div>
             <div class="two-col">
               <div class="card">
                 <div class="section-title">
@@ -2024,11 +2036,28 @@ Skills: installed capabilities</pre>
       }
 
       async function loadOperations(botId) {
-        const [users, usage, runs] = await Promise.all([
+        const [users, usage, runs, metrics] = await Promise.all([
           request('/api/bots/' + botId + '/users'),
           request('/api/bots/' + botId + '/usage?limit=100'),
           request('/api/bots/' + botId + '/runs?limit=100'),
+          request('/api/bots/' + botId + '/metrics'),
         ]);
+        const metricRows = [
+          ["users", metrics.totals?.users ?? 0],
+          ["group trial users", metrics.totals?.groupTrialUsers ?? 0],
+          ["paid active users", metrics.totals?.paidActiveUsers ?? 0],
+          ["paid conversion", Math.round((metrics.totals?.paidConversionRate ?? 0) * 100) + "%"],
+          ["runs", metrics.totals?.runs ?? 0],
+          ["failed runs", metrics.runStatusCounts?.failed ?? 0],
+          ["daily free charged", metrics.creditTotals?.dailyFreeCharged ?? 0],
+          ["paid credits charged", metrics.creditTotals?.paidCreditsCharged ?? 0],
+          ["paid credits refunded", metrics.creditTotals?.paidCreditsRefunded ?? 0],
+          ["avg latency", (metrics.totals?.averageRunLatencyMs ?? 0) + "ms"],
+        ];
+        document.getElementById("operations-metrics").innerHTML = renderList(
+          metricRows.map(([label, value]) => renderBotItem(label, String(value))),
+          "No metrics yet."
+        );
         document.getElementById("operations-users").innerHTML = renderList(
           users.map((user) => renderBotItem(
             user.displayName || user.id,
@@ -2771,6 +2800,11 @@ async function handleApi(request, response, pathname) {
       userId: url.searchParams.get("userId"),
       limit: url.searchParams.get("limit"),
     }));
+  }
+
+  const botMetricsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/metrics$/);
+  if (request.method === "GET" && botMetricsMatch) {
+    return json(response, 200, await getMetricsForBot(decodeURIComponent(botMetricsMatch[1])));
   }
 
   const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);

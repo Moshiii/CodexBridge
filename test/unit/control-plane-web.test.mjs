@@ -463,6 +463,15 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       assert.equal(runsPayload.length, 1);
       assert.equal(runsPayload[0].status, "completed");
 
+      const metricsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/metrics`);
+      assert.equal(metricsResponse.status, 200);
+      const metricsPayload = await metricsResponse.json();
+      assert.equal(metricsPayload.totals.users, 1);
+      assert.equal(metricsPayload.totals.groupTrialUsers, 1);
+      assert.equal(metricsPayload.runStatusCounts.completed, 1);
+      assert.equal(metricsPayload.creditTotals.dailyFreeCharged, 1);
+      assert.equal(metricsPayload.creditTotals.paidCreditsGranted, 10);
+
       const auditResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/admin-audit?userId=${encodeURIComponent("telegram:123")}`);
       assert.equal(auditResponse.status, 200);
       const auditPayload = await auditResponse.json();

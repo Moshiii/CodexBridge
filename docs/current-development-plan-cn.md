@@ -162,6 +162,7 @@
    - 已新增 state migration runner，可通过 CLI `/migrate` 对当前 bot 执行幂等迁移。
    - Web 控制台已支持可选 operator token 鉴权，设置 `CODEXBRIDGE_WEB_TOKEN` 后启用。
    - Telegram / 飞书普通请求失败路径已接入 paid credit refund；用户主动 stop 默认不退。
+   - 已新增基础 analytics service 和 Web metrics API，能聚合用户、usage、runs、credits 指标。
 
 ### 本轮审计已修复的严重问题
 
@@ -265,9 +266,9 @@ run record
 - invoice/receipt
 - admin audit
 
-### 7. 观测指标还不够产品化
+### 7. 观测指标已有基础 API，但还不够产品化
 
-后续需要可视化：
+当前已有 `src/analytics-service.mjs` 和 `/api/bots/:id/metrics`，可以聚合：
 
 - group trial users
 - daily free consumed
@@ -275,7 +276,13 @@ run record
 - private unlock count
 - failed runs
 - average latency
+
+后续仍需要可视化和更细指标：
+
 - cost per run
+- 时间窗口过滤
+- 渠道维度对比
+- conversion funnel
 
 ## 五、已完成阶段验收清单
 
