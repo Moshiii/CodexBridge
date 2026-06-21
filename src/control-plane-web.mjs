@@ -45,6 +45,7 @@ import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.
 import { appendAdminAuditEvent, listAdminAuditEvents } from "./admin-audit-log.mjs";
 import { getBotMetrics } from "./analytics-service.mjs";
 import { NotFoundError, UserInputError, toPublicError } from "./errors.mjs";
+import { appendConversationLogEvent, listConversationLogEvents } from "./conversation-log.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -387,6 +388,18 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
     child: null,
   };
   activeChatRuns.set(key, run);
+  await appendConversationLogEvent({
+    userId: "local-web",
+    channel: "web",
+    chatType: "direct",
+    chatId: botId,
+    conversationId: label,
+    direction: "input",
+    content: nextPrompt,
+    metadata: {
+      sessionLabel: label,
+    },
+  }, botHome).catch(() => {});
 
   const started = startCliTurn(await buildWorkspacePrompt(nextPrompt, { botHome }), session.cliSessionRef, commandConfig);
   run.child = started.child;
@@ -406,15 +419,55 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
     if (result.ok) {
       run.status = "completed";
       run.output = result.output || "";
+      await appendConversationLogEvent({
+        userId: "local-web",
+        channel: "web",
+        chatType: "direct",
+        chatId: botId,
+        conversationId: label,
+        direction: "output",
+        content: run.output || "Done.",
+        metadata: {
+          sessionLabel: label,
+          ok: true,
+        },
+      }, botHome).catch(() => {});
       return;
     }
     run.status = result.signal ? "stopped" : "failed";
     run.error = [result.output, result.stderr].filter(Boolean).join("\n\n") || "Chat run failed.";
+    await appendConversationLogEvent({
+      userId: "local-web",
+      channel: "web",
+      chatType: "direct",
+      chatId: botId,
+      conversationId: label,
+      direction: "output",
+      content: run.error,
+      metadata: {
+        sessionLabel: label,
+        ok: false,
+        stopped: Boolean(result.signal),
+      },
+    }, botHome).catch(() => {});
   }).catch((error) => {
     run.finishedAt = nowIso();
     run.child = null;
     run.status = "failed";
     run.error = error.message;
+    void appendConversationLogEvent({
+      userId: "local-web",
+      channel: "web",
+      chatType: "direct",
+      chatId: botId,
+      conversationId: label,
+      direction: "output",
+      content: run.error,
+      metadata: {
+        sessionLabel: label,
+        ok: false,
+      },
+    }, botHome).catch(() => {});
   });
 
   return await readChatStatus(botId, label);
@@ -802,6 +855,18 @@ async function listAdminAuditForBot(botId, options = {}) {
 async function getMetricsForBot(botId) {
   const botHome = await getBotHome(botId);
   return await getBotMetrics({ botHome });
+}
+
+async function listConversationLogsForBot(botId, options = {}) {
+  const botHome = await getBotHome(botId);
+  return await listConversationLogEvents({
+    botHome,
+    userId: options.userId || null,
+    runId: options.runId || null,
+    direction: options.direction || null,
+    riskLabel: options.riskLabel || null,
+    limit: options.limit || 100,
+  });
 }
 
 export async function getControlPlaneSnapshot() {
@@ -1613,6 +1678,10 @@ Skills: installed capabilities</pre>
                 <div class="list" id="operations-runs">Loading...</div>
               </div>
             </div>
+            <div class="card" style="margin-top:14px;">
+              <h3>Conversation Logs</h3>
+              <div class="list" id="operations-conversation-logs">Loading...</div>
+            </div>
           </section>
 
           <section class="panel tab-panel" id="tab-workspace">
@@ -2053,11 +2122,12 @@ Skills: installed capabilities</pre>
       }
 
       async function loadOperations(botId) {
-        const [users, usage, runs, metrics] = await Promise.all([
+        const [users, usage, runs, metrics, conversationLogs] = await Promise.all([
           request('/api/bots/' + botId + '/users'),
           request('/api/bots/' + botId + '/usage?limit=100'),
           request('/api/bots/' + botId + '/runs?limit=100'),
           request('/api/bots/' + botId + '/metrics'),
+          request('/api/bots/' + botId + '/conversation-logs?limit=100'),
         ]);
         const metricRows = [
           ["users", metrics.totals?.users ?? 0],
@@ -2112,6 +2182,20 @@ Skills: installed capabilities</pre>
             ].filter(Boolean).join(" | "),
           )),
           "No runs recorded yet."
+        );
+        document.getElementById("operations-conversation-logs").innerHTML = renderList(
+          conversationLogs.map((event) => renderBotItem(
+            event.direction + " " + (event.userId || "unknown"),
+            [
+              event.channel,
+              event.chatType,
+              event.runId,
+              event.riskLabels?.length ? ("risk " + event.riskLabels.join(",")) : null,
+              event.content ? event.content.slice(0, 180) : null,
+              event.createdAt,
+            ].filter(Boolean).join(" | "),
+          )),
+          "No conversation logs yet."
         );
       }
 
@@ -2822,6 +2906,18 @@ async function handleApi(request, response, pathname) {
   const botMetricsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/metrics$/);
   if (request.method === "GET" && botMetricsMatch) {
     return json(response, 200, await getMetricsForBot(decodeURIComponent(botMetricsMatch[1])));
+  }
+
+  const botConversationLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs$/);
+  if (request.method === "GET" && botConversationLogsMatch) {
+    const url = new URL(request.url || "/", "http://localhost");
+    return json(response, 200, await listConversationLogsForBot(decodeURIComponent(botConversationLogsMatch[1]), {
+      userId: url.searchParams.get("userId"),
+      runId: url.searchParams.get("runId"),
+      direction: url.searchParams.get("direction"),
+      riskLabel: url.searchParams.get("riskLabel"),
+      limit: url.searchParams.get("limit"),
+    }));
   }
 
   const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);

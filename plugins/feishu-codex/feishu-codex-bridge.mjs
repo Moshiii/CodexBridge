@@ -29,6 +29,7 @@ import {
 } from "../../src/run-service.mjs";
 import { settleFailedRunBilling } from "../../src/billing-service.mjs";
 import { prepareChatRequest } from "../../src/chat-request-service.mjs";
+import { appendConversationLogEvent } from "../../src/conversation-log.mjs";
 import {
   buildUserId,
   canUseGroupChat,
@@ -783,6 +784,40 @@ async function main() {
             botHome,
           });
           if (!preparedRequest.ok) {
+            await appendConversationLogEvent({
+              runId: preparedRequest.run?.runId,
+              userId: preparedRequest.user?.id,
+              channel: envelope.channel,
+              chatType: envelope.chatType,
+              chatId,
+              messageId,
+              conversationId: envelope.conversationId,
+              direction: "input",
+              content: promptText,
+              metadata: {
+                decision: preparedRequest.decision,
+                reason: preparedRequest.reason,
+              },
+            }, botHome).catch((error) => {
+              console.error("feishu conversation input log failed", error);
+            });
+            await appendConversationLogEvent({
+              runId: preparedRequest.run?.runId,
+              userId: preparedRequest.user?.id,
+              channel: envelope.channel,
+              chatType: envelope.chatType,
+              chatId,
+              messageId,
+              conversationId: envelope.conversationId,
+              direction: "output",
+              content: preparedRequest.message,
+              metadata: {
+                decision: preparedRequest.decision,
+                reason: preparedRequest.reason,
+              },
+            }, botHome).catch((error) => {
+              console.error("feishu conversation output log failed", error);
+            });
             const deniedResponse = await sendText(
               client,
               chatId,
@@ -794,6 +829,23 @@ async function main() {
           }
           const runRecord = preparedRequest.run;
           const chargeResult = preparedRequest.charged;
+          await appendConversationLogEvent({
+            runId: runRecord.runId,
+            userId: runRecord.userId,
+            channel: envelope.channel,
+            chatType: envelope.chatType,
+            chatId,
+            messageId,
+            conversationId: envelope.conversationId,
+            direction: "input",
+            content: promptText,
+            metadata: {
+              costSource: chargeResult.costSource,
+              creditsCharged: chargeResult.charged,
+            },
+          }, botHome).catch((error) => {
+            console.error("feishu conversation input log failed", error);
+          });
           pendingCounts.set(routeKey, 1);
 
           const previous = chatQueues.get(routeKey) ?? Promise.resolve();
@@ -862,17 +914,51 @@ async function main() {
                   replyToMessageId: messageId,
                 });
                 rememberBotOpenId(botIdentity, failureResponse);
+                await appendConversationLogEvent({
+                  runId: runRecord.runId,
+                  userId: runRecord.userId,
+                  channel: envelope.channel,
+                  chatType: envelope.chatType,
+                  chatId,
+                  messageId,
+                  conversationId: envelope.conversationId,
+                  direction: "output",
+                  content: `Request failed.\n${result.stderr || result.output || "Unknown error."}`,
+                  metadata: {
+                    ok: false,
+                    stopped: Boolean(result.stopped),
+                  },
+                }, botHome).catch((error) => {
+                  console.error("feishu conversation output log failed", error);
+                });
                 return;
               }
 
+              const outputText = result.output || "Done.";
               await markRunCompleted(runRecord.runId, {
                 codexThreadId: result.cliSessionRef || latestChatState.cliSessionRef || null,
-                output: normalizeFeishuOutput(result.output || "Done."),
+                output: normalizeFeishuOutput(outputText),
               }, botHome);
-              const successResponse = await sendText(client, chatId, result.output || "Done.", {
+              const successResponse = await sendText(client, chatId, outputText, {
                 replyToMessageId: messageId,
               });
               rememberBotOpenId(botIdentity, successResponse);
+              await appendConversationLogEvent({
+                runId: runRecord.runId,
+                userId: runRecord.userId,
+                channel: envelope.channel,
+                chatType: envelope.chatType,
+                chatId,
+                messageId,
+                conversationId: envelope.conversationId,
+                direction: "output",
+                content: outputText,
+                metadata: {
+                  ok: true,
+                },
+              }, botHome).catch((error) => {
+                console.error("feishu conversation output log failed", error);
+              });
             })
             .finally(() => {
               const remaining = (pendingCounts.get(routeKey) || 1) - 1;

@@ -113,6 +113,10 @@ export function getUsageLedgerPath(botHome = resolveBotHome()) {
   return path.join(botHome, "usage-ledger.jsonl");
 }
 
+export function getConversationLogPath(botHome = resolveBotHome()) {
+  return path.join(botHome, "conversation-log.jsonl");
+}
+
 export function getRunsStatePath(botHome = resolveBotHome()) {
   return path.join(botHome, "runs.jsonl");
 }

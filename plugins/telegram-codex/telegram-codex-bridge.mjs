@@ -52,6 +52,7 @@ import {
 } from "../../src/run-service.mjs";
 import { settleFailedRunBilling } from "../../src/billing-service.mjs";
 import { prepareChatRequest } from "../../src/chat-request-service.mjs";
+import { appendConversationLogEvent } from "../../src/conversation-log.mjs";
 import {
   buildUserId,
   canUseGroupChat,
@@ -1783,6 +1784,48 @@ async function processUpdate(update, context) {
     botHome: context.botHome,
   });
   if (!preparedRequest.ok) {
+    await appendConversationLogEvent({
+      runId: preparedRequest.run?.runId,
+      userId: preparedRequest.user?.id,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      conversationId: routedSession.sessionKey || activeLabel,
+      direction: "input",
+      content: normalizedText,
+      metadata: {
+        decision: preparedRequest.decision,
+        reason: preparedRequest.reason,
+      },
+    }, context.botHome).catch((error) => {
+      logBridgeEvent("telegram conversation input log failed", {
+        chatId,
+        activeLabel,
+        error: error.message,
+      });
+    });
+    await appendConversationLogEvent({
+      runId: preparedRequest.run?.runId,
+      userId: preparedRequest.user?.id,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      conversationId: routedSession.sessionKey || activeLabel,
+      direction: "output",
+      content: preparedRequest.message,
+      metadata: {
+        decision: preparedRequest.decision,
+        reason: preparedRequest.reason,
+      },
+    }, context.botHome).catch((error) => {
+      logBridgeEvent("telegram conversation output log failed", {
+        chatId,
+        activeLabel,
+        error: error.message,
+      });
+    });
     await sendMessage(
       context.token,
       message.chat.id,
@@ -1793,6 +1836,29 @@ async function processUpdate(update, context) {
   }
   const run = preparedRequest.run;
   const chargeResult = preparedRequest.charged;
+  await appendConversationLogEvent({
+    runId: run.runId,
+    userId: run.userId,
+    channel: envelope.channel,
+    chatType: envelope.chatType,
+    chatId: envelope.chatId,
+    messageId: envelope.messageId,
+    conversationId: routedSession.sessionKey || activeLabel,
+    direction: "input",
+    content: normalizedText,
+    metadata: {
+      hasUploadedDocument: Boolean(uploadedDocument),
+      costSource: chargeResult.costSource,
+      creditsCharged: chargeResult.charged,
+    },
+  }, context.botHome).catch((error) => {
+    logBridgeEvent("telegram conversation input log failed", {
+      chatId,
+      activeLabel,
+      runId: run.runId,
+      error: error.message,
+    });
+  });
   await markRunRunning(run.runId, {
     costSource: chargeResult.costSource,
     creditsCharged: chargeResult.charged,
@@ -1900,6 +1966,30 @@ async function processUpdate(update, context) {
       messageText,
       message.message_id,
     );
+    await appendConversationLogEvent({
+      runId: run.runId,
+      userId: run.userId,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      conversationId: routedSession.sessionKey || activeLabel,
+      direction: "output",
+      content: messageText,
+      metadata: {
+        ok: finalResult.ok,
+        stopped: Boolean(job.stopRequested),
+        exitCode: finalResult.exitCode,
+        signal: finalResult.signal,
+      },
+    }, context.botHome).catch((error) => {
+      logBridgeEvent("telegram conversation output log failed", {
+        chatId,
+        activeLabel,
+        runId: run.runId,
+        error: error.message,
+      });
+    });
   })().catch(async (error) => {
     unregisterRunningJob(context.runningJobs, chatId, activeLabel, job);
     logBridgeEvent("codex job failed", {
@@ -1926,12 +2016,35 @@ async function processUpdate(update, context) {
         error: refundError.message,
       });
     });
+    const failedMessage = `Job failed: ${error.message}`;
     await sendMessage(
       context.token,
       message.chat.id,
-      `Job failed: ${error.message}`,
+      failedMessage,
       message.message_id,
     );
+    await appendConversationLogEvent({
+      runId: run.runId,
+      userId: run.userId,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      conversationId: routedSession.sessionKey || activeLabel,
+      direction: "output",
+      content: failedMessage,
+      metadata: {
+        ok: false,
+        error: error.message,
+      },
+    }, context.botHome).catch((logError) => {
+      logBridgeEvent("telegram conversation output log failed", {
+        chatId,
+        activeLabel,
+        runId: run.runId,
+        error: logError.message,
+      });
+    });
   });
 }
 
