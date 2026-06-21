@@ -160,6 +160,7 @@
    - 已新增结构化 JSONL bridge logging。
    - paid credit refund 已有基础实现；daily free 扣费不会退款。
    - 已新增 state migration runner，可通过 CLI `/migrate` 对当前 bot 执行幂等迁移。
+   - Web 控制台已支持可选 operator token 鉴权，设置 `CODEXBRIDGE_WEB_TOKEN` 后启用。
 
 ### 本轮审计已修复的严重问题
 
@@ -235,9 +236,10 @@ run record
 - 用户 stop：是否退
 - Codex 失败但消耗资源：是否扣
 
-### 5. Web 控制台仍是单文件实现
+### 5. Web 控制台仍是单文件实现，权限模型还很轻
 
 `src/control-plane-web.mjs` 当前包含 API、HTML、CSS、前端 JS，MVP 可接受，但后续维护成本会上升。
+当前已有 `CODEXBRIDGE_WEB_TOKEN` 作为 operator token gate，但还没有角色、会话、审计详情页等更完整后台权限模型。
 
 建议后续拆分为：
 
@@ -587,7 +589,7 @@ denied
 1. 数据库迁移和 state migration 的生产化执行器。
 2. 支付、订单和自动充值。
 3. worker queue / 多实例并发。
-4. Web 控制台拆分和权限保护。
+4. Web 控制台拆分和更完整的权限保护。
 
 ## 七、当前已有规划需要调整的地方
 
@@ -673,6 +675,6 @@ denied
 - SQLite / Postgres 迁移判断标准。
 - JSON / JSONL 到数据库的迁移脚本。
 
-### Step 3：Web 控制台拆分和鉴权
+### Step 3：Web 控制台拆分和权限模型
 
-`src/control-plane-web.mjs` 后续应拆 API、HTML、CSS、前端 JS，并增加 operator 鉴权。自动支付、订单和 worker queue 等支付/并发相关能力，建议等这一步之后再启动。
+`src/control-plane-web.mjs` 后续应拆 API、HTML、CSS、前端 JS。当前已有 `CODEXBRIDGE_WEB_TOKEN` 保护入口，后续再补 operator 角色、会话过期、审计详情页。自动支付、订单和 worker queue 等支付/并发相关能力，建议等这一步之后再启动。

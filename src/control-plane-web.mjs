@@ -1,5 +1,6 @@
 import http from "node:http";
 import path from "node:path";
+import crypto from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { URL } from "node:url";
 
@@ -88,6 +89,14 @@ function html(response, statusCode, payload) {
   response.end(payload);
 }
 
+function unauthorized(response) {
+  response.writeHead(401, {
+    "content-type": "application/json; charset=utf-8",
+    "www-authenticate": 'Basic realm="CodexBridge Control Plane"',
+  });
+  response.end(`${JSON.stringify({ error: "Unauthorized" }, null, 2)}\n`);
+}
+
 async function readJsonBody(request) {
   const chunks = [];
   for await (const chunk of request) {
@@ -148,6 +157,56 @@ function redactControlPlaneDetail(detail) {
       config: redactConfigSecrets(detail.detail.config),
     },
   };
+}
+
+function getWebOperatorToken() {
+  return String(process.env.CODEXBRIDGE_WEB_TOKEN || "").trim();
+}
+
+function timingSafeEqualString(left, right) {
+  const leftBuffer = Buffer.from(String(left || ""), "utf8");
+  const rightBuffer = Buffer.from(String(right || ""), "utf8");
+  if (leftBuffer.length !== rightBuffer.length) {
+    return false;
+  }
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function parseBasicAuthPassword(header) {
+  const encoded = String(header || "").replace(/^Basic\s+/i, "").trim();
+  if (!encoded) {
+    return "";
+  }
+  try {
+    const decoded = Buffer.from(encoded, "base64").toString("utf8");
+    const separatorIndex = decoded.indexOf(":");
+    return separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : decoded;
+  } catch {
+    return "";
+  }
+}
+
+export function isWebRequestAuthorized(request, operatorToken = getWebOperatorToken()) {
+  const token = String(operatorToken || "").trim();
+  if (!token) {
+    return true;
+  }
+  const headers = request?.headers || {};
+  const headerValue = typeof headers.get === "function"
+    ? (name) => headers.get(name)
+    : (name) => headers[name.toLowerCase()] || headers[name];
+  const explicitToken = String(headerValue("x-codexbridge-token") || "").trim();
+  if (explicitToken && timingSafeEqualString(explicitToken, token)) {
+    return true;
+  }
+  const authorization = String(headerValue("authorization") || "").trim();
+  if (/^Bearer\s+/i.test(authorization)) {
+    return timingSafeEqualString(authorization.replace(/^Bearer\s+/i, "").trim(), token);
+  }
+  if (/^Basic\s+/i.test(authorization)) {
+    return timingSafeEqualString(parseBasicAuthPassword(authorization), token);
+  }
+  return false;
 }
 
 function getRunKey(botId, sessionLabel) {
@@ -2767,6 +2826,10 @@ async function handleApi(request, response, pathname) {
 export async function startControlPlaneWebServer({ port = 8787, host = "127.0.0.1" } = {}) {
   const server = http.createServer(async (request, response) => {
     try {
+      if (!isWebRequestAuthorized(request)) {
+        unauthorized(response);
+        return;
+      }
       const url = new URL(request.url || "/", `http://${request.headers.host || `${host}:${port}`}`);
       if (url.pathname === "/") {
         html(response, 200, renderHtmlPage());

@@ -169,6 +169,53 @@ test("control plane web server exposes logs and config update endpoints", async 
   });
 });
 
+test("control plane web server enforces optional operator token", async () => {
+  await withTempHome(async () => {
+    const previousToken = process.env.CODEXBRIDGE_WEB_TOKEN;
+    try {
+      process.env.CODEXBRIDGE_WEB_TOKEN = "operator-secret";
+      const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+
+      const runtime = await startControlPlaneWebServer({ port: 0 });
+      try {
+        const anonymousResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots`);
+        assert.equal(anonymousResponse.status, 401);
+
+        const badResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots`, {
+          headers: {
+            authorization: "Bearer wrong",
+          },
+        });
+        assert.equal(badResponse.status, 401);
+
+        const bearerResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots`, {
+          headers: {
+            authorization: "Bearer operator-secret",
+          },
+        });
+        assert.equal(bearerResponse.status, 200);
+
+        const basicPassword = Buffer.from("operator:operator-secret", "utf8").toString("base64");
+        const basicResponse = await fetch(`http://${runtime.host}:${runtime.port}/`, {
+          headers: {
+            authorization: `Basic ${basicPassword}`,
+          },
+        });
+        assert.equal(basicResponse.status, 200);
+        assert.match(await basicResponse.text(), /CodexBridge/);
+      } finally {
+        await runtime.close();
+      }
+    } finally {
+      if (previousToken == null) {
+        delete process.env.CODEXBRIDGE_WEB_TOKEN;
+      } else {
+        process.env.CODEXBRIDGE_WEB_TOKEN = previousToken;
+      }
+    }
+  });
+});
+
 test("bot set-config style nested patch should preserve sibling telegram fields", async () => {
   await withTempHome(async () => {
     const { createBot, updateBotConfig } = await importFresh("../../src/bots.mjs");
