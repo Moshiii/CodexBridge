@@ -19,7 +19,6 @@ import { normalizeFeishuEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
 import { getUserCredits } from "../../src/user-credits.mjs";
-import { chargeRequestUsage, renderBillingDeniedMessage } from "../../src/billing-service.mjs";
 import {
   createQueuedRun,
   markRunCompleted,
@@ -28,6 +27,7 @@ import {
   markRunRunning,
   markRunStopped,
 } from "../../src/run-service.mjs";
+import { prepareChatRequest } from "../../src/chat-request-service.mjs";
 import {
   buildUserId,
   canUseGroupChat,
@@ -771,42 +771,34 @@ async function main() {
             return;
           }
 
-          const runRecord = await createQueuedRun({
-            userId: usageUserId,
-            conversationId: envelope.conversationId,
-            channel: envelope.channel,
-            chatType: envelope.chatType,
+          const preparedRequest = await prepareChatRequest({
+            channel: "feishu",
+            externalUserId: envelope.userId,
+            displayName: getFeishuUserDisplayName(event),
+            envelope,
             chatId,
             messageId,
-            visibility: envelope.isDirect ? "private" : "public",
-          }, botHome);
+            conversationId: envelope.conversationId,
+            botHome,
+          });
+          if (!preparedRequest.ok) {
+            const deniedResponse = await sendText(
+              client,
+              chatId,
+              preparedRequest.message,
+              { replyToMessageId: messageId },
+            );
+            rememberBotOpenId(botIdentity, deniedResponse);
+            return;
+          }
+          const runRecord = preparedRequest.run;
+          const chargeResult = preparedRequest.charged;
           pendingCounts.set(routeKey, 1);
 
           const previous = chatQueues.get(routeKey) ?? Promise.resolve();
           const next = previous
             .catch(() => {})
             .then(async () => {
-              const chargeResult = await chargeRequestUsage({
-                userId: usageUserId,
-                chatType: envelope.chatType,
-                botHome,
-                channel: envelope.channel,
-                chatId,
-                messageId,
-                runId: runRecord.runId,
-              });
-              if (!chargeResult.ok) {
-                await markRunDenied(runRecord.runId, "insufficient_credits", {}, botHome);
-                const deniedResponse = await sendText(
-                  client,
-                  chatId,
-                  renderBillingDeniedMessage(chargeResult, { userId: usageUserId }),
-                  { replyToMessageId: messageId },
-                );
-                rememberBotOpenId(botIdentity, deniedResponse);
-                return;
-              }
-
               await markRunRunning(runRecord.runId, {
                 costSource: chargeResult.costSource,
                 creditsCharged: chargeResult.charged,
