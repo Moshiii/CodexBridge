@@ -41,7 +41,15 @@ import {
 import { normalizeTelegramEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
-import { chargeTurnCredits, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
+import { chargeUsage, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
+import { createRunRecord, updateRunRecord } from "../../src/runs-state.mjs";
+import {
+  buildUserId,
+  canUseGroupChat,
+  canUsePrivateChat,
+  renderPrivateChatLockedMessage,
+  upsertUser,
+} from "../../src/users-state.mjs";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const POLL_TIMEOUT_SECONDS = 30;
@@ -870,6 +878,45 @@ function renderInterruptedResult(result) {
   return `Codex interrupted${signalText}.`;
 }
 
+function getTelegramUserDisplayName(user = {}) {
+  if (user.username) {
+    return `@${String(user.username).replace(/^@+/, "")}`;
+  }
+  return [user.first_name, user.last_name].filter(Boolean).join(" ").trim();
+}
+
+async function upsertTelegramUserFromMessage(message, botHome) {
+  const externalUserId = message?.from?.id == null ? "" : String(message.from.id);
+  if (!externalUserId) {
+    return null;
+  }
+  return await upsertUser({
+    id: buildUserId("telegram", externalUserId),
+    channel: "telegram",
+    externalUserId,
+    displayName: getTelegramUserDisplayName(message.from),
+  }, botHome);
+}
+
+export function renderCreditsStatus(creditsInfo, user = null) {
+  const account = creditsInfo.account;
+  return [
+    `Credits for ${account.userId}:`,
+    ...(user ? [`Status: ${user.status}`, `Private chat: ${canUsePrivateChat(user) ? "unlocked" : "locked"}`] : []),
+    `Daily free: ${account.dailyFreeUsed}/${account.dailyFreeLimit}`,
+    `Paid credits: ${account.paidCredits}`,
+    `Turn cost: ${creditsInfo.defaults.turnCost}`,
+    `Total consumed: ${account.totalConsumed}`,
+  ].join("\n");
+}
+
+export function canTelegramUserAccessChat(user, envelope) {
+  if (envelope.isDirect || envelope.chatType === "direct") {
+    return canUsePrivateChat(user);
+  }
+  return canUseGroupChat(user);
+}
+
 function parseCommand(text) {
   if (!text.startsWith("/")) {
     return null;
@@ -1374,16 +1421,13 @@ async function handleSlashCommand({
   }
 
   if (command === "credits") {
-    const creditsInfo = await getUserCredits(envelope.userId, message.botHome);
+    const user = message.user || null;
+    const creditsUserId = user?.id || buildUserId(envelope.channel, envelope.userId);
+    const creditsInfo = await getUserCredits(creditsUserId, message.botHome);
     await sendMessage(
       token,
       message.chat.id,
-      [
-        `Credits for ${creditsInfo.account.userId}:`,
-        `Remaining: ${creditsInfo.account.balance}`,
-        `Turn cost: ${creditsInfo.defaults.turnCost}`,
-        `Total consumed: ${creditsInfo.account.totalConsumed}`,
-      ].join("\n"),
+      renderCreditsStatus(creditsInfo, user),
       message.message_id,
     );
     return { stateChanged: false, handled: true };
@@ -1491,10 +1535,11 @@ async function processUpdate(update, context) {
     hasDocument: Boolean(message.document),
   });
   await captureTelegramMetadata(context.botHome, message);
-  const uploadedDocument = await saveUploadedDocument(message, context.token, context.workspacePaths);
+  const user = await upsertTelegramUserFromMessage(message, context.botHome);
 
   const text = getMessageText(message);
-  if (!text && !uploadedDocument) {
+  const hasDocument = Boolean(message.document);
+  if (!text && !hasDocument) {
     logBridgeEvent("telegram update rejected: unsupported payload", {
       chatId,
       messageId: message.message_id,
@@ -1561,6 +1606,43 @@ async function processUpdate(update, context) {
     text: normalizedText,
     explicitlyMentionedBot: Boolean(mention || commandTargetsBot),
   });
+  const accessUser = user || await upsertTelegramUserFromMessage(message, context.botHome);
+  if (accessUser && !canTelegramUserAccessChat(accessUser, envelope)) {
+    logBridgeEvent("telegram update rejected: user access denied", {
+      chatId,
+      senderId,
+      userId: accessUser.id,
+      status: accessUser.status,
+      privateEnabled: accessUser.privateEnabled,
+      chatType: envelope.chatType,
+    });
+    await createRunRecord({
+      userId: accessUser.id,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      visibility: envelope.isDirect ? "private" : "public",
+      status: "denied",
+      reason: accessUser.status === "banned" ? "user_banned" : "private_chat_locked",
+    }, context.botHome).catch((error) => {
+      logBridgeEvent("telegram denied run record failed", {
+        chatId,
+        senderId,
+        error: error.message,
+      });
+    });
+    await sendMessage(
+      context.token,
+      message.chat.id,
+      accessUser.status === "banned"
+        ? "This user is not allowed to use CodexBridge."
+        : renderPrivateChatLockedMessage(),
+      message.message_id,
+    );
+    return;
+  }
+  const uploadedDocument = await saveUploadedDocument(message, context.token, context.workspacePaths);
   const routedSession = ensureEnvelopeSession(state, envelope);
   const slashCommand = parseCommand(normalizedText);
   if (slashCommand) {
@@ -1583,6 +1665,7 @@ async function processUpdate(update, context) {
         workspacePaths: context.workspacePaths,
         botConfig: context.botConfig,
         botHome: context.botHome,
+        user: accessUser,
       },
     });
     if (handled.stateChanged) {
@@ -1599,6 +1682,22 @@ async function processUpdate(update, context) {
   const runningJob = findRunningJob(context.runningJobs, chatId, activeLabel);
   const runningGoal = findRunningGoalForChat(context.runningGoals, chatId);
 
+  if (!normalizedText) {
+    return;
+  }
+
+  const usageUserId = accessUser?.id || buildUserId(envelope.channel, envelope.userId);
+  const run = await createRunRecord({
+    userId: usageUserId,
+    conversationId: routedSession.sessionKey || activeLabel,
+    channel: envelope.channel,
+    chatType: envelope.chatType,
+    chatId: envelope.chatId,
+    messageId: envelope.messageId,
+    visibility: envelope.isDirect ? "private" : "public",
+    status: "queued",
+  }, context.botHome);
+
   if (runningGoal) {
     logBridgeEvent("telegram message blocked by running goal", {
       chatId,
@@ -1611,6 +1710,10 @@ async function processUpdate(update, context) {
       `Goal ${runningGoal.goalId} is already running. Use /stop before sending a normal request.`,
       message.message_id,
     );
+    await updateRunRecord(run.runId, {
+      status: "denied",
+      reason: "running_goal",
+    }, context.botHome);
     return;
   }
 
@@ -1627,6 +1730,10 @@ async function processUpdate(update, context) {
       `Session ${activeLabel} is already running. Use /stop before sending a new request.`,
       message.message_id,
     );
+    await updateRunRecord(run.runId, {
+      status: "denied",
+      reason: "running_session",
+    }, context.botHome);
     return;
   }
 
@@ -1640,23 +1747,37 @@ async function processUpdate(update, context) {
     await sendMessage(context.token, message.chat.id, uploadNotice, message.message_id);
   }
 
-  if (!normalizedText) {
-    return;
-  }
-
-  const chargeResult = await chargeTurnCredits({
-    userId: envelope.userId,
+  const chargeResult = await chargeUsage({
+    userId: usageUserId,
+    chatType: envelope.chatType,
     botHome: context.botHome,
+    channel: envelope.channel,
+    chatId: envelope.chatId,
+    messageId: envelope.messageId,
+    runId: run.runId,
   });
   if (!chargeResult.ok) {
+    await updateRunRecord(run.runId, {
+      status: "denied",
+      reason: "insufficient_credits",
+      costSource: chargeResult.costSource,
+      creditsCharged: 0,
+    }, context.botHome);
     await sendMessage(
       context.token,
       message.chat.id,
-      renderInsufficientCreditsMessage(chargeResult, { userId: envelope.userId }),
+      renderInsufficientCreditsMessage(chargeResult, {
+        userId: accessUser?.id || buildUserId(envelope.channel, envelope.userId),
+      }),
       message.message_id,
     );
     return;
   }
+  await updateRunRecord(run.runId, {
+    status: "running",
+    costSource: chargeResult.costSource,
+    creditsCharged: chargeResult.charged,
+  }, context.botHome);
 
   await sendMessage(
     context.token,
@@ -1718,6 +1839,13 @@ async function processUpdate(update, context) {
       ? renderInterruptedResult(finalResult)
       : renderCodexResult(finalResult);
 
+    await updateRunRecord(run.runId, {
+      status: finalResult.ok ? "completed" : job.stopRequested ? "stopped" : "failed",
+      codexThreadId: finalResult.cliSessionRef || "",
+      outputPreview: typeof messageText === "string" ? messageText.slice(0, 500) : "",
+      error: finalResult.ok ? "" : finalResult.stderr || finalResult.output || "Codex failed.",
+    }, context.botHome);
+
     await sendMessage(
       context.token,
       message.chat.id,
@@ -1731,6 +1859,10 @@ async function processUpdate(update, context) {
       activeLabel,
       error: error.message,
     });
+    await updateRunRecord(run.runId, {
+      status: "failed",
+      error: error.message,
+    }, context.botHome).catch(() => {});
     await sendMessage(
       context.token,
       message.chat.id,

@@ -275,3 +275,87 @@ test("web console sessions and workspace endpoints are usable", async () => {
     }
   });
 });
+
+test("control plane exposes user, credit, usage, and run operations", async () => {
+  await withTempHome(async () => {
+    const { createBot } = await importFresh("../../src/bots.mjs");
+    const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+    const users = await importFresh("../../src/users-state.mjs");
+    const credits = await importFresh("../../src/user-credits.mjs");
+    const runs = await importFresh("../../src/runs-state.mjs");
+
+    await createBot({ id: "theta", name: "Theta" });
+    const botHome = path.join(process.env.CODEXBRIDGE_HOME, "bots", "theta");
+    await users.upsertUser({
+      channel: "telegram",
+      externalUserId: "123",
+      displayName: "@demo",
+    }, botHome);
+    await credits.chargeUsage({
+      userId: "telegram:123",
+      chatType: "group",
+      channel: "telegram",
+      chatId: "-100",
+      messageId: "1",
+      botHome,
+    });
+    await runs.createRunRecord({
+      userId: "telegram:123",
+      channel: "telegram",
+      chatType: "group",
+      status: "completed",
+      creditsCharged: 1,
+    }, botHome);
+
+    const runtime = await startControlPlaneWebServer({ port: 0 });
+    try {
+      const usersResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users`);
+      assert.equal(usersResponse.status, 200);
+      const usersPayload = await usersResponse.json();
+      assert.equal(usersPayload.length, 1);
+      assert.equal(usersPayload[0].id, "telegram:123");
+      assert.equal(usersPayload[0].credits.dailyFreeUsed, 1);
+
+      const grantResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:123")}/grant`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount: 10 }),
+      });
+      assert.equal(grantResponse.status, 200);
+      const grantPayload = await grantResponse.json();
+      assert.equal(grantPayload.credits.granted, 10);
+
+      const privateResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:123")}/private`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ privateEnabled: true }),
+      });
+      assert.equal(privateResponse.status, 200);
+      const privatePayload = await privateResponse.json();
+      assert.equal(privatePayload.privateEnabled, true);
+
+      const statusResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:123")}/status`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "banned" }),
+      });
+      assert.equal(statusResponse.status, 200);
+      const statusPayload = await statusResponse.json();
+      assert.equal(statusPayload.status, "banned");
+
+      const usageResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/usage?userId=${encodeURIComponent("telegram:123")}`);
+      assert.equal(usageResponse.status, 200);
+      const usagePayload = await usageResponse.json();
+      assert.equal(usagePayload.some((event) => event.eventType === "charge"), true);
+      assert.equal(usagePayload.some((event) => event.eventType === "grant"), true);
+
+      const runsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/runs?userId=${encodeURIComponent("telegram:123")}`);
+      assert.equal(runsResponse.status, 200);
+      const runsPayload = await runsResponse.json();
+      assert.equal(runsPayload.length, 1);
+      assert.equal(runsPayload[0].status, "completed");
+    } finally {
+      await runtime.close();
+    }
+  });
+});

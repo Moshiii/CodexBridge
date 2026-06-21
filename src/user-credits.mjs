@@ -2,9 +2,11 @@ import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { getUserCreditsStatePath, resolveBotHome } from "./config.mjs";
+import { appendUsageEvent } from "./usage-ledger.mjs";
 
 export const DEFAULT_INITIAL_CREDITS = 100;
 export const DEFAULT_TURN_COST = 1;
+export const DEFAULT_DAILY_FREE_LIMIT = 5;
 const LOCK_RETRY_MS = 25;
 const LOCK_TIMEOUT_MS = 5000;
 
@@ -26,6 +28,7 @@ function createDefaultCreditsState() {
     defaults: {
       initialCredits: DEFAULT_INITIAL_CREDITS,
       turnCost: DEFAULT_TURN_COST,
+      dailyFreeLimit: DEFAULT_DAILY_FREE_LIMIT,
     },
     accounts: {},
   };
@@ -34,11 +37,23 @@ function createDefaultCreditsState() {
 function normalizeAccount(account = {}, userId) {
   const normalizedUserId = normalizeUserId(userId || account.userId);
   const now = nowIso();
-  const balanceValue = Number(account.balance);
+  const paidCreditsValue = Number(account.paidCredits ?? account.balance);
   const consumedValue = Number(account.totalConsumed);
+  const dailyFreeUsedValue = Number(account.dailyFreeUsed);
+  const dailyFreeLimitValue = Number(account.dailyFreeLimit);
+  const paidCredits = Number.isFinite(paidCreditsValue)
+    ? Math.max(0, Math.floor(paidCreditsValue))
+    : DEFAULT_INITIAL_CREDITS;
+  const dailyFreeLimit = Number.isFinite(dailyFreeLimitValue)
+    ? Math.max(0, Math.floor(dailyFreeLimitValue))
+    : DEFAULT_DAILY_FREE_LIMIT;
   return {
     userId: normalizedUserId,
-    balance: Number.isFinite(balanceValue) ? Math.max(0, Math.floor(balanceValue)) : DEFAULT_INITIAL_CREDITS,
+    balance: paidCredits,
+    paidCredits,
+    dailyFreeDate: account.dailyFreeDate || new Date().toISOString().slice(0, 10),
+    dailyFreeUsed: Number.isFinite(dailyFreeUsedValue) ? Math.max(0, Math.floor(dailyFreeUsedValue)) : 0,
+    dailyFreeLimit,
     totalConsumed: Number.isFinite(consumedValue) ? Math.max(0, Math.floor(consumedValue)) : 0,
     createdAt: account.createdAt || now,
     updatedAt: account.updatedAt || now,
@@ -49,6 +64,7 @@ function normalizeCreditsState(state = {}) {
   const defaults = createDefaultCreditsState();
   const initialCredits = Number(state.defaults?.initialCredits);
   const turnCost = Number(state.defaults?.turnCost);
+  const dailyFreeLimit = Number(state.defaults?.dailyFreeLimit);
   const accountsInput = state.accounts && typeof state.accounts === "object" ? state.accounts : {};
   const accounts = Object.fromEntries(
     Object.entries(accountsInput)
@@ -66,6 +82,9 @@ function normalizeCreditsState(state = {}) {
     defaults: {
       initialCredits: Number.isFinite(initialCredits) ? Math.max(0, Math.floor(initialCredits)) : defaults.defaults.initialCredits,
       turnCost: Number.isFinite(turnCost) ? Math.max(1, Math.floor(turnCost)) : defaults.defaults.turnCost,
+      dailyFreeLimit: Number.isFinite(dailyFreeLimit)
+        ? Math.max(0, Math.floor(dailyFreeLimit))
+        : defaults.defaults.dailyFreeLimit,
     },
     accounts,
   };
@@ -127,13 +146,26 @@ function ensureAccount(state, userId) {
     state.accounts[normalizedUserId] = normalizeAccount(
       {
         userId: normalizedUserId,
-        balance: state.defaults.initialCredits,
+        paidCredits: state.defaults.initialCredits,
+        dailyFreeLimit: state.defaults.dailyFreeLimit,
         totalConsumed: 0,
       },
       normalizedUserId,
     );
   }
   return state.accounts[normalizedUserId];
+}
+
+function todayKey(date = new Date()) {
+  return date.toISOString().slice(0, 10);
+}
+
+function resetDailyFreeIfNeeded(account, date = new Date()) {
+  const currentDay = todayKey(date);
+  if (account.dailyFreeDate !== currentDay) {
+    account.dailyFreeDate = currentDay;
+    account.dailyFreeUsed = 0;
+  }
 }
 
 export function resolveCliCreditsUserId(config = {}) {
@@ -143,10 +175,155 @@ export function resolveCliCreditsUserId(config = {}) {
 export async function getUserCredits(userId, botHome = resolveBotHome()) {
   return await withCreditsLock(botHome, async (state, statePath) => {
     const account = ensureAccount(state, userId);
+    resetDailyFreeIfNeeded(account);
     account.updatedAt = nowIso();
     await writeCreditsState(statePath, state);
     return {
       ok: true,
+      account: { ...account },
+      defaults: { ...state.defaults },
+    };
+  });
+}
+
+export async function grantPaidCredits({ userId, amount, botHome = resolveBotHome() } = {}) {
+  const normalizedAmount = Number.isFinite(Number(amount)) ? Math.max(0, Math.floor(Number(amount))) : 0;
+  return await withCreditsLock(botHome, async (state, statePath) => {
+    const account = ensureAccount(state, userId);
+    const balanceBefore = account.paidCredits;
+    account.paidCredits += normalizedAmount;
+    account.balance = account.paidCredits;
+    account.updatedAt = nowIso();
+    await writeCreditsState(statePath, state);
+    await appendUsageEvent({
+      eventType: "grant",
+      userId,
+      amount: normalizedAmount,
+      source: "manual",
+      reason: "grant_paid_credits",
+    }, botHome);
+    return {
+      ok: true,
+      granted: normalizedAmount,
+      balanceBefore,
+      balanceAfter: account.paidCredits,
+      account: { ...account },
+      defaults: { ...state.defaults },
+    };
+  });
+}
+
+export async function chargeUsage({
+  userId,
+  chatType = "group",
+  amount = DEFAULT_TURN_COST,
+  botHome = resolveBotHome(),
+  now = new Date(),
+  channel = "",
+  chatId = "",
+  messageId = "",
+  runId = "",
+} = {}) {
+  const normalizedAmount = Number.isFinite(Number(amount)) ? Math.max(1, Math.floor(Number(amount))) : DEFAULT_TURN_COST;
+  const normalizedChatType = String(chatType || "").trim().toLowerCase();
+  return await withCreditsLock(botHome, async (state, statePath) => {
+    const account = ensureAccount(state, userId);
+    resetDailyFreeIfNeeded(account, now);
+    const paidBefore = account.paidCredits;
+    const dailyBefore = account.dailyFreeUsed;
+
+    if (normalizedChatType === "group") {
+      const remainingFree = Math.max(0, account.dailyFreeLimit - account.dailyFreeUsed);
+      if (remainingFree >= normalizedAmount) {
+        account.dailyFreeUsed += normalizedAmount;
+        account.totalConsumed += normalizedAmount;
+        account.updatedAt = nowIso();
+        await writeCreditsState(statePath, state);
+        await appendUsageEvent({
+          eventType: "charge",
+          userId,
+          channel,
+          chatType: normalizedChatType,
+          chatId,
+          messageId,
+          runId,
+          amount: normalizedAmount,
+          source: "daily_free",
+          reason: "group_daily_free",
+        }, botHome);
+        return {
+          ok: true,
+          charged: normalizedAmount,
+          costSource: "daily_free",
+          paidCreditsCharged: 0,
+          dailyFreeCharged: normalizedAmount,
+          balanceBefore: paidBefore,
+          balanceAfter: account.paidCredits,
+          dailyFreeBefore: dailyBefore,
+          dailyFreeAfter: account.dailyFreeUsed,
+          account: { ...account },
+          defaults: { ...state.defaults },
+        };
+      }
+    }
+
+    if (account.paidCredits < normalizedAmount) {
+      account.updatedAt = nowIso();
+      await writeCreditsState(statePath, state);
+      await appendUsageEvent({
+        eventType: "deny",
+        userId,
+        channel,
+        chatType: normalizedChatType,
+        chatId,
+        messageId,
+        runId,
+        amount: normalizedAmount,
+        source: "insufficient",
+        reason: "insufficient_paid_credits",
+      }, botHome);
+      return {
+        ok: false,
+        charged: 0,
+        costSource: "insufficient",
+        paidCreditsCharged: 0,
+        dailyFreeCharged: 0,
+        balanceBefore: paidBefore,
+        balanceAfter: account.paidCredits,
+        dailyFreeBefore: dailyBefore,
+        dailyFreeAfter: account.dailyFreeUsed,
+        account: { ...account },
+        defaults: { ...state.defaults },
+      };
+    }
+
+    account.paidCredits -= normalizedAmount;
+    account.balance = account.paidCredits;
+    account.totalConsumed += normalizedAmount;
+    account.updatedAt = nowIso();
+    await writeCreditsState(statePath, state);
+    await appendUsageEvent({
+      eventType: "charge",
+      userId,
+      channel,
+      chatType: normalizedChatType,
+      chatId,
+      messageId,
+      runId,
+      amount: normalizedAmount,
+      source: "paid_credit",
+      reason: "paid_credit",
+    }, botHome);
+    return {
+      ok: true,
+      charged: normalizedAmount,
+      costSource: "paid_credit",
+      paidCreditsCharged: normalizedAmount,
+      dailyFreeCharged: 0,
+      balanceBefore: paidBefore,
+      balanceAfter: account.paidCredits,
+      dailyFreeBefore: dailyBefore,
+      dailyFreeAfter: account.dailyFreeUsed,
       account: { ...account },
       defaults: { ...state.defaults },
     };
@@ -154,42 +331,19 @@ export async function getUserCredits(userId, botHome = resolveBotHome()) {
 }
 
 export async function chargeTurnCredits({ userId, amount = DEFAULT_TURN_COST, botHome = resolveBotHome() } = {}) {
-  const normalizedAmount = Number.isFinite(Number(amount)) ? Math.max(1, Math.floor(Number(amount))) : DEFAULT_TURN_COST;
-  return await withCreditsLock(botHome, async (state, statePath) => {
-    const account = ensureAccount(state, userId);
-    const balanceBefore = account.balance;
-    if (balanceBefore < normalizedAmount) {
-      account.updatedAt = nowIso();
-      await writeCreditsState(statePath, state);
-      return {
-        ok: false,
-        charged: 0,
-        balanceBefore,
-        balanceAfter: balanceBefore,
-        account: { ...account },
-        defaults: { ...state.defaults },
-      };
-    }
-
-    account.balance = Math.max(0, balanceBefore - normalizedAmount);
-    account.totalConsumed += normalizedAmount;
-    account.updatedAt = nowIso();
-    await writeCreditsState(statePath, state);
-    return {
-      ok: true,
-      charged: normalizedAmount,
-      balanceBefore,
-      balanceAfter: account.balance,
-      account: { ...account },
-      defaults: { ...state.defaults },
-    };
-  });
+  return await chargeUsage({ userId, amount, botHome, chatType: "private" });
 }
 
 export function renderInsufficientCreditsMessage(result, options = {}) {
-  const balance = Number(result?.balanceAfter ?? result?.account?.balance ?? 0);
+  const balance = Number(result?.balanceAfter ?? result?.account?.paidCredits ?? result?.account?.balance ?? 0);
   const cost = Number(result?.defaults?.turnCost ?? options.turnCost ?? DEFAULT_TURN_COST);
   const userId = normalizeUserId(options.userId || result?.account?.userId);
   const label = userId ? ` for user ${userId}` : "";
-  return `No credits left${label} on this bot. Balance: ${balance}. Each turn costs ${cost} credit${cost === 1 ? "" : "s"}.`;
+  const freeUsed = Number(result?.account?.dailyFreeUsed ?? 0);
+  const freeLimit = Number(result?.account?.dailyFreeLimit ?? result?.defaults?.dailyFreeLimit ?? 0);
+  return [
+    `No credits left${label} on this bot.`,
+    `Paid credits: ${balance}. Each turn costs ${cost} credit${cost === 1 ? "" : "s"}.`,
+    `Daily free quota: ${freeUsed}/${freeLimit}.`,
+  ].join(" ");
 }

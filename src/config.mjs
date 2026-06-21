@@ -103,6 +103,18 @@ export function getUserCreditsStatePath(botHome = resolveBotHome()) {
   return path.join(botHome, "user-credits.json");
 }
 
+export function getUsersStatePath(botHome = resolveBotHome()) {
+  return path.join(botHome, "users.json");
+}
+
+export function getUsageLedgerPath(botHome = resolveBotHome()) {
+  return path.join(botHome, "usage-ledger.jsonl");
+}
+
+export function getRunsStatePath(botHome = resolveBotHome()) {
+  return path.join(botHome, "runs.jsonl");
+}
+
 export function getTelegramStatePath(botHome = resolveBotHome()) {
   return path.join(botHome, "telegram");
 }

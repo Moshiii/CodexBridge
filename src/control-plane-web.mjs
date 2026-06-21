@@ -37,6 +37,10 @@ import { installSkillFromPath } from "./skills.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
 import { buildWorkspacePrompt } from "./workspace-context.mjs";
+import { getUserCredits, grantPaidCredits } from "./user-credits.mjs";
+import { listUsageEvents } from "./usage-ledger.mjs";
+import { listRunRecords } from "./runs-state.mjs";
+import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -566,6 +570,63 @@ async function toggleScheduleForBot(botId, scheduleId, enabled) {
     schedule.enabled = enabled;
     schedule.updatedAt = nowIso();
     return await upsertSchedule(schedule);
+  });
+}
+
+async function listBotUsers(botId) {
+  const botHome = await getBotHome(botId);
+  const state = await readUsersState(botHome);
+  const users = await Promise.all(
+    Object.values(state.users).map(async (user) => {
+      const credits = await getUserCredits(user.id, botHome);
+      return {
+        ...user,
+        credits: {
+          paidCredits: credits.account.paidCredits,
+          dailyFreeUsed: credits.account.dailyFreeUsed,
+          dailyFreeLimit: credits.account.dailyFreeLimit,
+          totalConsumed: credits.account.totalConsumed,
+        },
+      };
+    }),
+  );
+  return users.sort((a, b) => String(b.lastSeenAt || "").localeCompare(String(a.lastSeenAt || "")));
+}
+
+async function grantCreditsForBot(botId, userId, amount) {
+  const botHome = await getBotHome(botId);
+  const result = await grantPaidCredits({ userId, amount, botHome });
+  return {
+    user: (await readUsersState(botHome)).users[userId] || null,
+    credits: result,
+  };
+}
+
+async function updateUserStatusForBot(botId, userId, status) {
+  const botHome = await getBotHome(botId);
+  return await setUserStatus(userId, status, botHome);
+}
+
+async function updatePrivateEnabledForBot(botId, userId, privateEnabled) {
+  const botHome = await getBotHome(botId);
+  return await setPrivateEnabled(userId, privateEnabled, botHome);
+}
+
+async function listUsageForBot(botId, options = {}) {
+  const botHome = await getBotHome(botId);
+  return await listUsageEvents({
+    botHome,
+    userId: options.userId || null,
+    limit: options.limit || 100,
+  });
+}
+
+async function listRunsForBot(botId, options = {}) {
+  const botHome = await getBotHome(botId);
+  return await listRunRecords({
+    botHome,
+    userId: options.userId || null,
+    limit: options.limit || 100,
   });
 }
 
@@ -2307,6 +2368,71 @@ async function handleApi(request, response, pathname) {
         botScheduleToggleMatch[3] === "enable",
       ),
     );
+  }
+
+  const botUsersMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users$/);
+  if (request.method === "GET" && botUsersMatch) {
+    return json(response, 200, await listBotUsers(decodeURIComponent(botUsersMatch[1])));
+  }
+
+  const botUserGrantMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/grant$/);
+  if (request.method === "POST" && botUserGrantMatch) {
+    const body = await readJsonBody(request);
+    return json(
+      response,
+      200,
+      await grantCreditsForBot(
+        decodeURIComponent(botUserGrantMatch[1]),
+        decodeURIComponent(botUserGrantMatch[2]),
+        body.amount,
+      ),
+    );
+  }
+
+  const botUserStatusMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/status$/);
+  if (request.method === "POST" && botUserStatusMatch) {
+    const body = await readJsonBody(request);
+    return json(
+      response,
+      200,
+      await updateUserStatusForBot(
+        decodeURIComponent(botUserStatusMatch[1]),
+        decodeURIComponent(botUserStatusMatch[2]),
+        body.status,
+      ),
+    );
+  }
+
+  const botUserPrivateMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/private$/);
+  if (request.method === "POST" && botUserPrivateMatch) {
+    const body = await readJsonBody(request);
+    return json(
+      response,
+      200,
+      await updatePrivateEnabledForBot(
+        decodeURIComponent(botUserPrivateMatch[1]),
+        decodeURIComponent(botUserPrivateMatch[2]),
+        body.privateEnabled === true,
+      ),
+    );
+  }
+
+  const botUsageMatch = pathname.match(/^\/api\/bots\/([^/]+)\/usage$/);
+  if (request.method === "GET" && botUsageMatch) {
+    const url = new URL(request.url || "/", "http://localhost");
+    return json(response, 200, await listUsageForBot(decodeURIComponent(botUsageMatch[1]), {
+      userId: url.searchParams.get("userId"),
+      limit: url.searchParams.get("limit"),
+    }));
+  }
+
+  const botRunsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/runs$/);
+  if (request.method === "GET" && botRunsMatch) {
+    const url = new URL(request.url || "/", "http://localhost");
+    return json(response, 200, await listRunsForBot(decodeURIComponent(botRunsMatch[1]), {
+      userId: url.searchParams.get("userId"),
+      limit: url.searchParams.get("limit"),
+    }));
   }
 
   const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);

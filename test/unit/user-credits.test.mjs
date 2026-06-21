@@ -12,6 +12,9 @@ test("new users get a default credit account per bot", async () => {
     assert.equal(result.ok, true);
     assert.equal(result.account.userId, "user-1");
     assert.equal(result.account.balance, credits.DEFAULT_INITIAL_CREDITS);
+    assert.equal(result.account.paidCredits, credits.DEFAULT_INITIAL_CREDITS);
+    assert.equal(result.account.dailyFreeUsed, 0);
+    assert.equal(result.account.dailyFreeLimit, credits.DEFAULT_DAILY_FREE_LIMIT);
     assert.equal(result.account.totalConsumed, 0);
   });
 });
@@ -26,6 +29,88 @@ test("chargeTurnCredits deducts one credit by default", async () => {
     assert.equal(charge.balanceBefore, credits.DEFAULT_INITIAL_CREDITS);
     assert.equal(charge.balanceAfter, credits.DEFAULT_INITIAL_CREDITS - credits.DEFAULT_TURN_COST);
     assert.equal(charge.account.totalConsumed, credits.DEFAULT_TURN_COST);
+  });
+});
+
+test("chargeUsage uses daily free quota first in group chats", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    const charge = await credits.chargeUsage({ userId: "user-1", chatType: "group" });
+    const current = await credits.getUserCredits("user-1");
+
+    assert.equal(charge.ok, true);
+    assert.equal(charge.costSource, "daily_free");
+    assert.equal(charge.dailyFreeCharged, 1);
+    assert.equal(charge.paidCreditsCharged, 0);
+    assert.equal(current.account.dailyFreeUsed, 1);
+    assert.equal(current.account.paidCredits, credits.DEFAULT_INITIAL_CREDITS);
+  });
+});
+
+test("chargeUsage falls back to paid credits after group daily free quota is exhausted", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    for (let index = 0; index < credits.DEFAULT_DAILY_FREE_LIMIT; index += 1) {
+      const charge = await credits.chargeUsage({ userId: "user-1", chatType: "group" });
+      assert.equal(charge.costSource, "daily_free");
+    }
+    const paidCharge = await credits.chargeUsage({ userId: "user-1", chatType: "group" });
+
+    assert.equal(paidCharge.ok, true);
+    assert.equal(paidCharge.costSource, "paid_credit");
+    assert.equal(paidCharge.balanceBefore, credits.DEFAULT_INITIAL_CREDITS);
+    assert.equal(paidCharge.balanceAfter, credits.DEFAULT_INITIAL_CREDITS - 1);
+  });
+});
+
+test("chargeUsage resets daily free quota on a new day", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    await credits.chargeUsage({
+      userId: "user-1",
+      chatType: "group",
+      now: new Date("2026-06-21T00:00:00.000Z"),
+    });
+    const nextDay = await credits.chargeUsage({
+      userId: "user-1",
+      chatType: "group",
+      now: new Date("2026-06-22T00:00:00.000Z"),
+    });
+
+    assert.equal(nextDay.ok, true);
+    assert.equal(nextDay.costSource, "daily_free");
+    assert.equal(nextDay.dailyFreeBefore, 0);
+    assert.equal(nextDay.dailyFreeAfter, 1);
+  });
+});
+
+test("private chat usage only charges paid credits", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    const charge = await credits.chargeUsage({ userId: "user-1", chatType: "direct" });
+    const current = await credits.getUserCredits("user-1");
+
+    assert.equal(charge.ok, true);
+    assert.equal(charge.costSource, "paid_credit");
+    assert.equal(current.account.dailyFreeUsed, 0);
+    assert.equal(current.account.paidCredits, credits.DEFAULT_INITIAL_CREDITS - 1);
+  });
+});
+
+test("grantPaidCredits increases paid credit balance", async () => {
+  await withTempHome(async () => {
+    const credits = await importFresh("../../src/user-credits.mjs");
+
+    await credits.chargeUsage({ userId: "user-1", chatType: "direct" });
+    const grant = await credits.grantPaidCredits({ userId: "user-1", amount: 10 });
+
+    assert.equal(grant.ok, true);
+    assert.equal(grant.granted, 10);
+    assert.equal(grant.balanceAfter, credits.DEFAULT_INITIAL_CREDITS - 1 + 10);
   });
 });
 

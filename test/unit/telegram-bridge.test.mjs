@@ -138,3 +138,56 @@ test("scheduleBotRuntimeRestart targets the current bot runtime command", async 
     assert.match(command, /bots\/alpha\/logs\/runtime\.log/);
   });
 });
+
+test("canTelegramUserAccessChat gates private chat behind paid access", async () => {
+  await withTempHome(async () => {
+    const { canTelegramUserAccessChat } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
+
+    const freeUser = {
+      id: "telegram:1",
+      status: "free",
+      privateEnabled: false,
+    };
+    const paidUser = {
+      id: "telegram:2",
+      status: "paid",
+      privateEnabled: true,
+    };
+
+    assert.equal(canTelegramUserAccessChat(freeUser, { chatType: "group", isGroup: true }), true);
+    assert.equal(canTelegramUserAccessChat(freeUser, { chatType: "direct", isDirect: true }), false);
+    assert.equal(canTelegramUserAccessChat(paidUser, { chatType: "direct", isDirect: true }), true);
+    assert.equal(canTelegramUserAccessChat({ ...paidUser, status: "banned" }, { chatType: "group", isGroup: true }), false);
+  });
+});
+
+test("renderCreditsStatus includes daily free and paid credit fields", async () => {
+  await withTempHome(async () => {
+    const { renderCreditsStatus } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
+
+    const text = renderCreditsStatus(
+      {
+        account: {
+          userId: "telegram:1",
+          dailyFreeUsed: 2,
+          dailyFreeLimit: 5,
+          paidCredits: 10,
+          totalConsumed: 7,
+        },
+        defaults: {
+          turnCost: 1,
+        },
+      },
+      {
+        status: "paid",
+        privateEnabled: true,
+      },
+    );
+
+    assert.match(text, /Credits for telegram:1/);
+    assert.match(text, /Status: paid/);
+    assert.match(text, /Private chat: unlocked/);
+    assert.match(text, /Daily free: 2\/5/);
+    assert.match(text, /Paid credits: 10/);
+  });
+});
