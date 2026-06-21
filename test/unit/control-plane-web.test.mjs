@@ -327,9 +327,47 @@ test("control plane quick test starts a main-session smoke prompt", async () => 
         const statusResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/smoke/chat?sessionLabel=main`);
         assert.equal(statusResponse.status, 200);
         const statusPayload = await statusResponse.json();
-        assert.equal(statusPayload.sessionLabel, "main");
-        assert.equal(statusPayload.status, "completed");
-        assert.equal(statusPayload.output, "CodexBridge is ready.");
+      assert.equal(statusPayload.sessionLabel, "main");
+      assert.equal(statusPayload.status, "completed");
+      assert.equal(statusPayload.output, "CodexBridge is ready.");
+      assert.match(statusPayload.friendlyMessage, /completed/);
+    } finally {
+      await runtime.close();
+    }
+    });
+  } finally {
+    if (previousStartCommand == null) {
+      delete process.env.CODEX_START_COMMAND;
+    } else {
+      process.env.CODEX_START_COMMAND = previousStartCommand;
+    }
+  }
+});
+
+test("control plane quick test returns a clear failed-run next step", async () => {
+  const previousStartCommand = process.env.CODEX_START_COMMAND;
+  try {
+    await withTempHome(async () => {
+      process.env.CODEX_START_COMMAND = "printf 'codex missing or not logged in' >&2; exit 9";
+      const { createBot } = await importFresh("../../src/bots.mjs");
+      const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+
+      await createBot({ id: "smoke-fail", name: "Smoke Fail" });
+      const runtime = await startControlPlaneWebServer({ port: 0 });
+      try {
+        const quickResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/smoke-fail/quick-test`, {
+          method: "POST",
+        });
+        assert.equal(quickResponse.status, 200);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const statusResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/smoke-fail/chat?sessionLabel=main`);
+        assert.equal(statusResponse.status, 200);
+        const statusPayload = await statusResponse.json();
+        assert.equal(statusPayload.status, "failed");
+        assert.match(statusPayload.error, /codex missing/);
+        assert.match(statusPayload.friendlyMessage, /Runtime Log/);
+        assert.match(statusPayload.friendlyMessage, /Codex is installed and logged in/);
       } finally {
         await runtime.close();
       }

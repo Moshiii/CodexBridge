@@ -380,17 +380,28 @@ function summarizeRun(run) {
       prompt: "",
       output: "",
       error: null,
+      friendlyMessage: "No test has run yet. Click Run Quick Test to verify this bot.",
       sessionLabel: null,
       startedAt: null,
       finishedAt: null,
     };
   }
+  const friendlyMessage = run.status === "running"
+    ? "Running now. You can wait here; the output will update automatically."
+    : run.status === "completed"
+      ? "Quick test completed. This bot can run a CodexBridge turn from the web console."
+      : run.status === "stopped"
+        ? "The run was stopped before it finished. Start another quick test when ready."
+        : run.status === "failed"
+          ? "The run failed before CodexBridge returned a usable answer. Check the Runtime Log below, then verify Codex is installed and logged in on this host."
+          : "No test has run yet. Click Run Quick Test to verify this bot.";
   return {
     running: run.status === "running",
     status: run.status,
     prompt: run.prompt,
     output: run.output,
     error: run.error,
+    friendlyMessage,
     sessionLabel: run.sessionLabel,
     startedAt: run.startedAt,
     finishedAt: run.finishedAt,
@@ -2185,7 +2196,7 @@ Skills: installed capabilities</pre>
         const payload = await request('/api/bots/' + botId + '/chat?sessionLabel=' + encodeURIComponent(sessionLabel));
         document.getElementById("chat-run-state").textContent = payload.status || "idle";
         document.getElementById("chat-output").textContent =
-          payload.error ? payload.error : (payload.output || (payload.running ? "Running..." : "No run yet."));
+          payload.error ? [payload.friendlyMessage, payload.error].filter(Boolean).join("\\n\\n") : (payload.output || payload.friendlyMessage || (payload.running ? "Running..." : "No run yet."));
         if (payload.running) {
           clearTimeout(loadChatStatus._timer);
           loadChatStatus._timer = setTimeout(() => {

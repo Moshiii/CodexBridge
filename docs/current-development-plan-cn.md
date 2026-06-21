@@ -176,6 +176,7 @@
    - Bot detail API 已返回 `setupGuide`，后续 CLI、IM 管理命令、Web UI 可以复用同一套 readiness 判断。
    - 首屏从静态说明改为动态下一步提示，降低第一次打开控制台时的理解成本。
    - Web Overview 已新增 Quick Test，用户可以从首屏一键发起 main session 试聊，不需要先理解 Sessions / Chat tab 的区别。
+   - Chat / Quick Test 状态已新增 friendlyMessage，失败时会提示检查 Runtime Log，并确认主机上的 Codex 已安装且已登录。
 
 ### 本轮审计已修复的严重问题
 
@@ -643,11 +644,12 @@ denied
 14. 增加 conversation log 复盘筛选：时间窗口、riskOnly、riskLabel、reviewStatus
 15. 增加 Web Overview Setup Checklist，让用户一眼看到当前 bot 还差哪一步才能可用
 16. 增加 Web Overview Quick Test，从首屏一键试聊验证 CodexBridge 是否可用
+17. 增加 Chat / Quick Test friendlyMessage，让成功、运行中、失败、停止状态都有可理解的下一步说明
 
 接下来再考虑：
 
 1. 把 Telegram/飞书配置从 raw config 继续拆成表单化向导。
-2. 继续完善 Quick Test 结果说明：成功、未启动、未配置、无权限分别给出清楚文案。
+2. 继续完善 Quick Test 前置检查：未启动、未配置、无权限分别给出更精确文案。
 3. 简化 Operations：普通用户运营只看用户、充值、封禁、风险日志，隐藏低频调试信息。
 4. 增加空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
 5. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
