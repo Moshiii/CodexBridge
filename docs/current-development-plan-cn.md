@@ -163,6 +163,7 @@
    - Web 控制台已支持可选 operator token 鉴权，设置 `CODEXBRIDGE_WEB_TOKEN` 后启用。
    - Telegram / 飞书普通请求失败路径已接入 paid credit refund；用户主动 stop 默认不退。
    - 已新增基础 analytics service 和 Web metrics API，能聚合用户、usage、runs、credits 指标。
+   - 已新增第一版错误分类，Web API 对用户错误返回明确 code，对内部错误隐藏细节。
 
 ### 本轮审计已修复的严重问题
 
@@ -218,15 +219,21 @@ run record
 - SQLite/Postgres 迁移判断标准
 - 从 JSON / JSONL 到数据库的真实数据迁移
 
-### 3. 错误类型和统一错误处理还不够正式
+### 3. 错误类型和统一错误处理已有第一版，但覆盖还不完整
 
-现在很多地方还是普通 `Error`。后续应区分：
+当前已新增 `src/errors.mjs`，并让 Web API 区分：
 
 - user error：权限不足、额度不足、参数错误
 - system error：文件锁失败、状态文件损坏、Codex 启动失败
 - external error：Telegram / 飞书 API 或网络失败
 
-这样 Web/API/IM 回复可以稳定且不泄漏内部细节。
+Web API 已对明显的用户输入错误返回 4xx、`kind`、`code`，对普通内部错误隐藏细节。
+
+后续仍需补：
+
+- 更多核心模块抛出 `AppError` 子类，而不是普通 `Error`。
+- IM 回复也统一按错误类型渲染。
+- 外部 API 错误统一映射为 external error。
 
 ### 4. 失败、stop、退款策略已有第一版，但还不够产品化
 

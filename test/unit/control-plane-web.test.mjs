@@ -216,6 +216,50 @@ test("control plane web server enforces optional operator token", async () => {
   });
 });
 
+test("control plane web server returns classified safe API errors", async () => {
+  await withTempHome(async () => {
+    const { createBot } = await importFresh("../../src/bots.mjs");
+    const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+
+    await createBot({ id: "errors", name: "Errors" });
+    const runtime = await startControlPlaneWebServer({ port: 0 });
+    try {
+      const missingPromptResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/errors/chat`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      });
+      assert.equal(missingPromptResponse.status, 400);
+      const missingPromptPayload = await missingPromptResponse.json();
+      assert.equal(missingPromptPayload.kind, "user");
+      assert.equal(missingPromptPayload.code, "prompt_required");
+      assert.equal(missingPromptPayload.error, "Prompt is required.");
+
+      const invalidJsonResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/errors/chat`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: "{bad-json",
+      });
+      assert.equal(invalidJsonResponse.status, 400);
+      const invalidJsonPayload = await invalidJsonResponse.json();
+      assert.equal(invalidJsonPayload.code, "invalid_json");
+
+      const unknownSessionResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/errors/sessions/missing/use`, {
+        method: "POST",
+      });
+      assert.equal(unknownSessionResponse.status, 404);
+      const unknownSessionPayload = await unknownSessionResponse.json();
+      assert.equal(unknownSessionPayload.code, "session_not_found");
+    } finally {
+      await runtime.close();
+    }
+  });
+});
+
 test("bot set-config style nested patch should preserve sibling telegram fields", async () => {
   await withTempHome(async () => {
     const { createBot, updateBotConfig } = await importFresh("../../src/bots.mjs");
@@ -315,9 +359,11 @@ test("web config update rejects placeholder telegram tokens", async () => {
         }),
       });
 
-      assert.equal(response.status, 500);
+      assert.equal(response.status, 400);
       const payload = await response.json();
       assert.match(payload.error, /placeholder Telegram token/i);
+      assert.equal(payload.kind, "user");
+      assert.equal(payload.code, "placeholder_telegram_token");
 
       const persisted = await readConfig(path.join(tempHome, "bots", "epsilon"));
       assert.equal(persisted.channels.telegram.botToken, "real-token");

@@ -44,6 +44,7 @@ import { listRunRecords } from "./runs-state.mjs";
 import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.mjs";
 import { appendAdminAuditEvent, listAdminAuditEvents } from "./admin-audit-log.mjs";
 import { getBotMetrics } from "./analytics-service.mjs";
+import { NotFoundError, UserInputError, toPublicError } from "./errors.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -104,7 +105,16 @@ async function readJsonBody(request) {
     chunks.push(chunk);
   }
   const raw = Buffer.concat(chunks).toString("utf8").trim();
-  return raw ? JSON.parse(raw) : {};
+  if (!raw) {
+    return {};
+  }
+  try {
+    return JSON.parse(raw);
+  } catch {
+    throw new UserInputError("Request body must be valid JSON.", {
+      code: "invalid_json",
+    });
+  }
 }
 
 function nowIso() {
@@ -121,7 +131,9 @@ function isPlaceholderToken(value) {
 
 function assertSafeTelegramToken(token) {
   if (isPlaceholderToken(token)) {
-    throw new Error("Refusing to save placeholder Telegram token.");
+    throw new UserInputError("Refusing to save placeholder Telegram token.", {
+      code: "placeholder_telegram_token",
+    });
   }
 }
 
@@ -257,7 +269,7 @@ async function readBotSessions(botId) {
 async function createBotSession(botId, label) {
   const nextLabel = String(label || "").trim();
   if (!nextLabel) {
-    throw new Error("Session label is required.");
+    throw new UserInputError("Session label is required.", { code: "session_label_required" });
   }
   const botHome = await getBotHome(botId);
   const cliState = await readCliState(botHome);
@@ -279,12 +291,12 @@ async function createBotSession(botId, label) {
 async function activateBotSession(botId, label) {
   const nextLabel = String(label || "").trim();
   if (!nextLabel) {
-    throw new Error("Session label is required.");
+    throw new UserInputError("Session label is required.", { code: "session_label_required" });
   }
   const botHome = await getBotHome(botId);
   const cliState = await readCliState(botHome);
   if (!cliState.sessions[nextLabel]) {
-    throw new Error(`Unknown session: ${nextLabel}`);
+    throw new NotFoundError(`Unknown session: ${nextLabel}`, { code: "session_not_found" });
   }
   cliState.activeSessionLabel = nextLabel;
   cliState.sessions[nextLabel].updatedAt = nowIso();
@@ -331,7 +343,7 @@ async function readChatStatus(botId, sessionLabel = null) {
 async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   const nextPrompt = String(prompt || "").trim();
   if (!nextPrompt) {
-    throw new Error("Prompt is required.");
+    throw new UserInputError("Prompt is required.", { code: "prompt_required" });
   }
   const botHome = await getBotHome(botId);
   const config = await readConfig(botHome);
@@ -352,7 +364,10 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   const key = getRunKey(botId, label);
   const existing = activeChatRuns.get(key);
   if (existing?.status === "running") {
-    throw new Error(`Session ${label} is already running.`);
+    throw new UserInputError(`Session ${label} is already running.`, {
+      code: "session_already_running",
+      statusCode: 409,
+    });
   }
 
   const session = cliState.sessions[label];
@@ -446,7 +461,7 @@ async function readWorkspaceFileForBot(botId, relativePath) {
   const workspacePath = getWorkspacePath(botHome);
   const sanitized = path.normalize(String(relativePath || "")).replace(/^(\.\.(\/|\\|$))+/, "");
   if (!sanitized || sanitized.startsWith("..")) {
-    throw new Error("Workspace file path is required.");
+    throw new UserInputError("Workspace file path is required.", { code: "workspace_path_required" });
   }
   const filePath = path.join(workspacePath, sanitized);
   const content = await readFile(filePath, "utf8");
@@ -461,7 +476,7 @@ async function writeWorkspaceFileForBot(botId, relativePath, content) {
   const workspacePath = getWorkspacePath(botHome);
   const sanitized = path.normalize(String(relativePath || "")).replace(/^(\.\.(\/|\\|$))+/, "");
   if (!sanitized || sanitized.startsWith("..")) {
-    throw new Error("Workspace file path is required.");
+    throw new UserInputError("Workspace file path is required.", { code: "workspace_path_required" });
   }
   const filePath = path.join(workspacePath, sanitized);
   await writeFile(filePath, String(content ?? ""), "utf8");
@@ -509,7 +524,7 @@ async function installSkillForBot(botId, sourcePath) {
 async function pairTelegramForBot(botId, token) {
   const nextToken = String(token || "").trim();
   if (!nextToken) {
-    throw new Error("Telegram token is required.");
+    throw new UserInputError("Telegram token is required.", { code: "telegram_token_required" });
   }
   assertSafeTelegramToken(nextToken);
   const botHome = await getBotHome(botId);
@@ -596,7 +611,7 @@ async function listBotGoals(botId) {
 async function startGoalForBot(botId, { objective, sessionLabel = null } = {}) {
   const nextObjective = String(objective || "").trim();
   if (!nextObjective) {
-    throw new Error("Goal objective is required.");
+    throw new UserInputError("Goal objective is required.", { code: "goal_objective_required" });
   }
   const botHome = await getBotHome(botId);
   const sessions = await readCliState(botHome);
@@ -654,7 +669,9 @@ async function createScheduleForBot(botId, { objective, cron, timezone } = {}) {
   const nextCron = String(cron || "").trim();
   const nextTimezone = String(timezone || "").trim() || "Asia/Shanghai";
   if (!nextObjective || !nextCron) {
-    throw new Error("Schedule objective and cron are required.");
+    throw new UserInputError("Schedule objective and cron are required.", {
+      code: "schedule_objective_and_cron_required",
+    });
   }
   const botHome = await getBotHome(botId);
   return await withBotHome(botHome, async () => {
@@ -673,7 +690,7 @@ async function toggleScheduleForBot(botId, scheduleId, enabled) {
   return await withBotHome(botHome, async () => {
     const schedule = await getScheduleById(scheduleId);
     if (!schedule) {
-      throw new Error(`Unknown schedule: ${scheduleId}`);
+      throw new NotFoundError(`Unknown schedule: ${scheduleId}`, { code: "schedule_not_found" });
     }
     schedule.enabled = enabled;
     schedule.updatedAt = nowIso();
@@ -2874,7 +2891,8 @@ export async function startControlPlaneWebServer({ port = 8787, host = "127.0.0.
         json(response, 404, { error: "Not found" });
       }
     } catch (error) {
-      json(response, 500, { error: error.message });
+      const publicError = toPublicError(error);
+      json(response, publicError.statusCode, publicError.payload);
     }
   });
 
