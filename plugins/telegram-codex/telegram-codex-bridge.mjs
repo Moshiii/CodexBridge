@@ -41,8 +41,16 @@ import {
 import { normalizeTelegramEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
-import { chargeUsage, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
-import { createRunRecord, updateRunRecord } from "../../src/runs-state.mjs";
+import { getUserCredits } from "../../src/user-credits.mjs";
+import { chargeRequestUsage, renderBillingDeniedMessage } from "../../src/billing-service.mjs";
+import {
+  createQueuedRun,
+  markRunCompleted,
+  markRunDenied,
+  markRunFailed,
+  markRunRunning,
+  markRunStopped,
+} from "../../src/run-service.mjs";
 import {
   buildUserId,
   canUseGroupChat,
@@ -1616,22 +1624,35 @@ async function processUpdate(update, context) {
       privateEnabled: accessUser.privateEnabled,
       chatType: envelope.chatType,
     });
-    await createRunRecord({
+    const deniedRun = await createQueuedRun({
       userId: accessUser.id,
       channel: envelope.channel,
       chatType: envelope.chatType,
       chatId: envelope.chatId,
       messageId: envelope.messageId,
       visibility: envelope.isDirect ? "private" : "public",
-      status: "denied",
-      reason: accessUser.status === "banned" ? "user_banned" : "private_chat_locked",
     }, context.botHome).catch((error) => {
       logBridgeEvent("telegram denied run record failed", {
         chatId,
         senderId,
         error: error.message,
       });
+      return null;
     });
+    if (deniedRun) {
+      await markRunDenied(
+        deniedRun.runId,
+        accessUser.status === "banned" ? "user_banned" : "private_chat_locked",
+        {},
+        context.botHome,
+      ).catch((error) => {
+        logBridgeEvent("telegram denied run update failed", {
+          chatId,
+          senderId,
+          error: error.message,
+        });
+      });
+    }
     await sendMessage(
       context.token,
       message.chat.id,
@@ -1687,7 +1708,7 @@ async function processUpdate(update, context) {
   }
 
   const usageUserId = accessUser?.id || buildUserId(envelope.channel, envelope.userId);
-  const run = await createRunRecord({
+  const run = await createQueuedRun({
     userId: usageUserId,
     conversationId: routedSession.sessionKey || activeLabel,
     channel: envelope.channel,
@@ -1695,7 +1716,6 @@ async function processUpdate(update, context) {
     chatId: envelope.chatId,
     messageId: envelope.messageId,
     visibility: envelope.isDirect ? "private" : "public",
-    status: "queued",
   }, context.botHome);
 
   if (runningGoal) {
@@ -1710,10 +1730,7 @@ async function processUpdate(update, context) {
       `Goal ${runningGoal.goalId} is already running. Use /stop before sending a normal request.`,
       message.message_id,
     );
-    await updateRunRecord(run.runId, {
-      status: "denied",
-      reason: "running_goal",
-    }, context.botHome);
+    await markRunDenied(run.runId, "running_goal", {}, context.botHome);
     return;
   }
 
@@ -1730,10 +1747,7 @@ async function processUpdate(update, context) {
       `Session ${activeLabel} is already running. Use /stop before sending a new request.`,
       message.message_id,
     );
-    await updateRunRecord(run.runId, {
-      status: "denied",
-      reason: "running_session",
-    }, context.botHome);
+    await markRunDenied(run.runId, "running_session", {}, context.botHome);
     return;
   }
 
@@ -1747,7 +1761,7 @@ async function processUpdate(update, context) {
     await sendMessage(context.token, message.chat.id, uploadNotice, message.message_id);
   }
 
-  const chargeResult = await chargeUsage({
+  const chargeResult = await chargeRequestUsage({
     userId: usageUserId,
     chatType: envelope.chatType,
     botHome: context.botHome,
@@ -1757,24 +1771,21 @@ async function processUpdate(update, context) {
     runId: run.runId,
   });
   if (!chargeResult.ok) {
-    await updateRunRecord(run.runId, {
-      status: "denied",
-      reason: "insufficient_credits",
+    await markRunDenied(run.runId, "insufficient_credits", {
       costSource: chargeResult.costSource,
       creditsCharged: 0,
     }, context.botHome);
     await sendMessage(
       context.token,
       message.chat.id,
-      renderInsufficientCreditsMessage(chargeResult, {
+      renderBillingDeniedMessage(chargeResult, {
         userId: accessUser?.id || buildUserId(envelope.channel, envelope.userId),
       }),
       message.message_id,
     );
     return;
   }
-  await updateRunRecord(run.runId, {
-    status: "running",
+  await markRunRunning(run.runId, {
     costSource: chargeResult.costSource,
     creditsCharged: chargeResult.charged,
   }, context.botHome);
@@ -1839,12 +1850,23 @@ async function processUpdate(update, context) {
       ? renderInterruptedResult(finalResult)
       : renderCodexResult(finalResult);
 
-    await updateRunRecord(run.runId, {
-      status: finalResult.ok ? "completed" : job.stopRequested ? "stopped" : "failed",
-      codexThreadId: finalResult.cliSessionRef || "",
-      outputPreview: typeof messageText === "string" ? messageText.slice(0, 500) : "",
-      error: finalResult.ok ? "" : finalResult.stderr || finalResult.output || "Codex failed.",
-    }, context.botHome);
+    if (finalResult.ok) {
+      await markRunCompleted(run.runId, {
+        codexThreadId: finalResult.cliSessionRef || "",
+        output: messageText,
+      }, context.botHome);
+    } else if (job.stopRequested) {
+      await markRunStopped(run.runId, "user_stop", {
+        codexThreadId: finalResult.cliSessionRef || "",
+        outputPreview: typeof messageText === "string" ? messageText.slice(0, 500) : "",
+        error: finalResult.stderr || finalResult.output || "Codex failed.",
+      }, context.botHome);
+    } else {
+      await markRunFailed(run.runId, finalResult.stderr || finalResult.output || "Codex failed.", {
+        codexThreadId: finalResult.cliSessionRef || "",
+        outputPreview: typeof messageText === "string" ? messageText.slice(0, 500) : "",
+      }, context.botHome);
+    }
 
     await sendMessage(
       context.token,
@@ -1859,10 +1881,7 @@ async function processUpdate(update, context) {
       activeLabel,
       error: error.message,
     });
-    await updateRunRecord(run.runId, {
-      status: "failed",
-      error: error.message,
-    }, context.botHome).catch(() => {});
+    await markRunFailed(run.runId, error, {}, context.botHome).catch(() => {});
     await sendMessage(
       context.token,
       message.chat.id,

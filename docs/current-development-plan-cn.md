@@ -1,6 +1,6 @@
 # CodexBridge 当前开发规划
 
-日期：2026-06-21
+日期：2026-06-22
 
 ## 一、这份规划解决什么问题
 
@@ -18,7 +18,7 @@
 
 > CodexBridge 不做通用 token/API 转卖。长期方向是 IM-native 的去中心化 Codex 服务：群聊免费公开体验，满意后购买 credits，付费解锁私聊和更高额度。
 
-因此，接下来开发重点不应该继续扩散功能，而应该补齐「增长漏斗 + 用量计费 + 私聊付费」这条闭环。
+因此，接下来开发重点不应该继续扩散功能，而应该先稳住「增长漏斗 + 用量计费 + 私聊付费」闭环，再把已经跑通的功能收敛成更常规、可维护的工程架构。
 
 ## 二、当前已经有的基础
 
@@ -62,6 +62,17 @@
    - config
    - goals/schedules
    - workspace/skills
+   - Operations：Users / Usage / Runs / grant / deduct / ban / unlock private
+
+7. **商业闭环 MVP**
+   - `src/users-state.mjs`
+   - `src/user-credits.mjs`
+   - `src/usage-ledger.mjs`
+   - `src/runs-state.mjs`
+   - Telegram / 飞书文本入口接入同一套 users、credits、ledger、runs 状态文件
+   - 新用户默认 `paidCredits = 0`，群聊只有每日免费额度；付费额度必须由运营台或后续支付系统 grant/adjust
+   - Web config API 返回 token/appSecret 时做服务端 redaction，保存 `[redacted]` 不覆盖真实 secret
+   - 飞书 bridge 已改为可安全 import，避免单测或 helper import 时误启动外部连接
 
 ### 当前测试证据
 
@@ -70,103 +81,175 @@
 - session routing
 - capability policy
 - user credits
+- usage ledger
+- run records
 - Telegram mention/command parsing
+- Telegram paid private gating
+- Feishu bridge helper import / paid private gating
 - bot runtime
 - config
 - web runtime/control plane
+- Web Operations API
+- Web config secret redaction
 
-这说明代码已经有基础安全网，可以开始做商业闭环重构。
+当前验证：`npm test` 通过，93 个测试全部通过。
 
-## 三、当前最大缺口
+## 三、当前进度与已完成项
 
-### 1. 免费群聊和付费私聊还没有产品化
+### 已完成
 
-文档里已经确定：
+1. **Phase 1：轻量用户模型与权限闭环**
+   - 已新增 `src/users-state.mjs`。
+   - 用户 id 使用 `channel:userId`。
+   - 支持 `free | paid | banned | admin`。
+   - 支持 `privateEnabled`。
+   - Telegram / 飞书消息会自动 upsert user。
+   - 免费用户群聊可用，私聊被拒。
+   - paid/admin/privateEnabled 用户可私聊。
+   - banned 用户所有入口拒绝。
+
+2. **Phase 2：每日免费额度 + paid credits**
+   - `src/user-credits.mjs` 已支持 `paidCredits`、`dailyFreeDate`、`dailyFreeUsed`、`dailyFreeLimit`、`totalConsumed`。
+   - 群聊优先消耗 daily free。
+   - daily free 用完后才消耗 paid credits。
+   - paid credits 不足时拒绝。
+   - 私聊只消耗 paid credits。
+   - 新用户默认 `paidCredits = 0`，避免免费用户绕过每日额度。
+   - 支持 `grantPaidCredits` 和 `adjustPaidCredits`。
+
+3. **Phase 3：UsageEvent ledger**
+   - 已新增 `src/usage-ledger.mjs`。
+   - charge / grant / adjustment / deny 会写入 JSONL ledger。
+   - UsageEvent 与 user/channel/chat/message/run 关联。
+
+4. **Phase 4：Run record**
+   - 已新增 `src/runs-state.mjs`。
+   - 支持 queued / running / completed / failed / stopped / denied。
+   - Telegram / 飞书请求会创建 run record。
+   - UsageEvent 与 Run 通过 `runId` 关联。
+
+5. **Phase 5：Telegram 商业闭环接入**
+   - Telegram 群聊/私聊已接入 users、credits、ledger、runs。
+   - `/credits` 展示 user status、private enabled、daily free、paid credits。
+   - 同一 conversation 正在运行时拒绝新请求，避免并发账务复杂化。
+   - admin 操作暂时放在 Web Operations，不放进群聊命令。
+
+6. **Phase 6：飞书对齐 Telegram**
+   - 飞书文本入口已使用同样的 users / credits / ledger / runs。
+   - 飞书群聊按用户 conversation 隔离。
+   - 飞书私聊执行 paid-only 规则。
+   - `/credits` 输出与 Telegram 对齐。
+   - 同一 conversation 正在运行时拒绝新请求。
+   - 按要求没有做飞书外部连通测试，只做本地 helper / 语法 / 单元测试。
+
+7. **Phase 7：Web 运营台**
+   - 已新增 Operations tab。
+   - 支持 Users、Usage、Runs 查看。
+   - 支持 grant、deduct、ban/unban、unlock/lock private。
+   - API 包括 users、usage、runs、grant、adjust、status、private。
+   - raw config 中 token/appSecret 已做服务端 redaction。
+
+### 本轮审计已修复的严重问题
+
+1. 新用户默认 100 paid credits，已改为 0。
+2. Web API 可能返回 Telegram token / Feishu appSecret，已改为 `[redacted]`。
+3. 保存 raw config 中的 `[redacted]` 可能覆盖真实 secret，已修复为保留原值。
+4. `/api/bots/:id/config` 保存后返回 registry entry，已改为返回脱敏后的真实 config。
+5. Feishu bridge import 时直接启动外部连接，已改为 CLI guard。
+6. 本地 CLI 被 IM 商业 credits 阻断，已移除本地普通输入扣费。
+
+## 四、当前最大缺口
+
+### 1. 业务服务层还没有抽出来
+
+现在 Telegram / 飞书各自处理：
 
 ```text
-群聊 = 免费公开体验入口
-私聊 = 付费私人入口
+upsert user
+权限检查
+扣费
+run record
+结果回传
 ```
 
-但代码现在还没有完整实现：
+功能已经跑通，但业务流程分散在 channel bridge 里。后续应抽：
 
-- 免费用户私聊禁用；
-- 群聊每日免费额度；
-- paid credits；
-- user status；
-- 私聊 private unlock；
-- 超额后的充值提示。
+- `chat-request-service.mjs`
+- `billing-service.mjs`
+- `run-service.mjs`
 
-### 2. Credits 还不是账务系统
+目标是让 channel bridge 只负责收消息、发消息、平台适配。
 
-当前 `user-credits.json` 是余额文件，不是账务流水。
+### 2. 持久化层还没有 repository 抽象
 
-缺少：
+现在 users / credits / usage / runs 已有状态文件，但上层直接读写 JSON / JSONL。
 
-- `UsageEvent`
-- `Run`
-- grant / charge / refund / adjustment
-- request/message/run 关联
-- 失败或中断时的扣费规则
-- 管理员充值和调整
+后续应抽 repository 层：
 
-### 3. User 还不是一等对象
+- `users-repository`
+- `credits-repository`
+- `usage-ledger-repository`
+- `runs-repository`
 
-现在用户只是 channel 里的 raw userId。
+这样以后迁移 SQLite/Postgres 时，不需要全项目重写。
 
-短期不需要复杂 Account/Tenant，但至少需要：
+### 3. 错误类型和统一错误处理还不够正式
 
-```text
-User
-  id = channel:userId
-  channel
-  externalUserId
-  displayName
-  status = free | paid | banned | admin
-  privateEnabled
-  createdAt
-  lastSeenAt
-```
+现在很多地方还是普通 `Error`。后续应区分：
 
-### 4. Run 还不是一等对象
+- user error：权限不足、额度不足、参数错误
+- system error：文件锁失败、状态文件损坏、Codex 启动失败
+- external error：Telegram / 飞书 API 或网络失败
 
-现在一次 Codex 执行主要存在于内存运行态和 session state 里。
+这样 Web/API/IM 回复可以稳定且不泄漏内部细节。
 
-要做付费，必须每次请求都有 run record：
+### 4. 失败、stop、退款策略还没有产品化
 
-```text
-Run
-  id
-  userId
-  conversationId
-  channel
-  chatType
-  visibility
-  costSource
-  creditsCharged
-  status
-  createdAt
-  finishedAt
-```
+当前已能记录 failed / stopped，但扣费策略仍较简单。需要明确：
 
-### 5. Web 控制台还不是商业运营台
+- 权限拒绝：不扣
+- 额度拒绝：不扣，写 deny
+- Codex 启动失败：是否退
+- 用户 stop：是否退
+- Codex 失败但消耗资源：是否扣
 
-现在 Web 控制台更像 bot 运维台。
+### 5. Web 控制台仍是单文件实现
 
-还缺：
+`src/control-plane-web.mjs` 当前包含 API、HTML、CSS、前端 JS，MVP 可接受，但后续维护成本会上升。
 
-- 用户列表
-- 用户状态
-- credit 余额
-- daily free 使用情况
-- usage ledger
-- 手动充值/扣减
-- ban/unban
-- 私聊解锁
+建议后续拆分为：
 
-## 四、推荐开发阶段
+- API routes
+- service 层
+- HTML/template
+- frontend render helpers
 
-## Phase 1：轻量用户模型与权限闭环
+### 6. 仍没有自动支付/订单系统
+
+当前是 Web Operations 手动 grant/deduct。后续收费需要：
+
+- order
+- payment provider callback
+- credit grant idempotency
+- refund
+- invoice/receipt
+- admin audit
+
+### 7. 观测指标还不够产品化
+
+后续需要可视化：
+
+- group trial users
+- daily free consumed
+- paid conversion
+- private unlock count
+- failed runs
+- average latency
+- cost per run
+
+## 五、已完成阶段验收清单
+
+### Phase 1：轻量用户模型与权限闭环
 
 目标：让系统知道谁是 free/paid/banned/admin，以及是否能私聊。
 
@@ -217,7 +300,7 @@ Run
 - paid 用户私聊可用。
 - banned 用户被拒。
 
-## Phase 2：每日免费额度 + paid credits
+### Phase 2：每日免费额度 + paid credits
 
 目标：实现增长漏斗的核心用量规则。
 
@@ -270,7 +353,7 @@ grantPaidCredits({ userId, amount, reason, botHome })
 - 私聊只扣 paid credits。
 - paid credits 不足时拒绝。
 
-## Phase 3：UsageEvent ledger
+### Phase 3：UsageEvent ledger
 
 目标：让 credits 可以对账，而不是只改余额。
 
@@ -324,7 +407,7 @@ createdAt
 - 失败时不重复写 charge。
 - ledger 可按 userId 查询。
 
-## Phase 4：Run record
+### Phase 4：Run record
 
 目标：每次 Codex 执行都有可追踪记录。
 
@@ -363,7 +446,7 @@ denied
 - Codex 失败生成 failed run。
 - stop 生成 stopped run。
 
-## Phase 5：Telegram 商业闭环接入
+### Phase 5：Telegram 商业闭环接入
 
 目标：Telegram 先成为完整增长漏斗。
 
@@ -393,7 +476,7 @@ denied
 
 注意：admin 命令可以先只在本地 CLI/Web 做，不一定马上放进群聊。
 
-## Phase 6：飞书对齐 Telegram
+### Phase 6：飞书对齐 Telegram
 
 目标：飞书至少达到文本增长漏斗一致。
 
@@ -409,7 +492,7 @@ denied
 
 建议：早期统一为 **同一 conversation 正在运行时拒绝新请求**，简单、可解释、少并发账务问题。
 
-## Phase 7：Web 运营台
+### Phase 7：Web 运营台
 
 目标：Web 从 bot 运维台补成轻量商业运营台。
 
@@ -448,7 +531,7 @@ denied
 - 不做公网暴露。
 - raw config 中 tokens 需要 redaction。
 
-## Phase 8：执行可见性和产品体验
+### Phase 8：执行可见性和产品体验
 
 目标：把原 Roadmap 里的 execution visibility 接回来。
 
@@ -462,23 +545,23 @@ denied
 
 这阶段可以复用原 Roadmap Phase B。
 
-## 五、建议优先级
+## 六、下一阶段建议优先级
 
-当前最高优先级不是 goal、schedule、skills，也不是更多 channel。
+当前最高优先级已经从“补商业闭环”转为“把已跑通的商业闭环整理成长期可维护的工程架构”。
 
-最高优先级是：
+下一阶段最高优先级：
 
-1. User 状态
-2. 群聊每日免费额度
-3. paid credits
-4. 私聊付费解锁
-5. UsageEvent ledger
-6. Run record
-7. Telegram 完整闭环
-8. 飞书对齐
-9. Web 运营台
+1. 抽 `chat-request-service.mjs`
+2. 抽 `run-service.mjs`
+3. 抽 `billing-service.mjs`
+4. 让 Telegram / 飞书都调用同一套业务服务
+5. 明确 failed / stopped / refund 策略
+6. 为 users / credits / usage / runs 增加 repository 层
+7. 增加 config schema validator 和 state migration
+8. 建立结构化日志和 admin audit
+9. 再考虑支付、订单、数据库迁移、worker queue
 
-## 六、当前已有规划需要调整的地方
+## 七、当前已有规划需要调整的地方
 
 ### 仍然有效
 
@@ -488,12 +571,13 @@ denied
 
 ### 需要降优先级
 
-- Goal first-class loop 暂时后移。
-- Skills 产品化暂时后移。
-- Web 视觉重构暂时后移。
-- 多 backend 抽象暂时后移。
+- Goal first-class loop 继续后移，除非先完成 run/refund 策略。
+- Skills 产品化继续后移。
+- Web 视觉重构继续后移，优先拆结构和 service。
+- 多 backend 抽象继续后移。
+- 自动支付继续后移，先保留 Web 手动 grant/deduct。
 
-### 需要新增到主线
+### 已经进入主线并完成 MVP
 
 - User 模型
 - daily free quota
@@ -503,7 +587,18 @@ denied
 - Run record
 - Web 运营台
 
-## 七、最小可发布版本定义
+### 新增到下一阶段主线
+
+- channel business service
+- billing service
+- run lifecycle service
+- repository layer
+- refund policy
+- config schema validation
+- structured logs
+- admin audit
+
+## 八、最小可发布版本定义
 
 一个可测试的 MVP 应该做到：
 
@@ -518,6 +613,8 @@ denied
 9. 私聊消耗 paid credits。
 10. Operator 能在 Web/CLI 里看到用户、余额、用量、runs。
 
+当前状态：以上 10 项已达到本地可测试版本。Telegram 端已有单元测试覆盖；飞书端按要求没有做外部连通测试，只做本地逻辑和 import 安全测试。
+
 这个版本不需要：
 
 - 自动支付；
@@ -528,17 +625,66 @@ denied
 - 多 worker pool；
 - 完整 goal/schedule 商业化。
 
-## 八、下一步开发建议
+## 九、下一步开发建议
 
-建议下一次实际编码从 Phase 1 + Phase 2 开始：
+建议下一次实际编码从业务服务层开始，不要先接支付，也不要先换数据库。
 
-1. 新增 `src/users-state.mjs`。
-2. 扩展 `src/user-credits.mjs` 为 daily free + paid credits。
-3. 修改 Telegram bridge 的 message flow：
-   - upsert user
-   - 按群聊/私聊判断访问权限
-   - 按规则 chargeUsage
-4. 增加测试覆盖。
+### Step 1：抽 `billing-service.mjs`
 
-这一步完成后，CodexBridge 就会从“能桥接 IM 到 Codex”进入“有免费试用和付费私聊雏形”的阶段。
+职责：
 
+- 判断 chatType 对应的扣费来源。
+- 封装 `chargeUsage` / `grantPaidCredits` / `adjustPaidCredits`。
+- 统一 insufficient credits 文案。
+- 为后续 refund 留接口。
+
+### Step 2：抽 `run-service.mjs`
+
+职责：
+
+- `createQueuedRun`
+- `markRunning`
+- `markDenied`
+- `markCompleted`
+- `markFailed`
+- `markStopped`
+- 统一 output preview、error、costSource、creditsCharged 字段。
+
+### Step 3：抽 `chat-request-service.mjs`
+
+职责：
+
+- upsert user。
+- 检查 group/private/banned 权限。
+- 创建 run。
+- 执行扣费。
+- 返回统一的决策结果给 channel bridge。
+
+channel bridge 应只做：
+
+- normalize incoming message
+- send reply / running / denied / result
+- 平台特有 metadata 处理
+
+### Step 4：制定 refund 策略
+
+建议先写入文档和测试，再实现：
+
+- 权限拒绝：不扣费，只写 denied run。
+- 额度拒绝：不扣费，写 deny usage event。
+- Codex 未启动成功：退还 paid credits。
+- 用户 stop：短任务不退，长任务可配置。
+- Codex 执行失败：先不自动退，但 run 记录 failure reason。
+
+### Step 5：Repository 层
+
+先保留 JSON / JSONL 文件，不急着换数据库。抽象接口即可：
+
+- `usersRepository`
+- `creditsRepository`
+- `usageLedgerRepository`
+- `runsRepository`
+
+等支付和并发压力明确后，再决定 SQLite 或 Postgres。
+
+这一步完成后，CodexBridge 会从“功能闭环已跑通”进入“架构可以长期演进”的阶段。

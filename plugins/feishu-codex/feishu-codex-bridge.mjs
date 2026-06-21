@@ -18,8 +18,16 @@ import { buildWorkspacePrompt } from "../../src/workspace-context.mjs";
 import { normalizeFeishuEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
-import { chargeUsage, getUserCredits, renderInsufficientCreditsMessage } from "../../src/user-credits.mjs";
-import { createRunRecord, updateRunRecord } from "../../src/runs-state.mjs";
+import { getUserCredits } from "../../src/user-credits.mjs";
+import { chargeRequestUsage, renderBillingDeniedMessage } from "../../src/billing-service.mjs";
+import {
+  createQueuedRun,
+  markRunCompleted,
+  markRunDenied,
+  markRunFailed,
+  markRunRunning,
+  markRunStopped,
+} from "../../src/run-service.mjs";
 import {
   buildUserId,
   canUseGroupChat,
@@ -700,7 +708,7 @@ async function main() {
           const accessUser = await upsertFeishuUserFromEvent(event, botHome);
           const usageUserId = accessUser?.id || buildUserId("feishu", envelope.userId);
           if (accessUser && !canFeishuUserAccessChat(accessUser, envelope)) {
-            const deniedRun = await createRunRecord({
+            const deniedRun = await createQueuedRun({
               userId: usageUserId,
               conversationId: envelope.conversationId,
               channel: envelope.channel,
@@ -708,10 +716,13 @@ async function main() {
               chatId,
               messageId,
               visibility: envelope.isDirect ? "private" : "public",
-              status: "denied",
-              reason: accessUser.status === "banned" ? "user_banned" : "private_chat_locked",
             }, botHome);
-            await updateRunRecord(deniedRun.id, { status: "denied" }, botHome);
+            await markRunDenied(
+              deniedRun.runId,
+              accessUser.status === "banned" ? "user_banned" : "private_chat_locked",
+              {},
+              botHome,
+            );
             const response = await sendText(
               client,
               chatId,
@@ -740,7 +751,7 @@ async function main() {
 
           const pendingBefore = pendingCounts.get(routeKey) || 0;
           if (pendingBefore > 0 || activeRuns.has(routeKey)) {
-            const deniedRun = await createRunRecord({
+            const deniedRun = await createQueuedRun({
               userId: usageUserId,
               conversationId: envelope.conversationId,
               channel: envelope.channel,
@@ -748,10 +759,8 @@ async function main() {
               chatId,
               messageId,
               visibility: envelope.isDirect ? "private" : "public",
-              status: "denied",
-              reason: "running_session",
             }, botHome);
-            await updateRunRecord(deniedRun.id, { status: "denied" }, botHome);
+            await markRunDenied(deniedRun.runId, "running_session", {}, botHome);
             const busyResponse = await sendText(
               client,
               chatId,
@@ -762,7 +771,7 @@ async function main() {
             return;
           }
 
-          const runRecord = await createRunRecord({
+          const runRecord = await createQueuedRun({
             userId: usageUserId,
             conversationId: envelope.conversationId,
             channel: envelope.channel,
@@ -770,7 +779,6 @@ async function main() {
             chatId,
             messageId,
             visibility: envelope.isDirect ? "private" : "public",
-            status: "queued",
           }, botHome);
           pendingCounts.set(routeKey, 1);
 
@@ -778,32 +786,28 @@ async function main() {
           const next = previous
             .catch(() => {})
             .then(async () => {
-              const chargeResult = await chargeUsage({
+              const chargeResult = await chargeRequestUsage({
                 userId: usageUserId,
                 chatType: envelope.chatType,
                 botHome,
                 channel: envelope.channel,
                 chatId,
                 messageId,
-                runId: runRecord.id,
+                runId: runRecord.runId,
               });
               if (!chargeResult.ok) {
-                await updateRunRecord(runRecord.id, {
-                  status: "denied",
-                  reason: "insufficient_credits",
-                }, botHome);
+                await markRunDenied(runRecord.runId, "insufficient_credits", {}, botHome);
                 const deniedResponse = await sendText(
                   client,
                   chatId,
-                  renderInsufficientCreditsMessage(chargeResult, { userId: usageUserId }),
+                  renderBillingDeniedMessage(chargeResult, { userId: usageUserId }),
                   { replyToMessageId: messageId },
                 );
                 rememberBotOpenId(botIdentity, deniedResponse);
                 return;
               }
 
-              await updateRunRecord(runRecord.id, {
-                status: "running",
+              await markRunRunning(runRecord.runId, {
                 costSource: chargeResult.costSource,
                 creditsCharged: chargeResult.charged,
               }, botHome);
@@ -841,10 +845,13 @@ async function main() {
               await writeCliState(cliState, botHome);
 
               if (!result.ok) {
-                await updateRunRecord(runRecord.id, {
-                  status: result.stopped ? "stopped" : "failed",
-                  error: result.stderr || result.output || "Unknown error.",
-                }, botHome);
+                if (result.stopped) {
+                  await markRunStopped(runRecord.runId, "user_stop", {
+                    error: result.stderr || result.output || "Unknown error.",
+                  }, botHome);
+                } else {
+                  await markRunFailed(runRecord.runId, result.stderr || result.output || "Unknown error.", {}, botHome);
+                }
                 const failureResponse = await sendText(client, chatId, `Request failed.\n${result.stderr || result.output || "Unknown error."}`, {
                   replyToMessageId: messageId,
                 });
@@ -852,10 +859,9 @@ async function main() {
                 return;
               }
 
-              await updateRunRecord(runRecord.id, {
-                status: "completed",
+              await markRunCompleted(runRecord.runId, {
                 codexThreadId: result.cliSessionRef || latestChatState.cliSessionRef || null,
-                outputPreview: normalizeFeishuOutput(result.output || "Done.").slice(0, 500),
+                output: normalizeFeishuOutput(result.output || "Done."),
               }, botHome);
               const successResponse = await sendText(client, chatId, result.output || "Done.", {
                 replyToMessageId: messageId,
