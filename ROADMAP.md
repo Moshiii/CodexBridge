@@ -113,12 +113,90 @@ They are not yet a strong product moat.
 
 Recommended order:
 
-1. execution visibility and output semantics
-2. Telegram resilience and operational safety
-3. web console product refinement
-4. goal workflow maturity
-5. workspace and skills as differentiated product surfaces
-6. multi-channel and backend expansion
+0. product strategy: CodexBridge is a decentralized Codex service, not a token resale business
+1. public group onboarding, personal conversation isolation, and paid private chat
+2. usage credits, daily free quotas, and billing-grade usage records
+3. execution visibility and output semantics
+4. Telegram resilience and operational safety
+5. web console product refinement
+6. goal workflow maturity
+7. workspace and skills as differentiated product surfaces
+8. multi-channel and backend expansion
+
+## Long-Term Product Strategy
+
+CodexBridge should not become a generic token resale or API forwarding business.
+That path has weak differentiation, high upstream platform risk, and poor strategic control.
+
+The stronger long-term strategy is:
+
+> CodexBridge sells a useful IM-native Codex work experience, not raw model tokens.
+
+The product should behave like a lightweight growth funnel:
+
+```text
+User joins a Telegram or Feishu group
+  -> asks CodexBridge in public with a daily free quota
+  -> everyone in the group can see the answer and product value
+  -> satisfied users buy credits
+  -> paid users unlock private chat and higher limits
+  -> heavier users can later get dedicated bots, workspaces, or workers
+```
+
+The core product rule is documented in
+[docs/public-group-private-conversation-principle.md](/Users/moshiwei/Documents/GitHub/CodexBridge/docs/public-group-private-conversation-principle.md):
+
+```text
+conversation belongs to the user
+usage belongs to the user
+group replies are public
+private replies are paid and private
+```
+
+This keeps the product simple enough for early adoption:
+
+- no heavy tenant/account model in the first version
+- no cross-platform identity merging between Telegram and Feishu
+- no generic OpenAI/OpenRouter resale surface
+- no public API marketplace positioning
+- no enterprise SaaS complexity before retention and paid conversion are proven
+
+### Business Boundary
+
+CodexBridge should monetize:
+
+- group-to-private conversion
+- paid credits
+- higher private-chat limits
+- file handling
+- persistent private conversations
+- dedicated bot/workspace options
+- managed Mac mini or worker capacity
+
+CodexBridge should not monetize primarily by:
+
+- reselling OpenAI/OpenRouter token access
+- exposing a generic model API gateway to domestic users
+- competing on cheaper raw token price
+
+The internal cost model can still be token-based, but the user-facing product should be credit-based and experience-based.
+
+### Backend Strategy
+
+The backend should remain provider-flexible:
+
+```text
+CodexBridge Product
+  -> local Codex worker
+  -> domestic model provider
+  -> OpenAI/OpenRouter for supported overseas use cases
+  -> future local/open-source model worker
+```
+
+Domestic users should not depend on overseas OpenAI/OpenRouter resale as the default path.
+If overseas models are used, they should be routed only where provider terms and local compliance allow it.
+
+The durable asset is the CodexBridge workflow layer: IM entry, conversation routing, usage records, credits, private unlock, workspace continuity, and worker orchestration.
 
 ## Roadmap
 
