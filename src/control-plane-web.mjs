@@ -41,6 +41,7 @@ import { adjustPaidCredits, getUserCredits, grantPaidCredits } from "./user-cred
 import { listUsageEvents } from "./usage-ledger.mjs";
 import { listRunRecords } from "./runs-state.mjs";
 import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.mjs";
+import { appendAdminAuditEvent, listAdminAuditEvents } from "./admin-audit-log.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -643,6 +644,12 @@ async function listBotUsers(botId) {
 async function grantCreditsForBot(botId, userId, amount) {
   const botHome = await getBotHome(botId);
   const result = await grantPaidCredits({ userId, amount, botHome });
+  await appendAdminAuditEvent({
+    action: "grant_credits",
+    userId,
+    amount: result.granted,
+    reason: "manual_grant",
+  }, botHome);
   return {
     user: (await readUsersState(botHome)).users[userId] || null,
     credits: result,
@@ -652,6 +659,12 @@ async function grantCreditsForBot(botId, userId, amount) {
 async function adjustCreditsForBot(botId, userId, amount, reason) {
   const botHome = await getBotHome(botId);
   const result = await adjustPaidCredits({ userId, amount, reason, botHome });
+  await appendAdminAuditEvent({
+    action: "adjust_credits",
+    userId,
+    amount: result.adjusted,
+    reason,
+  }, botHome);
   return {
     user: (await readUsersState(botHome)).users[userId] || null,
     credits: result,
@@ -660,12 +673,26 @@ async function adjustCreditsForBot(botId, userId, amount, reason) {
 
 async function updateUserStatusForBot(botId, userId, status) {
   const botHome = await getBotHome(botId);
-  return await setUserStatus(userId, status, botHome);
+  const user = await setUserStatus(userId, status, botHome);
+  await appendAdminAuditEvent({
+    action: "set_user_status",
+    userId,
+    status: user.status,
+    reason: "manual_status_update",
+  }, botHome);
+  return user;
 }
 
 async function updatePrivateEnabledForBot(botId, userId, privateEnabled) {
   const botHome = await getBotHome(botId);
-  return await setPrivateEnabled(userId, privateEnabled, botHome);
+  const user = await setPrivateEnabled(userId, privateEnabled, botHome);
+  await appendAdminAuditEvent({
+    action: "set_private_enabled",
+    userId,
+    privateEnabled: user.privateEnabled,
+    reason: "manual_private_update",
+  }, botHome);
+  return user;
 }
 
 async function listUsageForBot(botId, options = {}) {
@@ -680,6 +707,15 @@ async function listUsageForBot(botId, options = {}) {
 async function listRunsForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
   return await listRunRecords({
+    botHome,
+    userId: options.userId || null,
+    limit: options.limit || 100,
+  });
+}
+
+async function listAdminAuditForBot(botId, options = {}) {
+  const botHome = await getBotHome(botId);
+  return await listAdminAuditEvents({
     botHome,
     userId: options.userId || null,
     limit: options.limit || 100,
@@ -2664,6 +2700,15 @@ async function handleApi(request, response, pathname) {
   if (request.method === "GET" && botRunsMatch) {
     const url = new URL(request.url || "/", "http://localhost");
     return json(response, 200, await listRunsForBot(decodeURIComponent(botRunsMatch[1]), {
+      userId: url.searchParams.get("userId"),
+      limit: url.searchParams.get("limit"),
+    }));
+  }
+
+  const botAdminAuditMatch = pathname.match(/^\/api\/bots\/([^/]+)\/admin-audit$/);
+  if (request.method === "GET" && botAdminAuditMatch) {
+    const url = new URL(request.url || "/", "http://localhost");
+    return json(response, 200, await listAdminAuditForBot(decodeURIComponent(botAdminAuditMatch[1]), {
       userId: url.searchParams.get("userId"),
       limit: url.searchParams.get("limit"),
     }));

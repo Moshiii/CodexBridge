@@ -415,6 +415,15 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       const runsPayload = await runsResponse.json();
       assert.equal(runsPayload.length, 1);
       assert.equal(runsPayload[0].status, "completed");
+
+      const auditResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/admin-audit?userId=${encodeURIComponent("telegram:123")}`);
+      assert.equal(auditResponse.status, 200);
+      const auditPayload = await auditResponse.json();
+      const auditActions = auditPayload.map((event) => event.action);
+      assert.equal(auditActions.includes("grant_credits"), true);
+      assert.equal(auditActions.includes("adjust_credits"), true);
+      assert.equal(auditActions.includes("set_private_enabled"), true);
+      assert.equal(auditActions.includes("set_user_status"), true);
     } finally {
       await runtime.close();
     }
