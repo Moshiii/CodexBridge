@@ -29,6 +29,7 @@ test("conversation log stores input and output with risk labels", async () => {
 
     const byUser = await logs.listConversationLogEvents({ userId: "telegram:1" });
     const risky = await logs.listConversationLogEvents({ riskLabel: "prompt_injection_signal" });
+    const redacted = await logs.listConversationLogEvents({ userId: "telegram:1", redactContent: true });
 
     assert.equal(input.direction, "input");
     assert.equal(input.contentLength, input.content.length);
@@ -38,5 +39,29 @@ test("conversation log stores input and output with risk labels", async () => {
     assert.equal(byUser.length, 2);
     assert.equal(risky.length, 1);
     assert.equal(risky[0].runId, "run_1");
+    assert.equal(redacted[0].contentRedacted, true);
+    assert.equal(redacted[0].content.includes("demo@example.com"), false);
+    assert.equal(redacted[0].content.includes("token=abc123"), false);
+    assert.equal(redacted[0].content.includes("[redacted-email]"), true);
+    assert.equal(redacted[0].content.includes("token=[redacted-secret]"), true);
+  });
+});
+
+test("conversation content redaction masks common sensitive values", async () => {
+  await withTempHome(async () => {
+    const logs = await importFresh("../../src/conversation-log.mjs");
+
+    const redacted = logs.redactConversationContent(
+      "email demo@example.com phone +86 138 0013 8000 token=abc123 key sk-1234567890abcdef"
+    );
+
+    assert.equal(redacted.includes("demo@example.com"), false);
+    assert.equal(redacted.includes("+86 138 0013 8000"), false);
+    assert.equal(redacted.includes("token=abc123"), false);
+    assert.equal(redacted.includes("sk-1234567890abcdef"), false);
+    assert.equal(redacted.includes("[redacted-email]"), true);
+    assert.equal(redacted.includes("[redacted-phone]"), true);
+    assert.equal(redacted.includes("token=[redacted-secret]"), true);
+    assert.equal(redacted.includes("[redacted-secret]"), true);
   });
 });

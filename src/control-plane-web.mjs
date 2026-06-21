@@ -865,6 +865,7 @@ async function listConversationLogsForBot(botId, options = {}) {
     runId: options.runId || null,
     direction: options.direction || null,
     riskLabel: options.riskLabel || null,
+    redactContent: true,
     limit: options.limit || 100,
   });
 }

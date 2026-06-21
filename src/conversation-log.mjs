@@ -44,6 +44,14 @@ export function detectConversationRiskLabels(content = "") {
   return unique(labels);
 }
 
+export function redactConversationContent(content = "") {
+  return String(content || "")
+    .replace(/\b(?:sk-[A-Za-z0-9_-]{12,}|xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16})\b/g, "[redacted-secret]")
+    .replace(/\b(password|passwd|api[_-]?key|secret|token)\s*[:=]\s*\S+/gi, "$1=[redacted-secret]")
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/(?:\+?\d[\s-]?){8,}\d/g, "[redacted-phone]");
+}
+
 function normalizeConversationLogEvent(event = {}) {
   const content = String(event.content ?? "");
   return {
@@ -69,6 +77,14 @@ function normalizeConversationLogEvent(event = {}) {
   };
 }
 
+function redactConversationLogEvent(event) {
+  return {
+    ...event,
+    content: redactConversationContent(event.content),
+    contentRedacted: true,
+  };
+}
+
 export async function appendConversationLogEvent(event = {}, botHome = resolveBotHome()) {
   const normalized = normalizeConversationLogEvent(event);
   if (!normalized.content && normalized.direction !== "system") {
@@ -85,6 +101,7 @@ export async function listConversationLogEvents({
   runId = null,
   direction = null,
   riskLabel = null,
+  redactContent = false,
   limit = 100,
   botHome = resolveBotHome(),
 } = {}) {
@@ -118,7 +135,7 @@ export async function listConversationLogEvents({
       if (normalizedRiskLabel && !event.riskLabels.includes(normalizedRiskLabel)) {
         continue;
       }
-      events.push(event);
+      events.push(redactContent ? redactConversationLogEvent(event) : event);
     } catch {
       // Ignore malformed conversation rows.
     }

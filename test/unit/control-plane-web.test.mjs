@@ -544,6 +544,9 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       assert.equal(conversationLogPayload.length, 1);
       assert.equal(conversationLogPayload[0].userId, "telegram:123");
       assert.equal(conversationLogPayload[0].riskLabels.includes("possible_email"), true);
+      assert.equal(conversationLogPayload[0].contentRedacted, true);
+      assert.equal(conversationLogPayload[0].content.includes("demo@example.com"), false);
+      assert.equal(conversationLogPayload[0].content.includes("[redacted-email]"), true);
     } finally {
       await runtime.close();
     }
