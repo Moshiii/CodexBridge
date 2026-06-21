@@ -42,7 +42,6 @@ import { normalizeTelegramEnvelope } from "../../src/channel-envelope.mjs";
 import { resolveConversationIdentity } from "../../src/session-routing.mjs";
 import { canUseGoal, canUseSchedule } from "../../src/capability-policy.mjs";
 import { getUserCredits } from "../../src/user-credits.mjs";
-import { chargeRequestUsage, renderBillingDeniedMessage } from "../../src/billing-service.mjs";
 import {
   createQueuedRun,
   markRunCompleted,
@@ -51,6 +50,7 @@ import {
   markRunRunning,
   markRunStopped,
 } from "../../src/run-service.mjs";
+import { prepareChatRequest } from "../../src/chat-request-service.mjs";
 import {
   buildUserId,
   canUseGroupChat,
@@ -1707,18 +1707,16 @@ async function processUpdate(update, context) {
     return;
   }
 
-  const usageUserId = accessUser?.id || buildUserId(envelope.channel, envelope.userId);
-  const run = await createQueuedRun({
-    userId: usageUserId,
-    conversationId: routedSession.sessionKey || activeLabel,
-    channel: envelope.channel,
-    chatType: envelope.chatType,
-    chatId: envelope.chatId,
-    messageId: envelope.messageId,
-    visibility: envelope.isDirect ? "private" : "public",
-  }, context.botHome);
-
   if (runningGoal) {
+    const deniedRun = await createQueuedRun({
+      userId: accessUser?.id || buildUserId(envelope.channel, envelope.userId),
+      conversationId: routedSession.sessionKey || activeLabel,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      visibility: envelope.isDirect ? "private" : "public",
+    }, context.botHome);
     logBridgeEvent("telegram message blocked by running goal", {
       chatId,
       activeLabel,
@@ -1730,11 +1728,20 @@ async function processUpdate(update, context) {
       `Goal ${runningGoal.goalId} is already running. Use /stop before sending a normal request.`,
       message.message_id,
     );
-    await markRunDenied(run.runId, "running_goal", {}, context.botHome);
+    await markRunDenied(deniedRun.runId, "running_goal", {}, context.botHome);
     return;
   }
 
   if (runningJob) {
+    const deniedRun = await createQueuedRun({
+      userId: accessUser?.id || buildUserId(envelope.channel, envelope.userId),
+      conversationId: routedSession.sessionKey || activeLabel,
+      channel: envelope.channel,
+      chatType: envelope.chatType,
+      chatId: envelope.chatId,
+      messageId: envelope.messageId,
+      visibility: envelope.isDirect ? "private" : "public",
+    }, context.botHome);
     logBridgeEvent("telegram message blocked by running job", {
       chatId,
       activeLabel,
@@ -1747,7 +1754,7 @@ async function processUpdate(update, context) {
       `Session ${activeLabel} is already running. Use /stop before sending a new request.`,
       message.message_id,
     );
-    await markRunDenied(run.runId, "running_session", {}, context.botHome);
+    await markRunDenied(deniedRun.runId, "running_session", {}, context.botHome);
     return;
   }
 
@@ -1761,30 +1768,30 @@ async function processUpdate(update, context) {
     await sendMessage(context.token, message.chat.id, uploadNotice, message.message_id);
   }
 
-  const chargeResult = await chargeRequestUsage({
-    userId: usageUserId,
-    chatType: envelope.chatType,
-    botHome: context.botHome,
+  const preparedRequest = await prepareChatRequest({
     channel: envelope.channel,
+    externalUserId: envelope.userId,
+    displayName: getTelegramUserDisplayName(message.from),
+    envelope: {
+      ...envelope,
+      conversationId: routedSession.sessionKey || activeLabel,
+    },
     chatId: envelope.chatId,
     messageId: envelope.messageId,
-    runId: run.runId,
+    conversationId: routedSession.sessionKey || activeLabel,
+    botHome: context.botHome,
   });
-  if (!chargeResult.ok) {
-    await markRunDenied(run.runId, "insufficient_credits", {
-      costSource: chargeResult.costSource,
-      creditsCharged: 0,
-    }, context.botHome);
+  if (!preparedRequest.ok) {
     await sendMessage(
       context.token,
       message.chat.id,
-      renderBillingDeniedMessage(chargeResult, {
-        userId: accessUser?.id || buildUserId(envelope.channel, envelope.userId),
-      }),
+      preparedRequest.message,
       message.message_id,
     );
     return;
   }
+  const run = preparedRequest.run;
+  const chargeResult = preparedRequest.charged;
   await markRunRunning(run.runId, {
     costSource: chargeResult.costSource,
     creditsCharged: chargeResult.charged,

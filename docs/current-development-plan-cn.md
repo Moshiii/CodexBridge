@@ -92,7 +92,7 @@
 - Web Operations API
 - Web config secret redaction
 
-当前验证：`npm test` 通过，93 个测试全部通过。
+当前验证：`npm test` 通过，113 个测试全部通过。
 
 ## 三、当前进度与已完成项
 
@@ -148,6 +148,17 @@
    - 支持 grant、deduct、ban/unban、unlock/lock private。
    - API 包括 users、usage、runs、grant、adjust、status、private。
    - raw config 中 token/appSecret 已做服务端 redaction。
+   - Web 运营操作已写入 admin audit log。
+
+8. **Phase 8：业务服务层与可维护性整理**
+   - 已新增 `src/billing-service.mjs`，统一扣费、授信、调整、退款和 denied 文案。
+   - 已新增 `src/run-service.mjs`，统一 run lifecycle 更新。
+   - 已新增 `src/chat-request-service.mjs`，统一 IM 普通请求的用户识别、权限检查、run 创建和扣费。
+   - Telegram / 飞书普通文本请求已接入同一套 `chat-request-service`。
+   - 已新增 users / credits / usage-ledger / runs repository wrapper，先保留 JSON / JSONL 存储。
+   - 已新增 config schema validator，配置写入前会做结构校验，并拒绝持久化 `[redacted]` secret。
+   - 已新增结构化 JSONL bridge logging。
+   - paid credit refund 已有基础实现；daily free 扣费不会退款。
 
 ### 本轮审计已修复的严重问题
 
@@ -160,9 +171,9 @@
 
 ## 四、当前最大缺口
 
-### 1. 业务服务层还没有抽出来
+### 1. Bridge 仍然偏重，业务服务层还需要继续下沉
 
-现在 Telegram / 飞书各自处理：
+现在 Telegram / 飞书普通文本请求已经共用：
 
 ```text
 upsert user
@@ -172,26 +183,35 @@ run record
 结果回传
 ```
 
-功能已经跑通，但业务流程分散在 channel bridge 里。后续应抽：
+这些核心流程已经下沉到：
 
 - `chat-request-service.mjs`
 - `billing-service.mjs`
 - `run-service.mjs`
 
+剩余问题是 channel bridge 仍然负责较多平台细节、文件上传、slash command、goal/schedule、running job 检查和结果回传。后续重构目标不是重新设计商业闭环，而是继续让 bridge 只负责：
+
+- normalize incoming message
+- send reply / running / denied / result
+- 平台特有 metadata 处理
+
 目标是让 channel bridge 只负责收消息、发消息、平台适配。
 
-### 2. 持久化层还没有 repository 抽象
+### 2. 持久化层已有 repository wrapper，但还没有迁移执行器
 
-现在 users / credits / usage / runs 已有状态文件，但上层直接读写 JSON / JSONL。
+现在 users / credits / usage / runs 仍使用 JSON / JSONL 状态文件，并已新增：
 
-后续应抽 repository 层：
+- `users-repository.mjs`
+- `credits-repository.mjs`
+- `usage-ledger-repository.mjs`
+- `runs-repository.mjs`
 
-- `users-repository`
-- `credits-repository`
-- `usage-ledger-repository`
-- `runs-repository`
+后续缺口不再是“有没有 repository”，而是：
 
-这样以后迁移 SQLite/Postgres 时，不需要全项目重写。
+- state version
+- migration runner
+- 文件锁或单进程写入约束
+- SQLite/Postgres 迁移判断标准
 
 ### 3. 错误类型和统一错误处理还不够正式
 
@@ -549,7 +569,7 @@ denied
 
 当前最高优先级已经从“补商业闭环”转为“把已跑通的商业闭环整理成长期可维护的工程架构”。
 
-下一阶段最高优先级：
+下一阶段最高优先级已经完成：
 
 1. 抽 `chat-request-service.mjs`
 2. 抽 `run-service.mjs`
@@ -557,9 +577,15 @@ denied
 4. 让 Telegram / 飞书都调用同一套业务服务
 5. 明确 failed / stopped / refund 策略
 6. 为 users / credits / usage / runs 增加 repository 层
-7. 增加 config schema validator 和 state migration
+7. 增加 config schema validator
 8. 建立结构化日志和 admin audit
-9. 再考虑支付、订单、数据库迁移、worker queue
+
+接下来再考虑：
+
+1. 数据库迁移和 state migration 的实际执行器。
+2. 支付、订单和自动充值。
+3. worker queue / 多实例并发。
+4. Web 控制台拆分和权限保护。
 
 ## 七、当前已有规划需要调整的地方
 
@@ -587,7 +613,7 @@ denied
 - Run record
 - Web 运营台
 
-### 新增到下一阶段主线
+### 已经进入主线并完成第一轮
 
 - channel business service
 - billing service
@@ -627,64 +653,25 @@ denied
 
 ## 九、下一步开发建议
 
-建议下一次实际编码从业务服务层开始，不要先接支付，也不要先换数据库。
+业务服务层第一轮已经完成。下一次实际编码建议不要直接上自动支付，先补足可运营性和持久化边界。
 
-### Step 1：抽 `billing-service.mjs`
-
-职责：
-
-- 判断 chatType 对应的扣费来源。
-- 封装 `chargeUsage` / `grantPaidCredits` / `adjustPaidCredits`。
-- 统一 insufficient credits 文案。
-- 为后续 refund 留接口。
-
-### Step 2：抽 `run-service.mjs`
-
-职责：
-
-- `createQueuedRun`
-- `markRunning`
-- `markDenied`
-- `markCompleted`
-- `markFailed`
-- `markStopped`
-- 统一 output preview、error、costSource、creditsCharged 字段。
-
-### Step 3：抽 `chat-request-service.mjs`
-
-职责：
-
-- upsert user。
-- 检查 group/private/banned 权限。
-- 创建 run。
-- 执行扣费。
-- 返回统一的决策结果给 channel bridge。
-
-channel bridge 应只做：
-
-- normalize incoming message
-- send reply / running / denied / result
-- 平台特有 metadata 处理
-
-### Step 4：制定 refund 策略
-
-建议先写入文档和测试，再实现：
+### Step 1：补齐 refund / failure 策略
 
 - 权限拒绝：不扣费，只写 denied run。
 - 额度拒绝：不扣费，写 deny usage event。
-- Codex 未启动成功：退还 paid credits。
-- 用户 stop：短任务不退，长任务可配置。
+- Codex 未启动成功：当前已有 paid credit refund 基础能力，下一步要接入实际失败路径。
+- 用户 stop：短任务不退，长任务后续可配置。
 - Codex 执行失败：先不自动退，但 run 记录 failure reason。
 
-### Step 5：Repository 层
+### Step 2：state migration / 数据库准备
 
-先保留 JSON / JSONL 文件，不急着换数据库。抽象接口即可：
+现在已有 repository wrapper，但底层仍是 JSON / JSONL。下一步应补：
 
-- `usersRepository`
-- `creditsRepository`
-- `usageLedgerRepository`
-- `runsRepository`
+- state version。
+- migration runner。
+- 文件锁或单进程写入约束说明。
+- SQLite / Postgres 迁移判断标准。
 
-等支付和并发压力明确后，再决定 SQLite 或 Postgres。
+### Step 3：Web 控制台拆分和鉴权
 
-这一步完成后，CodexBridge 会从“功能闭环已跑通”进入“架构可以长期演进”的阶段。
+`src/control-plane-web.mjs` 后续应拆 API、HTML、CSS、前端 JS，并增加 operator 鉴权。自动支付、订单和 worker queue 等支付/并发相关能力，建议等这一步之后再启动。
