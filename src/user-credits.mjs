@@ -244,6 +244,48 @@ export async function adjustPaidCredits({ userId, amount, reason = "manual_adjus
   });
 }
 
+export async function refundPaidCredits({
+  userId,
+  amount,
+  reason = "refund_paid_credits",
+  botHome = resolveBotHome(),
+  channel = "",
+  chatType = "",
+  chatId = "",
+  messageId = "",
+  runId = "",
+} = {}) {
+  const normalizedAmount = Number.isFinite(Number(amount)) ? Math.max(0, Math.floor(Number(amount))) : 0;
+  return await withCreditsLock(botHome, async (state, statePath) => {
+    const account = ensureAccount(state, userId);
+    const balanceBefore = account.paidCredits;
+    account.paidCredits += normalizedAmount;
+    account.balance = account.paidCredits;
+    account.updatedAt = nowIso();
+    await writeCreditsState(statePath, state);
+    await appendUsageEvent({
+      eventType: "refund",
+      userId,
+      channel,
+      chatType,
+      chatId,
+      messageId,
+      runId,
+      amount: normalizedAmount,
+      source: "paid_credit",
+      reason,
+    }, botHome);
+    return {
+      ok: true,
+      refunded: normalizedAmount,
+      balanceBefore,
+      balanceAfter: account.paidCredits,
+      account: { ...account },
+      defaults: { ...state.defaults },
+    };
+  });
+}
+
 export async function chargeUsage({
   userId,
   chatType = "group",

@@ -60,3 +60,51 @@ test("grantCredits and adjustCredits update paid credits", async () => {
     assert.equal(account.account.paidCredits, 7);
   });
 });
+
+test("refundPaidCreditCharge refunds paid-credit charges and writes ledger", async () => {
+  await withTempHome(async () => {
+    const billing = await importFresh("../../src/billing-service.mjs");
+    const ledger = await importFresh("../../src/usage-ledger.mjs");
+
+    await billing.grantCredits({ userId: "telegram:1", amount: 2 });
+    const charge = await billing.chargeRequestUsage({
+      userId: "telegram:1",
+      chatType: "direct",
+      channel: "telegram",
+      runId: "run_paid",
+    });
+    const refund = await billing.refundPaidCreditCharge({
+      userId: "telegram:1",
+      chargeResult: charge,
+      channel: "telegram",
+      chatType: "direct",
+      runId: "run_paid",
+    });
+    const account = await billing.getBillingAccount("telegram:1");
+    const events = await ledger.listUsageEvents({ userId: "telegram:1" });
+
+    assert.equal(refund.refunded, 1);
+    assert.equal(account.account.paidCredits, 2);
+    assert.equal(events.at(-1).eventType, "refund");
+    assert.equal(events.at(-1).runId, "run_paid");
+  });
+});
+
+test("refundPaidCreditCharge skips daily-free charges", async () => {
+  await withTempHome(async () => {
+    const billing = await importFresh("../../src/billing-service.mjs");
+
+    const charge = await billing.chargeRequestUsage({
+      userId: "telegram:1",
+      chatType: "group",
+    });
+    const refund = await billing.refundPaidCreditCharge({
+      userId: "telegram:1",
+      chargeResult: charge,
+    });
+
+    assert.equal(charge.costSource, "daily_free");
+    assert.equal(refund.skipped, true);
+    assert.equal(refund.refunded, 0);
+  });
+});
