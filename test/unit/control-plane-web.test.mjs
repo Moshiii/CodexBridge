@@ -128,6 +128,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       const homeHtml = await homeResponse.text();
       assert.match(homeHtml, /Setup Checklist/);
       assert.match(homeHtml, /__openSetupStep/);
+      assert.match(homeHtml, /invite-readiness/);
+      assert.match(homeHtml, /Do not invite users yet/);
+      assert.match(homeHtml, /Ready to invite users/);
       assert.match(homeHtml, /Save Telegram Settings/);
       assert.match(homeHtml, /__allowTelegramAccess/);
       assert.match(homeHtml, /Feishu Quick Settings/);

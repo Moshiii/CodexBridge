@@ -178,6 +178,7 @@
    - Web Overview 已新增 Quick Test，用户可以从首屏一键发起 main session 试聊，不需要先理解 Sessions / Chat tab 的区别。
    - Chat / Quick Test 状态已新增 friendlyMessage，失败时会提示检查 Runtime Log，并确认主机上的 Codex 已安装且已登录。
    - Quick Test 已新增 preflight 提示：即使 IM 尚未完全配置，也能先验证本机 Codex；同时明确邀请用户前还缺哪些步骤。
+   - Web Overview 已新增 Invite Readiness 摘要，直接告诉 operator “现在是否可以邀请真实用户”，并列出当前最关键的下一步。
    - Quick Test / Setup Checklist 已新增更具体的修复 hint：能提示缺 Telegram token、bot username、Feishu credentials/setup checklist、audience、runtime 等具体动作。
    - Setup Checklist 每一步已提供 Go 跳转按钮，用户看到缺口后可以直接进入对应配置页，不需要自己理解 tab 结构。
    - Telegram tab 已新增 Quick Settings，可直接保存 enabled、bot username、mention required 和 token，不必进入 Raw Config。
@@ -718,12 +719,13 @@ denied
 38. 改进 Telegram / 飞书请求失败退款提示，明确 paid credits 自动退款、daily free 不消耗 paid credits、下一步找 operator 看 runtime log
 39. 改进 Operations Admin Actions：新增选中用户摘要和按钮语义说明，降低 grant/deduct/private/ban 误操作风险
 40. 改进 Telegram / 飞书首次欢迎语，补齐可照抄的群聊 mention 示例和提问格式
+41. 增加 Web Overview Invite Readiness，让 operator 一眼判断是否可以邀请真实用户，并看到最关键下一步
 
 接下来再考虑：
 
 1. 把 Feishu 真实事件触发、可见性检查、访问名单继续表单化，并把检查结果继续接入 Setup Summary。
 2. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
-3. 继续完善 Quick Test 自动诊断：把 Telegram / 飞书 / 权限 / runtime 的检查结果和一键修复动作绑定到具体表单字段。
+3. 继续完善 Quick Test 自动诊断：把 Telegram / 飞书 / 权限 / runtime 的检查结果绑定到具体表单字段，并继续补一键修复动作。
 4. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
 
 ## 七、当前已有规划需要调整的地方

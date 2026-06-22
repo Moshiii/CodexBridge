@@ -1760,6 +1760,10 @@ function renderHtmlPage() {
               <div class="card">
                 <div class="section-kicker">Quick Start</div>
                 <h3>Setup Checklist</h3>
+                <div class="kv" id="invite-readiness">
+                  <div>Status</div><div>Checking whether this bot is ready for real users.</div>
+                  <div>Next</div><div>Run Quick Test and finish the checklist before inviting users.</div>
+                </div>
                 <div class="list" id="setup-checklist">Loading...</div>
                 <div class="toolbar" style="margin-top:14px;">
                   <button class="primary" id="quick-test-chat">Run Quick Test</button>
@@ -2663,6 +2667,16 @@ Skills: installed capabilities</pre>
           )),
           "No setup steps available."
         );
+        const missingBeforeInvite = (guide.steps || []).filter((step) => step.status !== "done");
+        renderKV("invite-readiness", [
+          ["status", guide.ready ? "Ready to invite users" : "Do not invite users yet"],
+          ["next", guide.ready
+            ? "Invite one test user or group first, then watch Operations for usage, credits, and risk logs."
+            : (missingBeforeInvite[0]?.hint || missingBeforeInvite[0]?.action || "Finish the setup checklist and run Quick Test.")],
+          ["checks", guide.ready
+            ? "channel, audience, runtime, and first test are complete"
+            : missingBeforeInvite.map((step) => step.label).join(", ")],
+        ]);
       }
 
       function renderFeishuSetupSummary(config) {
