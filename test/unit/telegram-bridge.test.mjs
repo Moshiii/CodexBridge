@@ -233,3 +233,21 @@ test("telegram welcome and help explain free group use and private unlock", asyn
     assert.match(help, /Operators manage credits/);
   });
 });
+
+test("telegram common error prompts stay actionable", async () => {
+  await withTempHome(async () => {
+    const {
+      renderBusyMessage,
+      renderRequestFailedMessage,
+      renderUnsupportedCommandMessage,
+      renderUnsupportedPayloadMessage,
+    } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
+
+    assert.match(renderUnsupportedPayloadMessage(), /text messages and document uploads/);
+    assert.match(renderUnsupportedPayloadMessage(), /upload a file with a caption/);
+    assert.match(renderUnsupportedCommandMessage("foo"), /Use \/help/);
+    assert.match(renderBusyMessage("main"), /use \/stop/);
+    assert.match(renderRequestFailedMessage("codex missing"), /refunded automatically/);
+    assert.match(renderRequestFailedMessage("codex missing"), /runtime log/);
+  });
+});

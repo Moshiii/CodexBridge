@@ -273,6 +273,39 @@ function renderHelpMessage() {
   ].join("\n");
 }
 
+function renderUnsupportedPayloadMessage() {
+  return [
+    "I can handle text messages and document uploads here.",
+    "Send a normal question, or upload a file with a caption that says what you want me to do.",
+  ].join("\n");
+}
+
+function renderUnsupportedCommandMessage(command) {
+  return [
+    `I do not recognize /${command}.`,
+    "Use /help to see the available chat commands.",
+    "Operators can manage credits, bans, and access in the local web control plane.",
+  ].join("\n");
+}
+
+function renderBusyMessage(sessionLabel, type = "request") {
+  const subject = type === "goal" ? "A goal" : "A request";
+  return [
+    `${subject} is already running on [${sessionLabel}].`,
+    "Please wait for it to finish, or use /stop if you want to cancel it before sending another request.",
+  ].join("\n");
+}
+
+function renderRequestFailedMessage(errorText = "") {
+  const detail = String(errorText || "").trim();
+  return [
+    "The request failed before CodexBridge could return an answer.",
+    detail ? `Detail: ${detail}` : null,
+    "If paid credits were charged for this request, they are refunded automatically.",
+    "Check the runtime log if this keeps happening.",
+  ].filter(Boolean).join("\n");
+}
+
 function renderStopRequestedMessage(sessionLabel) {
   return `Stop requested for [${sessionLabel}].`;
 }
@@ -1547,7 +1580,7 @@ async function handleSlashCommand({
   await sendMessage(
     token,
     message.chat.id,
-    `Unsupported command: /${command}\n\nTelegram is now a lightweight chat channel. Use the local CLI or web control plane for management actions.`,
+    renderUnsupportedCommandMessage(command),
     message.message_id,
   );
   return { stateChanged: false, handled: true };
@@ -1599,7 +1632,7 @@ async function processUpdate(update, context) {
     await sendMessage(
       context.token,
       message.chat.id,
-      "Only text messages and document uploads are supported right now.",
+      renderUnsupportedPayloadMessage(),
       message.message_id,
     );
     return;
@@ -1769,7 +1802,7 @@ async function processUpdate(update, context) {
     await sendMessage(
       context.token,
       message.chat.id,
-      `Goal ${runningGoal.goalId} is already running. Use /stop before sending a normal request.`,
+      renderBusyMessage(activeLabel, "goal"),
       message.message_id,
     );
     await markRunDenied(deniedRun.runId, "running_goal", {}, context.botHome);
@@ -1795,7 +1828,7 @@ async function processUpdate(update, context) {
     await sendMessage(
       context.token,
       message.chat.id,
-      `Session ${activeLabel} is already running. Use /stop before sending a new request.`,
+      renderBusyMessage(activeLabel),
       message.message_id,
     );
     await markRunDenied(deniedRun.runId, "running_session", {}, context.botHome);
@@ -2062,7 +2095,7 @@ async function processUpdate(update, context) {
         error: refundError.message,
       });
     });
-    const failedMessage = `Job failed: ${error.message}`;
+    const failedMessage = renderRequestFailedMessage(error.message);
     await sendMessage(
       context.token,
       message.chat.id,
@@ -2220,7 +2253,11 @@ export {
   resolveBotRuntimeContext,
   renderCodexResult,
   renderHelpMessage,
+  renderBusyMessage,
+  renderRequestFailedMessage,
   renderRunningMessage,
+  renderUnsupportedCommandMessage,
+  renderUnsupportedPayloadMessage,
   renderWelcomeMessage,
   stripExplicitBotMention,
 };

@@ -79,3 +79,21 @@ test("feishu welcome and help explain free group use and private unlock", async 
     assert.match(help, /Operators manage credits/);
   });
 });
+
+test("feishu common error prompts stay actionable", async () => {
+  await withTempHome(async () => {
+    const {
+      renderBusyMessage,
+      renderRequestFailedMessage,
+      renderUnsupportedCommandMessage,
+      renderUnsupportedPayloadMessage,
+    } = await importFresh("../../plugins/feishu-codex/feishu-codex-bridge.mjs");
+
+    assert.match(renderUnsupportedPayloadMessage(), /plain text messages/);
+    assert.match(renderUnsupportedPayloadMessage(), /rich media handling are not enabled/);
+    assert.match(renderUnsupportedCommandMessage("/foo"), /Use \/help/);
+    assert.match(renderBusyMessage("main"), /use \/stop/);
+    assert.match(renderRequestFailedMessage("codex missing"), /refunded automatically/);
+    assert.match(renderRequestFailedMessage("codex missing"), /runtime log/);
+  });
+});

@@ -144,6 +144,38 @@ export function renderHelpMessage() {
   ].join("\n");
 }
 
+export function renderUnsupportedPayloadMessage() {
+  return [
+    "I can handle plain text messages here.",
+    "Send a normal question in text. File and rich media handling are not enabled on the Feishu channel yet.",
+  ].join("\n");
+}
+
+export function renderUnsupportedCommandMessage(command) {
+  return [
+    `I do not recognize ${command}.`,
+    "Use /help to see the available chat commands.",
+    "Operators can manage credits, bans, and access in the local web control plane.",
+  ].join("\n");
+}
+
+export function renderBusyMessage(sessionLabel) {
+  return [
+    `A request is already running on [${sessionLabel}].`,
+    "Please wait for it to finish, or use /stop if you want to cancel it before sending another request.",
+  ].join("\n");
+}
+
+export function renderRequestFailedMessage(errorText = "") {
+  const detail = String(errorText || "").trim();
+  return [
+    "The request failed before CodexBridge could return an answer.",
+    detail ? `Detail: ${detail}` : null,
+    "If paid credits were charged for this request, they are refunded automatically.",
+    "Check the runtime log if this keeps happening.",
+  ].filter(Boolean).join("\n");
+}
+
 async function readRouterState(filePath) {
   const parsed = await readJsonFile(filePath, createDefaultRouterState());
   return {
@@ -621,7 +653,7 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
     await sendText(
       client,
       chatId,
-      `Unsupported command: ${command}\n\nFeishu is now a lightweight chat channel. Use the local CLI or web control plane for management actions.`,
+      renderUnsupportedCommandMessage(command),
       options,
     );
     return true;
@@ -700,7 +732,7 @@ async function main() {
             return;
           }
           if (event.message?.message_type !== "text") {
-            const response = await sendText(client, chatId, "Only plain text messages are supported on the Feishu channel right now.", {
+            const response = await sendText(client, chatId, renderUnsupportedPayloadMessage(), {
               replyToMessageId: messageId,
             });
             rememberBotOpenId(botIdentity, response);
@@ -781,7 +813,7 @@ async function main() {
             const busyResponse = await sendText(
               client,
               chatId,
-              `A request is already running for [${chatState.sessionLabel}]. Please wait for it to finish, then send the next request.`,
+              renderBusyMessage(chatState.sessionLabel),
               { replyToMessageId: messageId },
             );
             rememberBotOpenId(botIdentity, busyResponse);
@@ -929,7 +961,7 @@ async function main() {
                     console.error("feishu refund failed", error);
                   });
                 }
-                const failureResponse = await sendText(client, chatId, `Request failed.\n${result.stderr || result.output || "Unknown error."}`, {
+                const failureResponse = await sendText(client, chatId, renderRequestFailedMessage(result.stderr || result.output || "Unknown error."), {
                   replyToMessageId: messageId,
                 });
                 rememberBotOpenId(botIdentity, failureResponse);
@@ -942,7 +974,7 @@ async function main() {
                   messageId,
                   conversationId: envelope.conversationId,
                   direction: "output",
-                  content: `Request failed.\n${result.stderr || result.output || "Unknown error."}`,
+                  content: renderRequestFailedMessage(result.stderr || result.output || "Unknown error."),
                   metadata: {
                     ok: false,
                     stopped: Boolean(result.stopped),
@@ -998,7 +1030,7 @@ async function main() {
           const chatId = event.message?.chat_id;
           const messageId = event.message?.message_id;
           if (chatId) {
-            const errorResponse = await sendText(client, chatId, `Request failed.\n${error.message}`, {
+            const errorResponse = await sendText(client, chatId, renderRequestFailedMessage(error.message), {
               replyToMessageId: messageId,
             });
             rememberBotOpenId(botIdentity, errorResponse);
