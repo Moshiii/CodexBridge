@@ -42,6 +42,7 @@ test("getBotControlPlaneDetail includes inspect, health, and logs", async () => 
     assert.equal(detail.setupGuide.total, 5);
     assert.equal(detail.setupGuide.nextStep.id, "configure_channel");
     assert.match(detail.setupGuide.nextStep.hint, /Choose Telegram or Feishu/);
+    assert.equal(detail.detail.config.storage.provider, "json");
     assert.equal(detail.migrationStatus.currentSchemaVersion, 1);
     assert.equal(detail.migrationStatus.pending.length, 1);
     assert.equal(detail.quickTestPreflight.readyForIm, false);

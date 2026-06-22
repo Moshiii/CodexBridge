@@ -223,6 +223,9 @@ export function createDefaultBotConfig() {
     runtime: {
       model: "gpt-5.4",
     },
+    storage: {
+      provider: "json",
+    },
     channels: {
       telegram: {
         enabled: false,
@@ -330,10 +333,19 @@ function normalizeTelegramConfig(telegram = {}) {
   };
 }
 
+function normalizeStorageConfig(storage = {}) {
+  const defaults = createDefaultBotConfig().storage;
+  const provider = String(storage.provider ?? defaults.provider).trim().toLowerCase();
+  return {
+    provider: provider === "sqlite" ? "sqlite" : defaults.provider,
+  };
+}
+
 export function normalizeBotConfig(config = {}) {
   const defaults = createDefaultBotConfig();
   const {
     runtime: runtimeConfig = {},
+    storage: storageConfig = {},
     channels: channelsConfig = {},
     observability: observabilityConfig = {},
     skills: _skillsConfig,
@@ -355,6 +367,7 @@ export function normalizeBotConfig(config = {}) {
     runtime: {
       model: runtimeConfig.model ?? defaults.runtime.model,
     },
+    storage: normalizeStorageConfig(storageConfig),
     channels: {
       telegram: {
         ...normalizedTelegram,

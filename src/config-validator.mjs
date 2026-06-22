@@ -1,4 +1,5 @@
 const SUPPORTED_CHANNELS = new Set(["telegram", "feishu"]);
+const SUPPORTED_STORAGE_PROVIDERS = new Set(["json", "sqlite"]);
 const REDACTED_SECRET = "[redacted]";
 
 function isPlainObject(value) {
@@ -51,6 +52,16 @@ function validateFeishuConfig(feishu, errors) {
   }
 }
 
+function validateStorageConfig(storage, errors) {
+  if (!isPlainObject(storage)) {
+    addError(errors, "storage", "Storage config must be an object.");
+    return;
+  }
+  if (!SUPPORTED_STORAGE_PROVIDERS.has(String(storage.provider || "").trim())) {
+    addError(errors, "storage.provider", "Storage provider must be json or sqlite.");
+  }
+}
+
 export function validateBotConfig(config = {}) {
   const errors = [];
   if (!isPlainObject(config)) {
@@ -71,6 +82,7 @@ export function validateBotConfig(config = {}) {
   } else if (typeof config.runtime.model !== "string") {
     addError(errors, "runtime.model", "Runtime model must be a string.");
   }
+  validateStorageConfig(config.storage, errors);
   if (!isPlainObject(config.channels)) {
     addError(errors, "channels", "Channels config must be an object.");
   } else {

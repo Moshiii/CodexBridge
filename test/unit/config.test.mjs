@@ -28,6 +28,9 @@ test("readConfig returns defaults when config is missing", async () => {
     const value = await config.readConfig();
 
     assert.equal(value.runtime.model, "gpt-5.4");
+    assert.deepEqual(value.storage, {
+      provider: "json",
+    });
     assert.equal(value.ownerUserId, "");
     assert.deepEqual(value.adminUserIds, []);
     assert.deepEqual(value.channels.telegram, {
@@ -96,6 +99,16 @@ test("normalizeBotConfig drops unused runtime backend, skills, and schedule stub
   });
 });
 
+test("normalizeBotConfig normalizes storage provider", async () => {
+  await withTempHome(async () => {
+    const config = await importFresh("../../src/config.mjs");
+
+    assert.equal(config.normalizeBotConfig({ storage: { provider: "sqlite" } }).storage.provider, "sqlite");
+    assert.equal(config.normalizeBotConfig({ storage: { provider: "unknown" } }).storage.provider, "json");
+    assert.equal(config.normalizeBotConfig({}).storage.provider, "json");
+  });
+});
+
 test("normalizeBotConfig normalizes owner and admin ids", async () => {
   await withTempHome(async () => {
     const config = await importFresh("../../src/config.mjs");
@@ -138,6 +151,7 @@ test("writeConfig persists config and readConfig reads it back", async () => {
 
     const persisted = await config.readConfig();
     assert.equal(persisted.runtime.model, "gpt-5.4-mini");
+    assert.equal(persisted.storage.provider, "json");
     assert.deepEqual(persisted.channels.telegram.private.allowedChatIds, ["1", "2"]);
     assert.deepEqual(persisted.channels.telegram.groups.allowedChatIds, ["3"]);
     const raw = JSON.parse(await readFile(path.join(tempHome, "bots", "default", "config.json"), "utf8"));

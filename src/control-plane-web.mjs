@@ -2709,15 +2709,17 @@ Skills: installed capabilities</pre>
         ]);
       }
 
-      function renderStorageReadiness(migrationStatus) {
+      function renderStorageReadiness(migrationStatus, config) {
         const pending = migrationStatus?.pending || [];
         const current = migrationStatus?.currentSchemaVersion ?? "unknown";
         const actual = migrationStatus?.schemaVersion ?? "unknown";
+        const provider = config?.storage?.provider || "json";
         renderKV("storage-readiness", [
           ["storage", pending.length === 0 ? "ready" : "migration needed"],
+          ["provider", provider],
           ["schema", String(actual) + " / " + String(current)],
           ["next", pending.length === 0
-            ? "State files are normalized for this version."
+            ? (provider === "json" ? "State files are normalized for this version." : "SQLite provider is selected; confirm adapter readiness before inviting more users.")
             : "Run /migrate for this bot before inviting more users."],
           ["pending", pending.length === 0 ? "none" : pending.map((migration) => migration.id).join(", ")],
         ]);
@@ -2951,7 +2953,7 @@ Skills: installed capabilities</pre>
         renderBadges(bot, config);
         setTopStatus(payload);
         renderSetupGuide(payload.setupGuide);
-        renderStorageReadiness(payload.migrationStatus);
+        renderStorageReadiness(payload.migrationStatus, payload.config);
         document.getElementById("metric-bot").textContent = bot.name;
         document.getElementById("metric-runtime").textContent = payload.health.healthy ? "Online" : "Offline";
         document.getElementById("metric-telegram").textContent = config.channels?.telegram?.enabled ? "Paired" : "Unpaired";

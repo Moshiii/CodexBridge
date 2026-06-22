@@ -46,3 +46,16 @@ test("validateBotConfig reports malformed channel arrays", async () => {
     assert.equal(errors.some((error) => error.path === "channels.telegram.groups.allowedUserIds"), true);
   });
 });
+
+test("validateBotConfig reports malformed storage provider", async () => {
+  await withTempHome(async () => {
+    const { createDefaultBotConfig, normalizeBotConfig } = await importFresh("../../src/config.mjs");
+    const { validateBotConfig } = await importFresh("../../src/config-validator.mjs");
+
+    const config = normalizeBotConfig(createDefaultBotConfig());
+    config.storage.provider = "postgres";
+    const errors = validateBotConfig(config);
+
+    assert.equal(errors.some((error) => error.path === "storage.provider"), true);
+  });
+});

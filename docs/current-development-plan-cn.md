@@ -165,6 +165,8 @@
    - Web Overview 已新增 Run Migrations 按钮，可直接在控制台执行当前 bot 的 state migrations，不需要 operator 切到 CLI。
    - Web state migration 执行结果已写入 admin audit，并在 API 响应中返回迁移后的 `migrationStatus`，方便 operator 确认 pending migrations 已清空。
    - 已新增 `docs/storage-migration-decision.md`，明确继续 JSON / JSONL、迁 SQLite、迁 Postgres 的触发条件和 SQLite 迁移执行顺序。
+   - 已新增 `storage.provider = json | sqlite` 配置入口，当前默认 `json`，为后续 SQLite adapter 做兼容准备。
+   - Web Overview 的 Storage Readiness 已显示当前 storage provider、schema version 和 pending migrations。
    - Web 控制台已支持可选 operator token 鉴权，设置 `CODEXBRIDGE_WEB_TOKEN` 后启用。
    - Telegram / 飞书普通请求失败路径已接入 paid credit refund；用户主动 stop 默认不退。
    - 已新增基础 analytics service 和 Web metrics API，能聚合用户、usage、runs、credits 指标。
@@ -731,6 +733,7 @@ denied
 44. 增加 Web Overview Run Migrations 按钮，让 operator 可从控制台直接执行 state migrations
 45. 增加 Web state migration 审计与执行后状态回显，便于确认迁移已经完成并可追踪
 46. 增加 Storage Migration Decision 文档，明确 JSON / JSONL、SQLite、Postgres 的使用边界和迁移触发条件
+47. 增加 `storage.provider = json | sqlite` 配置入口，并在 Web Storage Readiness 中显示当前 provider
 
 接下来再考虑：
 
@@ -835,6 +838,7 @@ denied
 现在已有 repository wrapper 和基础 state migration runner，但底层仍是 JSON / JSONL。下一步应补：
 
 - 文件锁或单进程写入约束说明。
+- `storage.provider = json | sqlite` 配置入口已完成，当前默认仍为 `json`。
 - SQLite / Postgres 迁移判断标准已在 [CodexBridge Storage Migration Decision](./storage-migration-decision.md) 中明确。
 - JSON / JSONL 到 SQLite 的 shadow copy 校验脚本和正式迁移脚本。
 - repository SQLite adapter，保持 service 层 API 不变。
