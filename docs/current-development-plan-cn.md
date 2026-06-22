@@ -195,6 +195,7 @@
    - Operations Admin Actions 已新增选中用户摘要和操作说明，operator 能在 grant/deduct/private/ban 前看到该用户状态、私聊权限、paid credits 和 daily free 使用情况。
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
    - Telegram / 飞书 `/start` 和 `/help` 已改为首次使用说明，解释群聊每日免费、群聊公开可见、`/credits`、私聊解锁和 operator 管理入口。
+   - Telegram / 飞书首次欢迎语已补齐可照抄的群聊提问示例：Telegram 提示 `@your_bot summarize this repo in 3 bullets`，飞书提示提到 CodexBridge 或应用名后提问。
    - Telegram 已新增 bot 入群欢迎触发：当当前 bot 被加入群聊时，会自动发送快速开始说明，避免新群用户不知道怎么问。
    - Telegram / 飞书常见失败提示已产品化：不支持的消息类型、未知命令、已有请求运行中、请求失败都会给出可行动下一步。
    - conversation policy block 的用户侧文案已产品化：明确说明消息疑似包含 secret/access token、本次未扣 credits、移除或轮换凭证后可重发。
@@ -716,6 +717,7 @@ denied
 37. 改进 conversation policy block 用户提示，说明疑似 secret/access token、未扣 credits、移除或轮换凭证后重发
 38. 改进 Telegram / 飞书请求失败退款提示，明确 paid credits 自动退款、daily free 不消耗 paid credits、下一步找 operator 看 runtime log
 39. 改进 Operations Admin Actions：新增选中用户摘要和按钮语义说明，降低 grant/deduct/private/ban 误操作风险
+40. 改进 Telegram / 飞书首次欢迎语，补齐可照抄的群聊 mention 示例和提问格式
 
 接下来再考虑：
 

@@ -71,6 +71,8 @@ test("feishu welcome and help explain free group use and private unlock", async 
     const welcome = renderWelcomeMessage();
     const help = renderHelpMessage();
 
+    assert.match(welcome, /mention CodexBridge or the app name/);
+    assert.match(welcome, /CodexBridge summarize this repo in 3 bullets/);
     assert.match(welcome, /daily free quota/);
     assert.match(welcome, /Everyone in the group can see/);
     assert.match(welcome, /Use \/credits/);

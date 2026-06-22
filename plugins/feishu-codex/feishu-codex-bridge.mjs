@@ -123,7 +123,8 @@ function createDefaultRouterState() {
 export function renderWelcomeMessage() {
   return [
     "CodexBridge is ready.",
-    "Ask a normal question in the group to try it with the daily free quota.",
+    "In a group, mention CodexBridge or the app name and ask a normal question to try the daily free quota.",
+    "Example: CodexBridge summarize this repo in 3 bullets.",
     "Everyone in the group can see the conversation, so avoid private or sensitive content there.",
     "Use /credits to check your daily free usage, paid credits, and private chat access.",
     "Private chat unlocks after paid credits are added or an operator enables it.",

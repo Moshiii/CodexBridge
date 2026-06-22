@@ -225,6 +225,8 @@ test("telegram welcome and help explain free group use and private unlock", asyn
     const welcome = renderWelcomeMessage();
     const help = renderHelpMessage();
 
+    assert.match(welcome, /mention this bot/);
+    assert.match(welcome, /@your_bot summarize this repo in 3 bullets/);
     assert.match(welcome, /daily free quota/);
     assert.match(welcome, /Everyone in the group can see/);
     assert.match(welcome, /Use \/credits/);
