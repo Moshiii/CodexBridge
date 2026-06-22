@@ -1684,6 +1684,7 @@ function renderHtmlPage() {
             <div class="tabs" id="tabs">
               <button class="tab active" data-tab="overview">Overview</button>
               <button class="tab" data-tab="telegram">Telegram</button>
+              <button class="tab" data-tab="feishu">Feishu</button>
               <button class="tab" data-tab="sessions">Sessions</button>
               <button class="tab" data-tab="chat">Chat</button>
               <button class="tab" data-tab="goals">Goals</button>
@@ -1788,6 +1789,43 @@ Skills: installed capabilities</pre>
                   <h3>Known Users</h3>
                 </div>
                 <div class="list" id="telegram-seen-users"></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="panel tab-panel" id="tab-feishu">
+            <div class="two-col">
+              <div class="card">
+                <div class="section-title">
+                  <h3>Feishu Quick Settings</h3>
+                  <button id="save-feishu-settings">Save Feishu Settings</button>
+                </div>
+                <div class="modal-grid">
+                  <label>Enabled
+                    <select id="feishu-enabled-input">
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+                  <label>App ID<input id="feishu-app-id-input" placeholder="cli_xxx" /></label>
+                  <label>App Secret<input id="feishu-app-secret-input" type="password" placeholder="Leave blank to keep existing secret" /></label>
+                  <label>Mention Required
+                    <select id="feishu-mention-required-input">
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+                </div>
+                <label>Bot Mention Names<input id="feishu-mention-names-input" placeholder="CodexBridge, 助手" /></label>
+                <div class="kv" id="feishu-settings-panel"></div>
+              </div>
+              <div class="card">
+                <h3>Setup Notes</h3>
+                <div class="list">
+                  <div class="list-item">Use the Feishu app credentials from the developer console.</div>
+                  <div class="list-item">Keep App Secret blank when you only want to edit non-secret settings.</div>
+                  <div class="list-item">Mention names help group messages identify when CodexBridge should respond.</div>
+                </div>
               </div>
             </div>
           </section>
@@ -2221,6 +2259,11 @@ Skills: installed capabilities</pre>
         document.getElementById("telegram-enabled-input").value = String(config.channels?.telegram?.enabled ?? false);
         document.getElementById("telegram-username-input").value = config.channels?.telegram?.botUsername || "";
         document.getElementById("telegram-mention-required-input").value = String(config.channels?.telegram?.groups?.requireExplicitMention ?? true);
+        document.getElementById("feishu-enabled-input").value = String(config.channels?.feishu?.enabled ?? false);
+        document.getElementById("feishu-app-id-input").value = config.channels?.feishu?.appId || "";
+        document.getElementById("feishu-app-secret-input").value = "";
+        document.getElementById("feishu-mention-required-input").value = String(config.channels?.feishu?.requireExplicitMention ?? true);
+        document.getElementById("feishu-mention-names-input").value = (config.channels?.feishu?.botMentionNames || []).join(", ");
       }
 
       async function saveConfig(botId) {
@@ -2275,6 +2318,29 @@ Skills: installed capabilities</pre>
           body: JSON.stringify({ channels: { telegram } }),
         });
         showToast("Saved Telegram settings");
+        await loadBots();
+        await loadDetail(botId);
+      }
+
+      async function saveFeishuSettings(botId) {
+        const secret = document.getElementById("feishu-app-secret-input").value.trim();
+        const feishu = {
+          enabled: document.getElementById("feishu-enabled-input").value === "true",
+          appId: document.getElementById("feishu-app-id-input").value.trim(),
+          requireExplicitMention: document.getElementById("feishu-mention-required-input").value === "true",
+          botMentionNames: document.getElementById("feishu-mention-names-input").value
+            .split(",")
+            .map((name) => name.trim())
+            .filter(Boolean),
+        };
+        if (secret) {
+          feishu.appSecret = secret;
+        }
+        await request('/api/bots/' + botId + '/config', {
+          method: 'POST',
+          body: JSON.stringify({ channels: { feishu } }),
+        });
+        showToast("Saved Feishu settings");
         await loadBots();
         await loadDetail(botId);
       }
@@ -2576,6 +2642,13 @@ Skills: installed capabilities</pre>
         ];
         renderKV("telegram-pairing-panel", telegramPairingRows);
         renderKV("telegram-pairing-inspector", telegramPairingRows);
+        renderKV("feishu-settings-panel", [
+          ["enabled", config.channels?.feishu?.enabled ? "yes" : "no"],
+          ["app id", config.channels?.feishu?.appId || "none"],
+          ["secret present", config.channels?.feishu?.appSecret ? "yes" : "no"],
+          ["mention required", String(config.channels?.feishu?.requireExplicitMention ?? true)],
+          ["mention names", (config.channels?.feishu?.botMentionNames || []).join(", ") || "(none)"],
+        ]);
         document.getElementById("telegram-private-access").textContent = JSON.stringify(payload.access.privateChats || [], null, 2);
         document.getElementById("telegram-group-access").textContent = JSON.stringify({
           groupChats: payload.access.groupChats || [],
@@ -2633,6 +2706,10 @@ Skills: installed capabilities</pre>
       document.getElementById('save-telegram-settings').onclick = async () => {
         if (!state.selectedBotId) return;
         await saveTelegramSettings(state.selectedBotId);
+      };
+      document.getElementById('save-feishu-settings').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await saveFeishuSettings(state.selectedBotId);
       };
 
       document.getElementById('action-start').onclick = async () => state.selectedBotId && mutateBot(state.selectedBotId, 'start');

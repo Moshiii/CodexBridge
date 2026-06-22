@@ -127,6 +127,8 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /__openSetupStep/);
       assert.match(homeHtml, /Save Telegram Settings/);
       assert.match(homeHtml, /__allowTelegramAccess/);
+      assert.match(homeHtml, /Feishu Quick Settings/);
+      assert.match(homeHtml, /Save Feishu Settings/);
 
       const logsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/logs`);
       assert.equal(logsResponse.status, 200);
@@ -240,6 +242,30 @@ test("control plane web server exposes logs and config update endpoints", async 
       const feishuSecretPayload = await feishuSecretResponse.json();
       assert.equal(feishuSecretPayload.channels.feishu.appSecret, "[redacted]");
 
+      const feishuQuickResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channels: {
+            feishu: {
+              enabled: true,
+              appId: "cli_quick",
+              requireExplicitMention: false,
+              botMentionNames: ["CodexBridge", "助手"],
+            },
+          },
+        }),
+      });
+      assert.equal(feishuQuickResponse.status, 200);
+      const feishuQuickPayload = await feishuQuickResponse.json();
+      assert.equal(feishuQuickPayload.channels.feishu.enabled, true);
+      assert.equal(feishuQuickPayload.channels.feishu.appId, "cli_quick");
+      assert.equal(feishuQuickPayload.channels.feishu.appSecret, "[redacted]");
+      assert.equal(feishuQuickPayload.channels.feishu.requireExplicitMention, false);
+      assert.deepEqual(feishuQuickPayload.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
+
       const redactedSaveResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",
         headers: {
@@ -267,7 +293,11 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.deepEqual(persisted.channels.telegram.private.allowedChatIds, ["100", "101"]);
       assert.deepEqual(persisted.channels.telegram.groups.allowedChatIds, ["200", "201"]);
       assert.deepEqual(persisted.channels.telegram.groups.allowedUserIds, ["300", "301"]);
+      assert.equal(persisted.channels.feishu.enabled, true);
+      assert.equal(persisted.channels.feishu.appId, "cli_a");
       assert.equal(persisted.channels.feishu.appSecret, "secret-gamma");
+      assert.equal(persisted.channels.feishu.requireExplicitMention, false);
+      assert.deepEqual(persisted.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
     } finally {
       await runtime.close();
     }
