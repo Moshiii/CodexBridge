@@ -2571,6 +2571,13 @@ Skills: installed capabilities</pre>
               event.content ? event.content.slice(0, 180) : null,
               event.createdAt,
             ].filter(Boolean).join(" | "),
+            event.eventId
+              ? [
+                "<button onclick=\\\"window.__reviewConversationLog(decodeURIComponent('" + encodeURIComponent(event.eventId) + "'), 'confirmed_risk')\\\">Confirm Risk</button>",
+                "<button onclick=\\\"window.__reviewConversationLog(decodeURIComponent('" + encodeURIComponent(event.eventId) + "'), 'false_positive')\\\">False Positive</button>",
+                "<button onclick=\\\"window.__reviewConversationLog(decodeURIComponent('" + encodeURIComponent(event.eventId) + "'), 'handled')\\\">Handled</button>",
+              ]
+              : [],
           )),
           "No conversation logs yet."
         );
@@ -2997,6 +3004,16 @@ Skills: installed capabilities</pre>
         });
         showToast('Telegram access updated');
         await loadDetail(state.selectedBotId);
+      };
+
+      window.__reviewConversationLog = async (eventId, status) => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/conversation-logs/' + encodeURIComponent(eventId) + '/review', {
+          method: 'POST',
+          body: JSON.stringify({ status, reviewer: 'local-web' }),
+        });
+        showToast('Conversation marked ' + status);
+        await loadOperations(state.selectedBotId);
       };
 
       window.__useSession = async (label) => {
