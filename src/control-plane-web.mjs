@@ -532,6 +532,7 @@ function summarizeRun(run) {
     prompt: run.prompt,
     output: run.output,
     error: run.error,
+    workspaceChanges: run.workspaceChanges || [],
     friendlyMessage,
     sessionLabel: run.sessionLabel,
     startedAt: run.startedAt,
@@ -548,6 +549,33 @@ async function readChatStatus(botId, sessionLabel = null) {
     sessionLabel: label,
     activeSessionLabel: sessions.activeSessionLabel,
   };
+}
+
+function summarizeWorkspaceChanges(beforeEntries, afterEntries) {
+  const beforeByPath = new Map(
+    beforeEntries
+      .filter((entry) => entry.type === "file")
+      .map((entry) => [entry.path, entry]),
+  );
+  return afterEntries
+    .filter((entry) => entry.type === "file")
+    .map((entry) => {
+      const before = beforeByPath.get(entry.path);
+      if (!before) {
+        return { ...entry, changeType: "new" };
+      }
+      if (before.size !== entry.size || before.updatedAt !== entry.updatedAt) {
+        return { ...entry, changeType: "updated" };
+      }
+      return null;
+    })
+    .filter(Boolean)
+    .sort((a, b) => {
+      if (a.changeType !== b.changeType) {
+        return a.changeType === "new" ? -1 : 1;
+      }
+      return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
+    });
 }
 
 async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
@@ -581,6 +609,7 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   }
 
   const session = cliState.sessions[label];
+  const workspaceBefore = await listWorkspaceFiles(botId).catch(() => []);
   const commandConfig = {
     ...buildCommandConfig(config),
     cwd: getWorkspacePath(botHome),
@@ -594,6 +623,7 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
     status: "running",
     output: "",
     error: null,
+    workspaceChanges: [],
     child: null,
   };
   activeChatRuns.set(key, run);
@@ -625,6 +655,8 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
     await writeCliState(latestState, botHome);
     run.finishedAt = nowIso();
     run.child = null;
+    const workspaceAfter = await listWorkspaceFiles(botId).catch(() => []);
+    run.workspaceChanges = summarizeWorkspaceChanges(workspaceBefore, workspaceAfter);
     if (result.ok) {
       run.status = "completed";
       run.output = result.output || "";
@@ -2160,6 +2192,8 @@ Skills: installed capabilities</pre>
                 </div>
                 <h3 style="margin-top:16px;">Output</h3>
                 <pre id="chat-output">No run yet.</pre>
+                <div class="divider-title" style="margin-top:16px;">Workspace Changes</div>
+                <div class="list" id="chat-workspace-changes"></div>
               </div>
             </div>
           </section>
@@ -2621,6 +2655,11 @@ Skills: installed capabilities</pre>
         return size + " · " + updated;
       }
 
+      function formatWorkspaceChangeMeta(entry) {
+        const change = entry.changeType === "new" ? "new file" : "updated file";
+        return change + " · " + formatWorkspaceFileMeta(entry);
+      }
+
       function renderWorkspaceFileButton(entry, label = "Open") {
         return "<button onclick=\\\"window.__openWorkspaceFileFromOverview(decodeURIComponent('" + encodeURIComponent(entry.path) + "'))\\\">" + escapeHtml(label) + "</button>";
       }
@@ -2857,6 +2896,13 @@ Skills: installed capabilities</pre>
         document.getElementById("chat-run-state").textContent = payload.status || "idle";
         document.getElementById("chat-output").textContent =
           payload.error ? [payload.friendlyMessage, payload.error].filter(Boolean).join("\\n\\n") : (payload.output || payload.friendlyMessage || (payload.running ? "Running..." : "No run yet."));
+        document.getElementById("chat-workspace-changes").innerHTML = renderList(
+          (payload.workspaceChanges || []).map((entry) => renderBotItem(entry.path, formatWorkspaceChangeMeta(entry), [renderWorkspaceFileButton(entry)])),
+          payload.running ? "Checking workspace when the run finishes." : "No workspace file changes detected for this run."
+        );
+        if (!payload.running && (payload.workspaceChanges || []).length) {
+          await loadOverviewRecentFiles(botId).catch(() => {});
+        }
         if (payload.running) {
           clearTimeout(loadChatStatus._timer);
           loadChatStatus._timer = setTimeout(() => {

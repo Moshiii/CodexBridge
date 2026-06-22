@@ -141,6 +141,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /No files yet\. Run Quick Test or ask the assistant to create a markdown file\./);
       assert.match(homeHtml, /overview-demo-prompts/);
       assert.match(homeHtml, /chat-demo-prompts/);
+      assert.match(homeHtml, /chat-workspace-changes/);
       assert.match(homeHtml, /Create a 3-day Beijing weekend plan/);
       assert.match(homeHtml, /__useWorkspaceDemoPrompt/);
       assert.match(homeHtml, /Run Quick Test can verify this host/);
@@ -607,7 +608,7 @@ test("control plane quick test can start a workspace file demo prompt", async ()
   const previousStartCommand = process.env.CODEX_START_COMMAND;
   try {
     await withTempHome(async () => {
-      process.env.CODEX_START_COMMAND = "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"file-demo-thread\"}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Created beijing-weekend-plan.md.\"}}'";
+      process.env.CODEX_START_COMMAND = "printf '# Beijing weekend plan\\n' > beijing-weekend-plan.md; printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"file-demo-thread\"}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Created beijing-weekend-plan.md.\"}}'";
       const { createBot } = await importFresh("../../src/bots.mjs");
       const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
 
@@ -634,6 +635,10 @@ test("control plane quick test can start a workspace file demo prompt", async ()
         const statusPayload = await statusResponse.json();
         assert.equal(statusPayload.status, "completed");
         assert.equal(statusPayload.output, "Created beijing-weekend-plan.md.");
+        assert.equal(statusPayload.workspaceChanges.length, 1);
+        assert.equal(statusPayload.workspaceChanges[0].path, "beijing-weekend-plan.md");
+        assert.equal(statusPayload.workspaceChanges[0].changeType, "new");
+        assert.equal(statusPayload.workspaceChanges[0].size, 23);
       } finally {
         await runtime.close();
       }
