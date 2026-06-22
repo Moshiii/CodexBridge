@@ -107,6 +107,16 @@ test("getBotMetrics aggregates users, credits, usage, and run health", async () 
     assert.equal(metrics.totals.groupTrialUsers, 1);
     assert.equal(metrics.totals.paidActiveUsers, 1);
     assert.equal(metrics.totals.paidConversionRate, 0.5);
+    assert.deepEqual(metrics.conversionFunnel.map((step) => step.id), [
+      "seen_users",
+      "group_trial",
+      "paid_or_private",
+      "successful_runs",
+    ]);
+    assert.equal(metrics.conversionFunnel.find((step) => step.id === "seen_users").value, 2);
+    assert.equal(metrics.conversionFunnel.find((step) => step.id === "group_trial").value, 1);
+    assert.equal(metrics.conversionFunnel.find((step) => step.id === "paid_or_private").value, 1);
+    assert.equal(metrics.conversionFunnel.find((step) => step.id === "successful_runs").value, 1);
     assert.equal(metrics.growthSnapshot.status, "needs_runtime_attention");
     assert.match(metrics.growthSnapshot.summary, /1 group trial user seen/);
     assert.match(metrics.growthSnapshot.nextStep, /Runtime Log/);

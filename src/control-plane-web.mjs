@@ -2114,6 +2114,7 @@ Skills: installed capabilities</pre>
                 <div>Status</div><div>Waiting for user activity.</div>
                 <div>Next</div><div>Invite one test user after setup is ready.</div>
               </div>
+              <div class="list" id="operations-conversion-funnel">Loading funnel...</div>
               <div class="list" id="operations-metrics">Loading...</div>
             </div>
             <div class="two-col">
@@ -2964,6 +2965,13 @@ Skills: installed capabilities</pre>
           ["summary", metrics.growthSnapshot?.summary || "No growth snapshot yet."],
           ["next", metrics.growthSnapshot?.nextStep || "Invite one test user after setup is ready."],
         ]);
+        document.getElementById("operations-conversion-funnel").innerHTML = renderList(
+          (metrics.conversionFunnel || []).map((step) => renderBotItem(
+            step.label + ": " + step.value + " (" + Math.round((step.rate || 0) * 100) + "%)",
+            step.next || ""
+          )),
+          "No conversion funnel yet. Invite one test user after setup is ready."
+        );
         document.getElementById("operations-metrics").innerHTML = renderList(
           metricRows.map(([label, value]) => renderBotItem(label, String(value))),
           "No metrics yet. Send a Quick Test or connect Telegram/Feishu to generate activity."

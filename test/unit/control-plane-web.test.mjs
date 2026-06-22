@@ -161,6 +161,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /Operator View/);
       assert.match(homeHtml, /operations-show-debug/);
       assert.match(homeHtml, /operations-growth-snapshot/);
+      assert.match(homeHtml, /operations-conversion-funnel/);
       assert.match(homeHtml, /Waiting for user activity/);
       assert.match(homeHtml, /riskOnly=true/);
       assert.match(homeHtml, /__reviewConversationLog/);
@@ -934,6 +935,7 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       const metricsPayload = await metricsResponse.json();
       assert.equal(metricsPayload.totals.users, 1);
       assert.equal(metricsPayload.totals.groupTrialUsers, 1);
+      assert.equal(metricsPayload.conversionFunnel.some((step) => step.id === "group_trial"), true);
       assert.equal(metricsPayload.runStatusCounts.completed, 1);
       assert.equal(metricsPayload.creditTotals.dailyFreeCharged, 1);
       assert.equal(metricsPayload.creditTotals.paidCreditsGranted, 10);

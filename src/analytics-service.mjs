@@ -68,6 +68,40 @@ function buildGrowthSnapshot({ totalUsers, groupTrialUsers, paidUserCount, runSt
   };
 }
 
+function buildConversionFunnel({ totalUsers, groupTrialUsers, paidUserCount, completedRuns, failedRuns }) {
+  const rate = (value, denominator) => denominator > 0 ? value / denominator : 0;
+  return [
+    {
+      id: "seen_users",
+      label: "Users seen",
+      value: totalUsers,
+      rate: totalUsers > 0 ? 1 : 0,
+      next: totalUsers > 0 ? "Users have reached CodexBridge." : "Invite one test user after setup is ready.",
+    },
+    {
+      id: "group_trial",
+      label: "Group trial users",
+      value: groupTrialUsers,
+      rate: rate(groupTrialUsers, totalUsers),
+      next: groupTrialUsers > 0 ? "Group trial is active." : "Ask one user to try a public group question.",
+    },
+    {
+      id: "paid_or_private",
+      label: "Paid/private users",
+      value: paidUserCount,
+      rate: rate(paidUserCount, Math.max(groupTrialUsers, totalUsers)),
+      next: paidUserCount > 0 ? "Paid/private conversion has started." : "Grant paid credits or unlock private chat for the first satisfied user.",
+    },
+    {
+      id: "successful_runs",
+      label: "Successful runs",
+      value: completedRuns,
+      rate: rate(completedRuns, completedRuns + failedRuns),
+      next: completedRuns > 0 ? "Users have seen successful answers." : "Run Quick Test and resolve runtime issues before inviting more users.",
+    },
+  ];
+}
+
 export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 } = {}) {
   const [users, usageEvents, runs, conversationEvents, reviewEvents] = await Promise.all([
     listUsers({ botHome }),
@@ -156,6 +190,8 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
   const duration = sumRunDurationMs(finishedRuns);
   const totalUsers = users.length;
   const paidUserCount = paidActiveUsers.size;
+  const completedRuns = runStatusCounts.completed || 0;
+  const failedRuns = runStatusCounts.failed || 0;
   const conversationTotals = {
     events: conversationEvents.length,
     inputs: conversationDirectionCounts.input || 0,
@@ -184,6 +220,13 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
       paidUserCount,
       runStatusCounts,
       conversationTotals,
+    }),
+    conversionFunnel: buildConversionFunnel({
+      totalUsers,
+      groupTrialUsers: groupTrialUsers.size,
+      paidUserCount,
+      completedRuns,
+      failedRuns,
     }),
     conversationTotals,
     userStatusCounts,
