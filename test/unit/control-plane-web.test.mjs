@@ -126,6 +126,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /Setup Checklist/);
       assert.match(homeHtml, /__openSetupStep/);
       assert.match(homeHtml, /Save Telegram Settings/);
+      assert.match(homeHtml, /__allowTelegramAccess/);
 
       const logsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/logs`);
       assert.equal(logsResponse.status, 200);
@@ -195,6 +196,31 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(telegramQuickPayload.channels.telegram.botUsername, "gamma_quick_bot");
       assert.equal(telegramQuickPayload.channels.telegram.groups.requireExplicitMention, false);
 
+      const allowPrivateResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/telegram/access`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ accessType: "private_chat", id: "101" }),
+      });
+      assert.equal(allowPrivateResponse.status, 200);
+      const allowGroupResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/telegram/access`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ accessType: "group_chat", id: "201" }),
+      });
+      assert.equal(allowGroupResponse.status, 200);
+      const allowUserResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/telegram/access`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ accessType: "group_user", id: "301" }),
+      });
+      assert.equal(allowUserResponse.status, 200);
+
       const feishuSecretResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",
         headers: {
@@ -238,9 +264,10 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(persisted.channels.telegram.botToken, "123456:ABCDEF");
       assert.equal(persisted.channels.telegram.botUsername, "gamma_quick_bot");
       assert.equal(persisted.channels.telegram.groups.requireExplicitMention, false);
+      assert.deepEqual(persisted.channels.telegram.private.allowedChatIds, ["100", "101"]);
+      assert.deepEqual(persisted.channels.telegram.groups.allowedChatIds, ["200", "201"]);
+      assert.deepEqual(persisted.channels.telegram.groups.allowedUserIds, ["300", "301"]);
       assert.equal(persisted.channels.feishu.appSecret, "secret-gamma");
-      assert.deepEqual(persisted.channels.telegram.private.allowedChatIds, ["100"]);
-      assert.deepEqual(persisted.channels.telegram.groups.allowedUserIds, ["300"]);
     } finally {
       await runtime.close();
     }

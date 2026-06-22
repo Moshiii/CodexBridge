@@ -180,6 +180,7 @@
    - Quick Test 已新增 preflight 提示：即使 IM 尚未完全配置，也能先验证本机 Codex；同时明确邀请用户前还缺哪些步骤。
    - Setup Checklist 每一步已提供 Go 跳转按钮，用户看到缺口后可以直接进入对应配置页，不需要自己理解 tab 结构。
    - Telegram tab 已新增 Quick Settings，可直接保存 enabled、bot username、mention required 和 token，不必进入 Raw Config。
+   - Known Chats / Known Users 已新增一键允许入口，可直接加入 private chat、group chat 或 group user 访问名单。
 
 ### 本轮审计已修复的严重问题
 
@@ -651,10 +652,11 @@ denied
 18. 增加 Quick Test preflight，区分“本机 Codex 可试跑”和“邀请用户前还缺的 IM 配置”
 19. 增加 Setup Checklist 的 Go 跳转，降低从提示到操作的路径成本
 20. 增加 Telegram Quick Settings，把最常用配置从 Raw Config 前移到 Telegram tab
+21. 增加 Telegram Known Chats / Known Users 一键加入访问名单
 
 接下来再考虑：
 
-1. 把飞书配置和 Telegram 访问名单继续从 raw config 拆成表单化向导。
+1. 把飞书配置继续从 raw config 拆成表单化向导。
 2. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
 3. 简化 Operations：普通用户运营只看用户、充值、封禁、风险日志，隐藏低频调试信息。
 4. 增加空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。

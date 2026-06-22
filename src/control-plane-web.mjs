@@ -744,6 +744,49 @@ async function pairTelegramForBot(botId, token) {
   };
 }
 
+async function allowTelegramAccessForBot(botId, { accessType, id } = {}) {
+  const normalizedType = String(accessType || "").trim();
+  const normalizedId = String(id || "").trim();
+  if (!normalizedId) {
+    throw new UserInputError("Telegram access id is required.", { code: "telegram_access_id_required" });
+  }
+  if (!["private_chat", "group_chat", "group_user"].includes(normalizedType)) {
+    throw new UserInputError("Telegram access type is required.", { code: "telegram_access_type_required" });
+  }
+  await updateBotConfig(botId, (currentConfig) => {
+    const telegram = currentConfig.channels?.telegram ?? {};
+    const privateChatIds = telegram.private?.allowedChatIds ?? [];
+    const groupChatIds = telegram.groups?.allowedChatIds ?? [];
+    const groupUserIds = telegram.groups?.allowedUserIds ?? [];
+    return {
+      ...currentConfig,
+      channels: {
+        ...currentConfig.channels,
+        telegram: {
+          ...telegram,
+          private: {
+            ...(telegram.private ?? {}),
+            allowedChatIds: normalizedType === "private_chat"
+              ? Array.from(new Set([...privateChatIds, normalizedId]))
+              : privateChatIds,
+          },
+          groups: {
+            ...(telegram.groups ?? {}),
+            allowedChatIds: normalizedType === "group_chat"
+              ? Array.from(new Set([...groupChatIds, normalizedId]))
+              : groupChatIds,
+            allowedUserIds: normalizedType === "group_user"
+              ? Array.from(new Set([...groupUserIds, normalizedId]))
+              : groupUserIds,
+            requireExplicitMention: telegram.groups?.requireExplicitMention ?? true,
+          },
+        },
+      },
+    };
+  });
+  return await getBotControlPlaneDetail(botId);
+}
+
 function applySafeConfigPatch(currentConfig, patch) {
   const nextConfig = deepMergeConfig(currentConfig, patch);
   const nextToken = nextConfig.channels?.telegram?.botToken;
@@ -2542,11 +2585,24 @@ Skills: installed capabilities</pre>
         const chats = config.channels?.telegram?.metadata?.chats || {};
         const users = config.channels?.telegram?.metadata?.users || {};
         document.getElementById("telegram-seen-chats").innerHTML = renderList(
-          Object.entries(chats).map(([id, entry]) => renderBotItem(entry.label || entry.title || entry.username || id, id)),
+          Object.entries(chats).map(([id, entry]) => renderBotItem(
+            entry.label || entry.title || entry.username || id,
+            id,
+            [
+              "<button onclick=\\\"window.__allowTelegramAccess('private_chat', decodeURIComponent('" + encodeURIComponent(id) + "'))\\\">Allow Private</button>",
+              "<button onclick=\\\"window.__allowTelegramAccess('group_chat', decodeURIComponent('" + encodeURIComponent(id) + "'))\\\">Allow Group</button>",
+            ],
+          )),
           "No known chats yet."
         );
         document.getElementById("telegram-seen-users").innerHTML = renderList(
-          Object.entries(users).map(([id, entry]) => renderBotItem(entry.label || entry.username || id, id)),
+          Object.entries(users).map(([id, entry]) => renderBotItem(
+            entry.label || entry.username || id,
+            id,
+            [
+              "<button onclick=\\\"window.__allowTelegramAccess('group_user', decodeURIComponent('" + encodeURIComponent(id) + "'))\\\">Allow Group User</button>",
+            ],
+          )),
           "No known users yet."
         );
         document.getElementById("config-editor").value = JSON.stringify(payload.detail.config, null, 2);
@@ -2834,6 +2890,16 @@ Skills: installed capabilities</pre>
         showToast('Opened ' + tabName);
       };
 
+      window.__allowTelegramAccess = async (accessType, id) => {
+        if (!state.selectedBotId) return;
+        await request('/api/bots/' + state.selectedBotId + '/telegram/access', {
+          method: 'POST',
+          body: JSON.stringify({ accessType, id }),
+        });
+        showToast('Telegram access updated');
+        await loadDetail(state.selectedBotId);
+      };
+
       window.__useSession = async (label) => {
         if (!state.selectedBotId) return;
         await request('/api/bots/' + state.selectedBotId + '/sessions/' + encodeURIComponent(label) + '/use', { method: 'POST' });
@@ -3032,6 +3098,15 @@ async function handleApi(request, response, pathname) {
       ...payload,
       detail: redactControlPlaneDetail(payload.detail),
     });
+  }
+
+  const botTelegramAccessMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/access$/);
+  if (request.method === "POST" && botTelegramAccessMatch) {
+    const body = await readJsonBody(request);
+    return json(response, 200, redactControlPlaneDetail(await allowTelegramAccessForBot(
+      decodeURIComponent(botTelegramAccessMatch[1]),
+      body,
+    )));
   }
 
   const botTelegramRefreshMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/refresh$/);
