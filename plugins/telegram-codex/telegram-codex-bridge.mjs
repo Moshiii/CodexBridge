@@ -301,8 +301,8 @@ function renderRequestFailedMessage(errorText = "") {
   return [
     "The request failed before CodexBridge could return an answer.",
     detail ? `Detail: ${detail}` : null,
-    "If paid credits were charged for this request, they are refunded automatically.",
-    "Check the runtime log if this keeps happening.",
+    "Paid credits charged for this request are refunded automatically; daily free quota does not spend paid credits.",
+    "Try again later. If this keeps happening, ask the operator to check the runtime log.",
   ].filter(Boolean).join("\n");
 }
 

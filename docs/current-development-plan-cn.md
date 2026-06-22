@@ -197,6 +197,7 @@
    - Telegram 已新增 bot 入群欢迎触发：当当前 bot 被加入群聊时，会自动发送快速开始说明，避免新群用户不知道怎么问。
    - Telegram / 飞书常见失败提示已产品化：不支持的消息类型、未知命令、已有请求运行中、请求失败都会给出可行动下一步。
    - conversation policy block 的用户侧文案已产品化：明确说明消息疑似包含 secret/access token、本次未扣 credits、移除或轮换凭证后可重发。
+   - Telegram / 飞书请求失败文案已补齐退款解释：paid credits 会自动退款，daily free 不消耗 paid credits，并提示稍后重试或让 operator 查看 runtime log。
 
 ### 本轮审计已修复的严重问题
 
@@ -712,6 +713,7 @@ denied
 35. 改进 Setup Checklist / Quick Test preflight 的具体修复提示，能明确指出缺 token、bot username、Feishu 接入检查、访问名单或 runtime
 36. 增加 Feishu Setup Summary，让 Feishu tab 直接显示当前接入完成度和下一步动作，不需要 operator 自己解读配置字段
 37. 改进 conversation policy block 用户提示，说明疑似 secret/access token、未扣 credits、移除或轮换凭证后重发
+38. 改进 Telegram / 飞书请求失败退款提示，明确 paid credits 自动退款、daily free 不消耗 paid credits、下一步找 operator 看 runtime log
 
 接下来再考虑：
 
@@ -809,7 +811,7 @@ denied
 - Codex 未启动成功：已接入实际失败路径，退还 paid credits。
 - 用户 stop：短任务不退，长任务后续可配置。
 - Codex 执行失败：已退还 paid credits，run 记录 failure reason。
-- 后续补用户可见的退款提示和更细失败类型。
+- 用户可见的退款提示已补第一版；后续继续补更细失败类型。
 
 ### Step 2：state migration / 数据库准备
 
@@ -833,7 +835,6 @@ denied
 - 私聊未解锁。
 - 已付费但 credits 不足。
 - Codex 正在运行，暂时不能并发提问。
-- 请求失败且已退款。
 
 ### Step 5：再做支付和生产化
 

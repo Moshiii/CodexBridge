@@ -247,7 +247,9 @@ test("telegram common error prompts stay actionable", async () => {
     assert.match(renderUnsupportedPayloadMessage(), /upload a file with a caption/);
     assert.match(renderUnsupportedCommandMessage("foo"), /Use \/help/);
     assert.match(renderBusyMessage("main"), /use \/stop/);
-    assert.match(renderRequestFailedMessage("codex missing"), /refunded automatically/);
+    assert.match(renderRequestFailedMessage("codex missing"), /Paid credits charged/);
+    assert.match(renderRequestFailedMessage("codex missing"), /daily free quota does not spend paid credits/);
+    assert.match(renderRequestFailedMessage("codex missing"), /ask the operator/);
     assert.match(renderRequestFailedMessage("codex missing"), /runtime log/);
   });
 });
