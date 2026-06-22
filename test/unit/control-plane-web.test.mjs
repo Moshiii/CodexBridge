@@ -134,6 +134,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /riskOnly=true/);
       assert.match(homeHtml, /__reviewConversationLog/);
       assert.match(homeHtml, /Confirm Risk/);
+      assert.match(homeHtml, /operations-review-filter/);
 
       const logsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/logs`);
       assert.equal(logsResponse.status, 200);

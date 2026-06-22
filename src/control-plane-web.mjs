@@ -1943,7 +1943,18 @@ Skills: installed capabilities</pre>
               </div>
             </div>
             <div class="card" style="margin-top:14px;">
-              <h3>Conversation Logs</h3>
+              <div class="section-title">
+                <h3>Conversation Logs</h3>
+                <label>Review
+                  <select id="operations-review-filter">
+                    <option value="all">all</option>
+                    <option value="unreviewed">unreviewed</option>
+                    <option value="confirmed_risk">confirmed risk</option>
+                    <option value="false_positive">false positive</option>
+                    <option value="handled">handled</option>
+                  </select>
+                </label>
+              </div>
               <div class="list" id="operations-conversation-logs">Loading...</div>
             </div>
           </section>
@@ -2497,6 +2508,12 @@ Skills: installed capabilities</pre>
           request('/api/bots/' + botId + '/metrics'),
           request('/api/bots/' + botId + '/conversation-logs?riskOnly=true&limit=100'),
         ]);
+        const reviewFilter = document.getElementById("operations-review-filter")?.value || "all";
+        const filteredConversationLogs = conversationLogs.filter((event) => {
+          if (reviewFilter === "all") return true;
+          if (reviewFilter === "unreviewed") return !event.review?.status;
+          return event.review?.status === reviewFilter;
+        });
         const metricRows = [
           ["users", metrics.totals?.users ?? 0],
           ["group trial users", metrics.totals?.groupTrialUsers ?? 0],
@@ -2560,7 +2577,7 @@ Skills: installed capabilities</pre>
           "No runs recorded yet."
         );
         document.getElementById("operations-conversation-logs").innerHTML = renderList(
-          conversationLogs.map((event) => renderBotItem(
+          filteredConversationLogs.map((event) => renderBotItem(
             event.direction + " " + (event.userId || "unknown"),
             [
               event.channel,
@@ -2579,7 +2596,7 @@ Skills: installed capabilities</pre>
               ]
               : [],
           )),
-          "No conversation logs yet."
+          reviewFilter === "all" ? "No risky conversation logs yet." : "No conversation logs match this review filter."
         );
       }
 
@@ -2854,6 +2871,7 @@ Skills: installed capabilities</pre>
         await loadSchedules(state.selectedBotId);
       };
       document.getElementById('operations-refresh').onclick = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-review-filter').onchange = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
       document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
       document.getElementById('operations-grant').onclick = async () => {
