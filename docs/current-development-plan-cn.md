@@ -185,6 +185,7 @@
    - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
    - Operations 风险日志已新增 Confirm Risk / False Positive / Handled 按钮，运营复盘不需要手写 review API。
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
+   - Operations 风险日志已新增 risk label 筛选，可按 prompt injection、possible secret、credential-like、email、phone 聚焦复盘。
 
 ### 本轮审计已修复的严重问题
 
@@ -688,10 +689,11 @@ denied
 23. 增加 Operations Operator / Debug 视图，默认隐藏低频调试信息并优先展示风险日志
 24. 增加 Operations 风险日志一键复盘按钮：confirm risk / false positive / handled
 25. 增加 Operations 风险日志 review 状态筛选
+26. 增加 Operations 风险日志 risk label 筛选
 
 接下来再考虑：
 
-1. 继续简化 Operations：增加风险标签筛选和更明确的空状态。
+1. 继续简化 Operations：增加更明确的空状态和按用户/run/channel 的复盘筛选。
 2. 把 Feishu 事件回调、可见性检查、访问名单继续表单化。
 3. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
 4. 增加用户侧空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
@@ -741,7 +743,7 @@ denied
 
 ### 尚未完成但已经明确要做
 
-- Operations 风险标签筛选和更好的空状态。
+- Operations 更好的空状态和按用户/run/channel 的复盘筛选。
 - Feishu 配置继续表单化。
 - 用户侧欢迎、额度、付费转化文案。
 - Web 控制台拆分。

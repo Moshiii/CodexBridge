@@ -1954,6 +1954,16 @@ Skills: installed capabilities</pre>
                     <option value="handled">handled</option>
                   </select>
                 </label>
+                <label>Label
+                  <select id="operations-risk-label-filter">
+                    <option value="all">all</option>
+                    <option value="prompt_injection_signal">prompt injection</option>
+                    <option value="possible_secret">possible secret</option>
+                    <option value="credential_like_text">credential-like</option>
+                    <option value="possible_email">possible email</option>
+                    <option value="possible_phone">possible phone</option>
+                  </select>
+                </label>
               </div>
               <div class="list" id="operations-conversation-logs">Loading...</div>
             </div>
@@ -2509,10 +2519,12 @@ Skills: installed capabilities</pre>
           request('/api/bots/' + botId + '/conversation-logs?riskOnly=true&limit=100'),
         ]);
         const reviewFilter = document.getElementById("operations-review-filter")?.value || "all";
+        const riskLabelFilter = document.getElementById("operations-risk-label-filter")?.value || "all";
         const filteredConversationLogs = conversationLogs.filter((event) => {
-          if (reviewFilter === "all") return true;
-          if (reviewFilter === "unreviewed") return !event.review?.status;
-          return event.review?.status === reviewFilter;
+          const reviewMatches = reviewFilter === "all"
+            || (reviewFilter === "unreviewed" ? !event.review?.status : event.review?.status === reviewFilter);
+          const riskLabelMatches = riskLabelFilter === "all" || (event.riskLabels || []).includes(riskLabelFilter);
+          return reviewMatches && riskLabelMatches;
         });
         const metricRows = [
           ["users", metrics.totals?.users ?? 0],
@@ -2596,7 +2608,9 @@ Skills: installed capabilities</pre>
               ]
               : [],
           )),
-          reviewFilter === "all" ? "No risky conversation logs yet." : "No conversation logs match this review filter."
+          reviewFilter === "all" && riskLabelFilter === "all"
+            ? "No risky conversation logs yet."
+            : "No conversation logs match these filters."
         );
       }
 
@@ -2872,6 +2886,7 @@ Skills: installed capabilities</pre>
       };
       document.getElementById('operations-refresh').onclick = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-review-filter').onchange = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-risk-label-filter').onchange = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
       document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
       document.getElementById('operations-grant').onclick = async () => {
