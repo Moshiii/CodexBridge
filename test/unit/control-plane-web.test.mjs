@@ -45,6 +45,9 @@ test("getBotControlPlaneDetail includes inspect, health, and logs", async () => 
     assert.equal(detail.detail.config.storage.provider, "json");
     assert.equal(detail.migrationStatus.currentSchemaVersion, 1);
     assert.equal(detail.migrationStatus.pending.length, 1);
+    assert.equal(detail.storageReadiness.provider, "json");
+    assert.equal(detail.storageReadiness.status, "migration_needed");
+    assert.equal(detail.storageReadiness.ready, false);
     assert.equal(detail.quickTestPreflight.readyForIm, false);
     assert.equal(detail.quickTestPreflight.missingSteps[0].id, "configure_channel");
     assert.match(detail.quickTestPreflight.missingSteps[0].hint, /Choose Telegram or Feishu/);
@@ -212,6 +215,27 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(migratedDetailResponse.status, 200);
       const migratedDetailPayload = await migratedDetailResponse.json();
       assert.equal(migratedDetailPayload.migrationStatus.pending.length, 0);
+      assert.equal(migratedDetailPayload.storageReadiness.status, "ready");
+      assert.equal(migratedDetailPayload.storageReadiness.ready, true);
+
+      const sqliteConfigResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          storage: {
+            provider: "sqlite",
+          },
+        }),
+      });
+      assert.equal(sqliteConfigResponse.status, 200);
+      const sqliteDetailResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma`);
+      assert.equal(sqliteDetailResponse.status, 200);
+      const sqliteDetailPayload = await sqliteDetailResponse.json();
+      assert.equal(sqliteDetailPayload.storageReadiness.provider, "sqlite");
+      assert.equal(sqliteDetailPayload.storageReadiness.status, "provider_not_available");
+      assert.match(sqliteDetailPayload.storageReadiness.next, /SQLite repository adapter/);
 
       const nestedResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",

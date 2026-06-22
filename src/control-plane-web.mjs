@@ -182,6 +182,31 @@ function redactControlPlaneDetail(detail) {
   };
 }
 
+function buildStorageReadiness(config = {}, migrationStatus = {}) {
+  const provider = config.storage?.provider || "json";
+  const pending = migrationStatus.pending || [];
+  const adapterReady = provider === "json";
+  const status = pending.length > 0
+    ? "migration_needed"
+    : adapterReady
+      ? "ready"
+      : "provider_not_available";
+  return {
+    provider,
+    adapterReady,
+    status,
+    ready: status === "ready",
+    schemaVersion: migrationStatus.schemaVersion ?? null,
+    currentSchemaVersion: migrationStatus.currentSchemaVersion ?? null,
+    pending,
+    next: status === "migration_needed"
+      ? "Run migrations before inviting more users."
+      : status === "provider_not_available"
+        ? "Switch back to json or finish the SQLite repository adapter before inviting users."
+        : "Storage is ready for this version.",
+  };
+}
+
 function getWebOperatorToken() {
   return String(process.env.CODEXBRIDGE_WEB_TOKEN || "").trim();
 }
@@ -1175,13 +1200,15 @@ export async function getBotControlPlaneDetail(botId) {
     groupUsers: (telegram.groups?.allowedUserIds ?? []).map((id) => formatEntry(id, metadata.users)),
   };
   const setupGuide = await buildSetupGuide(detail, health, access);
+  const migrationStatus = await getStateMigrationStatus({ botHome: detail.bot.homePath });
   return {
     detail,
     health,
     logs: await readBotLogs(botId, 50),
     access,
     setupGuide,
-    migrationStatus: await getStateMigrationStatus({ botHome: detail.bot.homePath }),
+    migrationStatus,
+    storageReadiness: buildStorageReadiness(detail.config, migrationStatus),
     quickTestPreflight: buildQuickTestPreflight(setupGuide),
   };
 }
@@ -2709,21 +2736,20 @@ Skills: installed capabilities</pre>
         ]);
       }
 
-      function renderStorageReadiness(migrationStatus, config) {
-        const pending = migrationStatus?.pending || [];
-        const current = migrationStatus?.currentSchemaVersion ?? "unknown";
-        const actual = migrationStatus?.schemaVersion ?? "unknown";
-        const provider = config?.storage?.provider || "json";
+      function renderStorageReadiness(storageReadiness) {
+        const pending = storageReadiness?.pending || [];
+        const current = storageReadiness?.currentSchemaVersion ?? "unknown";
+        const actual = storageReadiness?.schemaVersion ?? "unknown";
+        const provider = storageReadiness?.provider || "json";
         renderKV("storage-readiness", [
-          ["storage", pending.length === 0 ? "ready" : "migration needed"],
+          ["storage", storageReadiness?.ready ? "ready" : storageReadiness?.status || "checking"],
           ["provider", provider],
           ["schema", String(actual) + " / " + String(current)],
-          ["next", pending.length === 0
-            ? (provider === "json" ? "State files are normalized for this version." : "SQLite provider is selected; confirm adapter readiness before inviting more users.")
-            : "Run /migrate for this bot before inviting more users."],
+          ["next", storageReadiness?.next || "Checking storage state."],
           ["pending", pending.length === 0 ? "none" : pending.map((migration) => migration.id).join(", ")],
         ]);
-        document.getElementById("run-state-migrations").style.display = pending.length === 0 ? "none" : "";
+        document.getElementById("run-state-migrations").style.display =
+          storageReadiness?.status === "migration_needed" ? "" : "none";
       }
 
       function renderFeishuSetupSummary(config) {
@@ -2953,7 +2979,7 @@ Skills: installed capabilities</pre>
         renderBadges(bot, config);
         setTopStatus(payload);
         renderSetupGuide(payload.setupGuide);
-        renderStorageReadiness(payload.migrationStatus, payload.config);
+        renderStorageReadiness(payload.storageReadiness);
         document.getElementById("metric-bot").textContent = bot.name;
         document.getElementById("metric-runtime").textContent = payload.health.healthy ? "Online" : "Offline";
         document.getElementById("metric-telegram").textContent = config.channels?.telegram?.enabled ? "Paired" : "Unpaired";

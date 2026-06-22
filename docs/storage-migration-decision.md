@@ -32,6 +32,7 @@
 - Web 可直接执行 state migrations。
 - Web migration 执行写入 admin audit。
 - 已有 `storage.provider = json | sqlite` 配置入口，默认仍为 `json`。
+- Web/API 已有 `storageReadiness`，当 `sqlite` 被选择但 SQLite adapter 尚未完成时会显示 `provider_not_available`。
 
 ## 必须迁移到 SQLite 的触发条件
 
@@ -76,7 +77,7 @@ Postgres 阶段可以继续保留本机 workspace 文件，但产品状态必须
 2. 下一步：为 repository 增加 SQLite adapter，保持现有 service API 不变。
 3. 增加只读校验命令：读取 JSON / JSONL，生成 SQLite shadow copy，并校验 counts 和 totals。
 4. 增加正式迁移命令：写入 SQLite，记录 migration state。
-5. 补强 Web Storage Readiness：显示 schema version、pending migrations、校验结果和 provider 切换风险。
+5. 已部分完成：Web Storage Readiness 显示 provider、schema version、pending migrations 和 provider 不可用风险；后续补校验结果。
 6. 灰度：单 bot 切 SQLite，观察 usage、runs、refund、conversation review 是否一致。
 7. 稳定后再考虑把新 bot 默认 provider 改成 SQLite。
 
