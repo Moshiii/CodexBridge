@@ -218,6 +218,7 @@
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
    - Telegram / 飞书用户侧 `/credits` 已新增每日免费剩余额度和 Next 提示；额度不足、私聊未解锁、被封禁都会明确说明本次未扣 credits 和下一步。
    - Telegram / 飞书用户侧 `/credits` 在私聊已解锁时会明确提示：直接私聊 bot 做 private work，群聊仍公开可见，私聊消耗 paid credits。
+   - Telegram / 飞书私聊未解锁提示已补齐群聊公开提醒：继续用群聊每日免费额度时不要发送 private/sensitive content。
    - Telegram / 飞书 `/start` 和 `/help` 已改为首次使用说明，解释群聊每日免费、群聊公开可见、`/credits`、私聊解锁和 operator 管理入口。
    - Telegram / 飞书首次欢迎语已补齐可照抄的群聊提问示例：Telegram 提示 `@your_bot summarize this repo in 3 bullets`，飞书提示提到 CodexBridge 或应用名后提问。
    - Telegram 已新增 bot 入群欢迎触发：当当前 bot 被加入群聊时，会自动发送快速开始说明，避免新群用户不知道怎么问。
@@ -768,6 +769,7 @@ denied
 61. 增加 Operations Grant + Unlock 快捷动作，一次完成 paid credits 授信和私聊解锁
 62. 增加 Operations 用户阶段标签，让 New / Trial Lead / Paid Private / Admin / Banned 在用户列表和选中摘要里直接可见
 63. 改进 Telegram / 飞书 `/credits` 私聊已解锁提示，明确下一步是直接私聊 bot，群聊仍公开，私聊消耗 paid credits
+64. 改进私聊未解锁提示，提醒用户群聊公开可见，不要在免费群聊里发送 private/sensitive content
 
 接下来再考虑：
 

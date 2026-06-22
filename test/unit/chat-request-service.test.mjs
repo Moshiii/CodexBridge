@@ -58,6 +58,8 @@ test("prepareChatRequest denies locked private chat without charging", async () 
     assert.match(result.message, /No credits were charged/);
     assert.match(result.message, /Next:/);
     assert.match(result.message, /keep using CodexBridge in the group/);
+    assert.match(result.message, /Group chat is public/);
+    assert.match(result.message, /avoid private or sensitive content/);
     assert.match(result.message, /unlock private chat/);
     assert.equal(result.run.status, "denied");
     assert.equal(events.length, 0);

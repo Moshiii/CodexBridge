@@ -146,7 +146,7 @@ export function renderPrivateChatLockedMessage() {
   return [
     "Private chat is locked for this account.",
     "No credits were charged for this request.",
-    "Next: keep using CodexBridge in the group with the daily free quota.",
+    "Next: keep using CodexBridge in the group with the daily free quota. Group chat is public, so avoid private or sensitive content there.",
     "Top up paid credits or ask the operator to unlock private chat when you want private conversations.",
   ].join("\n");
 }
