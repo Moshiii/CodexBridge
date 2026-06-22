@@ -2832,6 +2832,7 @@ Skills: installed capabilities</pre>
       function formatCredits(user) {
         const credits = user.credits || {};
         return [
+          operationsUserStage(user),
           user.channel,
           user.status,
           user.privateEnabled ? "private unlocked" : "private locked",
@@ -2839,6 +2840,15 @@ Skills: installed capabilities</pre>
           "free " + (credits.dailyFreeUsed ?? 0) + "/" + (credits.dailyFreeLimit ?? 0),
           user.lastSeenAt ? "seen " + user.lastSeenAt : null,
         ].filter(Boolean).join(" | ");
+      }
+
+      function operationsUserStage(user) {
+        const credits = user.credits || {};
+        if (user.status === "banned") return "Banned";
+        if (user.status === "admin") return "Admin";
+        if (user.privateEnabled || (credits.paidCredits ?? 0) > 0 || user.status === "paid") return "Paid Private";
+        if ((credits.dailyFreeUsed ?? 0) > 0) return "Trial Lead";
+        return "New";
       }
 
       function renderSelectedOperationsUser() {
@@ -2856,6 +2866,7 @@ Skills: installed capabilities</pre>
         const credits = user.credits || {};
         renderKV("operations-selected-user", [
           ["selected", user.displayName ? user.displayName + " (" + user.id + ")" : user.id],
+          ["stage", operationsUserStage(user)],
           ["status", user.status],
           ["private", user.privateEnabled ? "unlocked" : "locked"],
           ["paid credits", String(credits.paidCredits ?? 0)],

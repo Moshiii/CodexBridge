@@ -214,6 +214,7 @@
    - Operations Admin Actions 已新增选中用户摘要和操作说明，operator 能在 grant/deduct/private/ban 前看到该用户状态、私聊权限、paid credits 和 daily free 使用情况。
    - Operations Admin Actions 已新增防误点校验：未选用户、金额无效、未知用户会被前端禁用或返回清楚 4xx 错误，不再变成含糊失败。
    - Operations Admin Actions 已新增 Grant + Unlock 付费转化快捷动作，可一次性增加 paid credits 并解锁私聊，减少 operator 对满意用户开通时的重复操作。
+   - Operations Users 已新增用户阶段标签：New / Trial Lead / Paid Private / Admin / Banned，帮助 operator 快速判断谁是试用线索、谁已经付费解锁。
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
    - Telegram / 飞书用户侧 `/credits` 已新增每日免费剩余额度和 Next 提示；额度不足、私聊未解锁、被封禁都会明确说明本次未扣 credits 和下一步。
    - Telegram / 飞书 `/start` 和 `/help` 已改为首次使用说明，解释群聊每日免费、群聊公开可见、`/credits`、私聊解锁和 operator 管理入口。
@@ -764,6 +765,7 @@ denied
 59. 增加 Setup Checklist 的直接动作按钮：runtime 缺口可 Start Runtime，首条测试缺口可 Run Quick Test
 60. 增加 Telegram Setup Summary，动态显示启用、BotFather token、bot username 和首个测试对象准备状态
 61. 增加 Operations Grant + Unlock 快捷动作，一次完成 paid credits 授信和私聊解锁
+62. 增加 Operations 用户阶段标签，让 New / Trial Lead / Paid Private / Admin / Banned 在用户列表和选中摘要里直接可见
 
 接下来再考虑：
 
