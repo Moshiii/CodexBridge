@@ -206,6 +206,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(migrationResponse.status, 200);
       const migrationPayload = await migrationResponse.json();
       assert.equal(migrationPayload.executed.length, 1);
+      assert.equal(migrationPayload.migrationStatus.pending.length, 0);
       const migratedDetailResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma`);
       assert.equal(migratedDetailResponse.status, 200);
       const migratedDetailPayload = await migratedDetailResponse.json();
@@ -892,6 +893,17 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       assert.equal(auditActions.includes("adjust_credits"), true);
       assert.equal(auditActions.includes("set_private_enabled"), true);
       assert.equal(auditActions.includes("set_user_status"), true);
+
+      const migrationResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/migrations/run`, {
+        method: "POST",
+      });
+      assert.equal(migrationResponse.status, 200);
+      const migrationPayload = await migrationResponse.json();
+      assert.equal(migrationPayload.migrationStatus.pending.length, 0);
+      const migrationAuditResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/admin-audit`);
+      assert.equal(migrationAuditResponse.status, 200);
+      const migrationAuditPayload = await migrationAuditResponse.json();
+      assert.equal(migrationAuditPayload.some((event) => event.action === "run_state_migrations"), true);
 
       const conversationLogResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/conversation-logs?riskLabel=prompt_injection_signal`);
       assert.equal(conversationLogResponse.status, 200);

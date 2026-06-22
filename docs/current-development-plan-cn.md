@@ -162,6 +162,7 @@
    - 已新增 state migration runner，可通过 CLI `/migrate` 对当前 bot 执行幂等迁移。
    - Web Overview 已新增 Storage Readiness，展示当前 state schema、pending migrations，并提示邀请用户前先执行 `/migrate`。
    - Web Overview 已新增 Run Migrations 按钮，可直接在控制台执行当前 bot 的 state migrations，不需要 operator 切到 CLI。
+   - Web state migration 执行结果已写入 admin audit，并在 API 响应中返回迁移后的 `migrationStatus`，方便 operator 确认 pending migrations 已清空。
    - Web 控制台已支持可选 operator token 鉴权，设置 `CODEXBRIDGE_WEB_TOKEN` 后启用。
    - Telegram / 飞书普通请求失败路径已接入 paid credit refund；用户主动 stop 默认不退。
    - 已新增基础 analytics service 和 Web metrics API，能聚合用户、usage、runs、credits 指标。
@@ -726,6 +727,7 @@ denied
 42. 增加 Operations Growth Snapshot，让 operator 一眼判断试用是否顺利、是否有失败或风险、下一步该扩群还是先排障
 43. 增加 Web Overview Storage Readiness，把 state schema 和 pending migrations 暴露给 operator，避免未迁移状态下继续邀请用户
 44. 增加 Web Overview Run Migrations 按钮，让 operator 可从控制台直接执行 state migrations
+45. 增加 Web state migration 审计与执行后状态回显，便于确认迁移已经完成并可追踪
 
 接下来再考虑：
 

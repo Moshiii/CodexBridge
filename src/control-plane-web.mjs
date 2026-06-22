@@ -1069,7 +1069,19 @@ async function getMetricsForBot(botId) {
 
 async function runMigrationsForBot(botId) {
   const botHome = await getBotHome(botId);
-  return await runStateMigrations({ botHome });
+  const result = await runStateMigrations({ botHome });
+  await appendAdminAuditEvent({
+    action: "run_state_migrations",
+    userId: "operator",
+    amount: result.executed.length,
+    reason: result.executed.length > 0
+      ? `executed: ${result.executed.map((migration) => migration.id).join(", ")}`
+      : "no_migrations_pending",
+  }, botHome);
+  return {
+    ...result,
+    migrationStatus: await getStateMigrationStatus({ botHome }),
+  };
 }
 
 async function listConversationLogsForBot(botId, options = {}) {
