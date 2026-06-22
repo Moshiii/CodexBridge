@@ -136,6 +136,11 @@ test("getBotMetrics aggregates users, credits, usage, and run health", async () 
     assert.equal(metrics.conversationTotals.blockedEvents, 1);
     assert.equal(metrics.conversationTotals.reviewedEvents, 2);
     assert.equal(metrics.conversationTotals.uniqueLoggedUsers, 2);
+    assert.equal(metrics.conversationPrivacy.apiPreviewRedacted, true);
+    assert.equal(metrics.conversationPrivacy.rawContentStoredLocally, true);
+    assert.equal(metrics.conversationPrivacy.totalEvents, 3);
+    assert.match(metrics.conversationPrivacy.retentionPolicy, /local_jsonl/);
+    assert.match(metrics.conversationPrivacy.nextStep, /redacted previews/);
     assert.equal(metrics.policyActionCounts.review, 1);
     assert.equal(metrics.policyActionCounts.block, 1);
     assert.equal(metrics.policyActionCounts.allow, 1);

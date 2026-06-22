@@ -102,6 +102,24 @@ function buildConversionFunnel({ totalUsers, groupTrialUsers, paidUserCount, com
   ];
 }
 
+function buildConversationPrivacySummary(conversationEvents = []) {
+  const timestamps = conversationEvents
+    .map((event) => Date.parse(event.createdAt || ""))
+    .filter((value) => Number.isFinite(value))
+    .sort((a, b) => a - b);
+  return {
+    apiPreviewRedacted: true,
+    rawContentStoredLocally: true,
+    retentionPolicy: "local_jsonl_until_manual_cleanup",
+    totalEvents: conversationEvents.length,
+    oldestEventAt: timestamps.length ? new Date(timestamps[0]).toISOString() : null,
+    latestEventAt: timestamps.length ? new Date(timestamps[timestamps.length - 1]).toISOString() : null,
+    nextStep: conversationEvents.length > 0
+      ? "Operations shows redacted previews; raw JSONL remains local for audit until a retention cleanup policy is implemented."
+      : "No conversation logs yet. After users try CodexBridge, Operations will show redacted previews.",
+  };
+}
+
 export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 } = {}) {
   const [users, usageEvents, runs, conversationEvents, reviewEvents] = await Promise.all([
     listUsers({ botHome }),
@@ -229,6 +247,7 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
       failedRuns,
     }),
     conversationTotals,
+    conversationPrivacy: buildConversationPrivacySummary(conversationEvents),
     userStatusCounts,
     runStatusCounts,
     usageEventCounts,

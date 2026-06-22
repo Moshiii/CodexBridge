@@ -2115,6 +2115,10 @@ Skills: installed capabilities</pre>
                 <div>Next</div><div>Invite one test user after setup is ready.</div>
               </div>
               <div class="list" id="operations-conversion-funnel">Loading funnel...</div>
+              <div class="kv" id="operations-conversation-privacy">
+                <div>Conversation Privacy</div><div>Operations shows redacted previews.</div>
+                <div>Retention</div><div>Raw JSONL stays local until cleanup is configured.</div>
+              </div>
               <div class="list" id="operations-metrics">Loading...</div>
             </div>
             <div class="two-col">
@@ -2972,6 +2976,14 @@ Skills: installed capabilities</pre>
           )),
           "No conversion funnel yet. Invite one test user after setup is ready."
         );
+        renderKV("operations-conversation-privacy", [
+          ["api preview", metrics.conversationPrivacy?.apiPreviewRedacted ? "redacted" : "raw"],
+          ["raw storage", metrics.conversationPrivacy?.rawContentStoredLocally ? "local JSONL retained" : "not retained"],
+          ["events", metrics.conversationPrivacy?.totalEvents ?? 0],
+          ["oldest", metrics.conversationPrivacy?.oldestEventAt || "none"],
+          ["latest", metrics.conversationPrivacy?.latestEventAt || "none"],
+          ["next", metrics.conversationPrivacy?.nextStep || "Operations shows redacted previews."],
+        ]);
         document.getElementById("operations-metrics").innerHTML = renderList(
           metricRows.map(([label, value]) => renderBotItem(label, String(value))),
           "No metrics yet. Send a Quick Test or connect Telegram/Feishu to generate activity."
