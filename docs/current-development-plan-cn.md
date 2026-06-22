@@ -186,6 +186,7 @@
    - Operations 风险日志已新增 Confirm Risk / False Positive / Handled 按钮，运营复盘不需要手写 review API。
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
    - Operations 风险日志已新增 risk label 筛选，可按 prompt injection、possible secret、credential-like、email、phone 聚焦复盘。
+   - Operations 已改进空状态文案，用户、用量、runs、风险日志为空或筛选无结果时会提示下一步操作。
 
 ### 本轮审计已修复的严重问题
 
@@ -690,14 +691,15 @@ denied
 24. 增加 Operations 风险日志一键复盘按钮：confirm risk / false positive / handled
 25. 增加 Operations 风险日志 review 状态筛选
 26. 增加 Operations 风险日志 risk label 筛选
+27. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
 
 接下来再考虑：
 
-1. 继续简化 Operations：增加更明确的空状态和按用户/run/channel 的复盘筛选。
-2. 把 Feishu 事件回调、可见性检查、访问名单继续表单化。
+1. 把 Feishu 事件回调、可见性检查、访问名单继续表单化。
+2. 补进群欢迎语、免费额度说明、付费私聊权益说明和额度不足转化文案。
 3. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
-4. 增加用户侧空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
-5. 补进群欢迎语、免费额度说明、付费私聊权益说明和额度不足转化文案。
+4. 继续简化 Operations：增加按用户/run/channel 的复盘筛选。
+5. 增加用户侧空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
 6. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
 
 ## 七、当前已有规划需要调整的地方
@@ -743,7 +745,7 @@ denied
 
 ### 尚未完成但已经明确要做
 
-- Operations 更好的空状态和按用户/run/channel 的复盘筛选。
+- Operations 按用户/run/channel 的复盘筛选。
 - Feishu 配置继续表单化。
 - 用户侧欢迎、额度、付费转化文案。
 - Web 控制台拆分。

@@ -2253,6 +2253,16 @@ Skills: installed capabilities</pre>
         ].join("");
       }
 
+      function operationsRiskLogEmptyText(totalRiskLogs, reviewFilter, riskLabelFilter) {
+        if (totalRiskLogs === 0) {
+          return "No risky conversation logs yet. Normal traffic can stay empty here; risky or blocked messages will appear for review.";
+        }
+        if (reviewFilter !== "all" || riskLabelFilter !== "all") {
+          return "No conversation logs match these filters. Set Review and Label back to all to see every risky log.";
+        }
+        return "No risky conversation logs yet.";
+      }
+
       async function loadBots() {
         const snapshot = await request("/api/bots");
         state.bots = snapshot.bots;
@@ -2548,7 +2558,7 @@ Skills: installed capabilities</pre>
         ];
         document.getElementById("operations-metrics").innerHTML = renderList(
           metricRows.map(([label, value]) => renderBotItem(label, String(value))),
-          "No metrics yet."
+          "No metrics yet. Send a Quick Test or connect Telegram/Feishu to generate activity."
         );
         document.getElementById("operations-users").innerHTML = renderList(
           users.map((user) => renderBotItem(
@@ -2558,7 +2568,7 @@ Skills: installed capabilities</pre>
               "<button onclick=\\\"window.__selectOperationsUser(decodeURIComponent('" + encodeURIComponent(user.id) + "'))\\\">Select</button>",
             ],
           )),
-          "No users recorded yet."
+          "No users yet. Invite a user to the group or send a test message from an allowed chat."
         );
         document.getElementById("operations-usage").innerHTML = renderList(
           usage.map((event) => renderBotItem(
@@ -2571,7 +2581,7 @@ Skills: installed capabilities</pre>
               event.createdAt,
             ].filter(Boolean).join(" | "),
           )),
-          "No usage events yet."
+          "No usage events yet. Usage appears after a message is charged, denied, granted, or adjusted."
         );
         document.getElementById("operations-runs").innerHTML = renderList(
           runs.map((run) => renderBotItem(
@@ -2586,7 +2596,7 @@ Skills: installed capabilities</pre>
               run.updatedAt || run.createdAt,
             ].filter(Boolean).join(" | "),
           )),
-          "No runs recorded yet."
+          "No runs yet. Use Quick Test or ask from Telegram/Feishu to create the first run."
         );
         document.getElementById("operations-conversation-logs").innerHTML = renderList(
           filteredConversationLogs.map((event) => renderBotItem(
@@ -2608,9 +2618,7 @@ Skills: installed capabilities</pre>
               ]
               : [],
           )),
-          reviewFilter === "all" && riskLabelFilter === "all"
-            ? "No risky conversation logs yet."
-            : "No conversation logs match these filters."
+          operationsRiskLogEmptyText(conversationLogs.length, reviewFilter, riskLabelFilter)
         );
       }
 
