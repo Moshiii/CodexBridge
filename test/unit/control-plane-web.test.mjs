@@ -120,6 +120,12 @@ test("control plane web server exposes logs and config update endpoints", async 
 
     const runtime = await startControlPlaneWebServer({ port: 0 });
     try {
+      const homeResponse = await fetch(`http://${runtime.host}:${runtime.port}/`);
+      assert.equal(homeResponse.status, 200);
+      const homeHtml = await homeResponse.text();
+      assert.match(homeHtml, /Setup Checklist/);
+      assert.match(homeHtml, /__openSetupStep/);
+
       const logsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/logs`);
       assert.equal(logsResponse.status, 200);
       const logsPayload = await logsResponse.json();

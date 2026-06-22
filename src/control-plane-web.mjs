@@ -2311,6 +2311,9 @@ Skills: installed capabilities</pre>
           (guide.steps || []).map((step) => renderBotItem(
             (step.status === "done" ? "Done: " : "Next: ") + step.label,
             [step.action, step.targetTab ? "tab " + step.targetTab : null].filter(Boolean).join(" | "),
+            step.targetTab
+              ? ["<button onclick=\\\"window.__openSetupStep('" + escapeHtml(step.targetTab) + "')\\\">Go</button>"]
+              : [],
           )),
           "No setup steps available."
         );
@@ -2779,6 +2782,11 @@ Skills: installed capabilities</pre>
       tabButtons.forEach((button) => {
         button.onclick = () => setSelectedTab(button.dataset.tab);
       });
+
+      window.__openSetupStep = (tabName) => {
+        setSelectedTab(tabName);
+        showToast('Opened ' + tabName);
+      };
 
       window.__useSession = async (label) => {
         if (!state.selectedBotId) return;
