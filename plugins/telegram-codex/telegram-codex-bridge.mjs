@@ -994,7 +994,7 @@ export function renderCreditsStatus(creditsInfo, user = null) {
     `Cost: ${creditsInfo.defaults.turnCost} credit per request`,
     `Total consumed: ${account.totalConsumed}`,
     privateUnlocked
-      ? "Next: you can use both group chat and private chat."
+      ? "Next: send a direct message to this bot for private work. Group chat is still public; private chat uses paid credits."
       : dailyFreeRemaining > 0
         ? "Next: ask in the group to use your remaining daily free quota; top up paid credits to unlock private chat."
         : "Next: top up paid credits to continue now, or wait for the next daily free reset in group chat.",

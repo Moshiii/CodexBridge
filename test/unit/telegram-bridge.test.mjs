@@ -215,7 +215,9 @@ test("renderCreditsStatus includes daily free and paid credit fields", async () 
     assert.match(text, /Daily free used: 2\/5/);
     assert.match(text, /Daily free remaining: 3/);
     assert.match(text, /Paid credits: 10/);
-    assert.match(text, /Next: you can use both group chat and private chat/);
+    assert.match(text, /Next: send a direct message to this bot for private work/);
+    assert.match(text, /Group chat is still public/);
+    assert.match(text, /private chat uses paid credits/);
   });
 });
 
