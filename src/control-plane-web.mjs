@@ -1956,6 +1956,7 @@ Skills: installed capabilities</pre>
                   <button id="save-telegram-settings">Save Telegram Settings</button>
                 </div>
                 <div class="kv" id="telegram-pairing-panel"></div>
+                <div class="list" id="telegram-setup-summary"></div>
               </div>
               <div class="card">
                 <h3>Troubleshooting</h3>
@@ -3038,6 +3039,47 @@ Skills: installed capabilities</pre>
         );
       }
 
+      function renderTelegramSetupSummary(config, access) {
+        const telegram = config.channels?.telegram || {};
+        const hasToken = Boolean(telegram.botToken);
+        const hasUsername = Boolean(telegram.botUsername || telegram.metadata?.bot?.username);
+        const hasAudience = Boolean(
+          (access?.privateChats || []).length ||
+          (access?.groupChats || []).length ||
+          (access?.groupUsers || []).length
+        );
+        const items = [
+          {
+            label: "Enable Telegram channel",
+            done: Boolean(telegram.enabled),
+            hint: "Set Enabled to true after saving a real BotFather token.",
+          },
+          {
+            label: "Save BotFather token",
+            done: hasToken,
+            hint: "Paste the token from BotFather, then save Telegram settings.",
+          },
+          {
+            label: "Confirm bot username",
+            done: hasUsername,
+            hint: "Set Bot Username or run Pair / Re-pair after messaging the bot.",
+          },
+          {
+            label: "Allow one test audience",
+            done: hasAudience,
+            hint: "Use Known Chats / Known Users to allow one private chat, group, or group user.",
+          },
+        ];
+        document.getElementById("telegram-setup-summary").innerHTML = renderList(
+          items.map((item) => renderBotItem(
+            (item.done ? "Done: " : "Next: ") + item.label,
+            item.hint,
+            [],
+          )),
+          "No Telegram setup steps available."
+        );
+      }
+
       function setOperationsView(mode) {
         const debugVisible = mode === "debug";
         document.querySelectorAll(".operations-debug").forEach((node) => {
@@ -3292,6 +3334,7 @@ Skills: installed capabilities</pre>
         ];
         renderKV("telegram-pairing-panel", telegramPairingRows);
         renderKV("telegram-pairing-inspector", telegramPairingRows);
+        renderTelegramSetupSummary(config, payload.access);
         renderKV("feishu-settings-panel", [
           ["enabled", config.channels?.feishu?.enabled ? "yes" : "no"],
           ["app id", config.channels?.feishu?.appId || "none"],

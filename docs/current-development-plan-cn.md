@@ -194,6 +194,7 @@
    - Quick Test / Setup Checklist 已新增更具体的修复 hint：能提示缺 Telegram token、bot username、Feishu credentials/setup checklist、audience、runtime 等具体动作。
    - Setup Checklist 每一步已提供 Go 跳转按钮，用户看到缺口后可以直接进入对应配置页，不需要自己理解 tab 结构；runtime 和首条测试消息缺口已提供 Start Runtime / Run Quick Test 直接动作。
    - Telegram tab 已新增 Quick Settings，可直接保存 enabled、bot username、mention required 和 token，不必进入 Raw Config。
+   - Telegram tab 已新增动态 Setup Summary，会提示启用渠道、保存 BotFather token、确认 bot username、允许首个测试对象，减少首次接入时反复猜配置状态。
    - Known Chats / Known Users 已新增一键允许入口，可直接加入 private chat、group chat 或 group user 访问名单。
    - Feishu tab 已新增 Quick Settings，可直接保存 enabled、appId、appSecret、mention required 和 mention names，不必进入 Raw Config。
    - Feishu Quick Settings 已补齐 verification token、encrypt key、receive id type，并对这些敏感字段做脱敏展示和 `[redacted]` 保留。
@@ -760,6 +761,7 @@ denied
 57. 增加 Web Overview Quick Test Diagnostics，把本机试跑、邀请 gate、缺失步骤和 Go 跳转放在首屏
 58. 增加 Quick Test Diagnostics 的 Start Runtime 快捷按钮，让 runtime 未启动时可在首屏诊断内直接修复
 59. 增加 Setup Checklist 的直接动作按钮：runtime 缺口可 Start Runtime，首条测试缺口可 Run Quick Test
+60. 增加 Telegram Setup Summary，动态显示启用、BotFather token、bot username 和首个测试对象准备状态
 
 接下来再考虑：
 

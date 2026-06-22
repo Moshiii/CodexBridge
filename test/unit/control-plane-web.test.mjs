@@ -147,6 +147,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /Run migrations before inviting users/);
       assert.match(homeHtml, /run-state-migrations/);
       assert.match(homeHtml, /Save Telegram Settings/);
+      assert.match(homeHtml, /telegram-setup-summary/);
+      assert.match(homeHtml, /Save BotFather token/);
+      assert.match(homeHtml, /Allow one test audience/);
       assert.match(homeHtml, /__allowTelegramAccess/);
       assert.match(homeHtml, /Feishu Quick Settings/);
       assert.match(homeHtml, /Save Feishu Settings/);
