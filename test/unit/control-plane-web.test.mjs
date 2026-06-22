@@ -132,6 +132,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /feishu-verification-token-input/);
       assert.match(homeHtml, /feishu-encrypt-key-input/);
       assert.match(homeHtml, /feishu-receive-id-type-input/);
+      assert.match(homeHtml, /feishu-setup-bot-enabled-input/);
+      assert.match(homeHtml, /feishu-setup-event-subscription-input/);
+      assert.match(homeHtml, /feishu-setup-tenant-installed-input/);
       assert.match(homeHtml, /Operator View/);
       assert.match(homeHtml, /operations-show-debug/);
       assert.match(homeHtml, /riskOnly=true/);
@@ -275,6 +278,11 @@ test("control plane web server exposes logs and config update endpoints", async 
               defaultReceiveIdType: "open_id",
               requireExplicitMention: false,
               botMentionNames: ["CodexBridge", "助手"],
+              setup: {
+                botCapabilityEnabled: true,
+                messageEventSubscribed: true,
+                tenantInstalled: true,
+              },
             },
           },
         }),
@@ -289,6 +297,11 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(feishuQuickPayload.channels.feishu.defaultReceiveIdType, "open_id");
       assert.equal(feishuQuickPayload.channels.feishu.requireExplicitMention, false);
       assert.deepEqual(feishuQuickPayload.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
+      assert.deepEqual(feishuQuickPayload.channels.feishu.setup, {
+        botCapabilityEnabled: true,
+        messageEventSubscribed: true,
+        tenantInstalled: true,
+      });
 
       const redactedSaveResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",
@@ -327,6 +340,11 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(persisted.channels.feishu.defaultReceiveIdType, "open_id");
       assert.equal(persisted.channels.feishu.requireExplicitMention, false);
       assert.deepEqual(persisted.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
+      assert.deepEqual(persisted.channels.feishu.setup, {
+        botCapabilityEnabled: true,
+        messageEventSubscribed: true,
+        tenantInstalled: true,
+      });
     } finally {
       await runtime.close();
     }

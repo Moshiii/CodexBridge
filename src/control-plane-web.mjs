@@ -1837,6 +1837,24 @@ Skills: installed capabilities</pre>
                       <option value="false">false</option>
                     </select>
                   </label>
+                  <label>Bot Capability
+                    <select id="feishu-setup-bot-enabled-input">
+                      <option value="false">not checked</option>
+                      <option value="true">enabled</option>
+                    </select>
+                  </label>
+                  <label>Event Subscription
+                    <select id="feishu-setup-event-subscription-input">
+                      <option value="false">not checked</option>
+                      <option value="true">im.message.receive_v1 enabled</option>
+                    </select>
+                  </label>
+                  <label>Tenant Installed
+                    <select id="feishu-setup-tenant-installed-input">
+                      <option value="false">not checked</option>
+                      <option value="true">installed/published</option>
+                    </select>
+                  </label>
                 </div>
                 <label>Bot Mention Names<input id="feishu-mention-names-input" placeholder="CodexBridge, 助手" /></label>
                 <div class="kv" id="feishu-settings-panel"></div>
@@ -2354,6 +2372,9 @@ Skills: installed capabilities</pre>
         document.getElementById("feishu-receive-id-type-input").value = config.channels?.feishu?.defaultReceiveIdType || "chat_id";
         document.getElementById("feishu-mention-required-input").value = String(config.channels?.feishu?.requireExplicitMention ?? true);
         document.getElementById("feishu-mention-names-input").value = (config.channels?.feishu?.botMentionNames || []).join(", ");
+        document.getElementById("feishu-setup-bot-enabled-input").value = String(config.channels?.feishu?.setup?.botCapabilityEnabled ?? false);
+        document.getElementById("feishu-setup-event-subscription-input").value = String(config.channels?.feishu?.setup?.messageEventSubscribed ?? false);
+        document.getElementById("feishu-setup-tenant-installed-input").value = String(config.channels?.feishu?.setup?.tenantInstalled ?? false);
       }
 
       async function saveConfig(botId) {
@@ -2425,6 +2446,11 @@ Skills: installed capabilities</pre>
             .split(",")
             .map((name) => name.trim())
             .filter(Boolean),
+          setup: {
+            botCapabilityEnabled: document.getElementById("feishu-setup-bot-enabled-input").value === "true",
+            messageEventSubscribed: document.getElementById("feishu-setup-event-subscription-input").value === "true",
+            tenantInstalled: document.getElementById("feishu-setup-tenant-installed-input").value === "true",
+          },
         };
         if (secret) {
           feishu.appSecret = secret;
@@ -2786,6 +2812,9 @@ Skills: installed capabilities</pre>
           ["receive id type", config.channels?.feishu?.defaultReceiveIdType || "chat_id"],
           ["mention required", String(config.channels?.feishu?.requireExplicitMention ?? true)],
           ["mention names", (config.channels?.feishu?.botMentionNames || []).join(", ") || "(none)"],
+          ["bot capability", config.channels?.feishu?.setup?.botCapabilityEnabled ? "checked" : "not checked"],
+          ["message event", config.channels?.feishu?.setup?.messageEventSubscribed ? "checked" : "not checked"],
+          ["tenant installed", config.channels?.feishu?.setup?.tenantInstalled ? "checked" : "not checked"],
         ]);
         document.getElementById("telegram-private-access").textContent = JSON.stringify(payload.access.privateChats || [], null, 2);
         document.getElementById("telegram-group-access").textContent = JSON.stringify({

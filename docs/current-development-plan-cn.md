@@ -183,6 +183,7 @@
    - Known Chats / Known Users 已新增一键允许入口，可直接加入 private chat、group chat 或 group user 访问名单。
    - Feishu tab 已新增 Quick Settings，可直接保存 enabled、appId、appSecret、mention required 和 mention names，不必进入 Raw Config。
    - Feishu Quick Settings 已补齐 verification token、encrypt key、receive id type，并对这些敏感字段做脱敏展示和 `[redacted]` 保留。
+   - Feishu Quick Settings 已新增接入检查清单，可记录 Bot 能力、`im.message.receive_v1` 事件订阅、租户安装/发布状态，减少排障时反复打开 Raw Config。
    - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
    - Operations 风险日志已新增 Confirm Risk / False Positive / Handled 按钮，运营复盘不需要手写 review API。
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
@@ -693,19 +694,20 @@ denied
 21. 增加 Telegram Known Chats / Known Users 一键加入访问名单
 22. 增加 Feishu Quick Settings，把飞书常用配置从 Raw Config 前移到 Feishu tab
 23. 补齐 Feishu Quick Settings 的 verification token、encrypt key、receive id type，并对敏感字段脱敏
-24. 增加 Operations Operator / Debug 视图，默认隐藏低频调试信息并优先展示风险日志
-25. 增加 Operations 风险日志一键复盘按钮：confirm risk / false positive / handled
-26. 增加 Operations 风险日志 review 状态筛选
-27. 增加 Operations 风险日志 risk label 筛选
-28. 增加 Operations 风险日志 user / run / channel 筛选
-29. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
-30. 改进 Telegram / 飞书用户侧额度与私聊提示文案：`/credits`、额度不足、私聊未解锁
-31. 改进 Telegram / 飞书首次使用文案：`/start`、`/help` 直接说明怎么问、群聊可见性、每日免费、私聊解锁和 operator 管理
-32. 增加 Telegram bot 入群欢迎触发，自动发送快速开始说明
+24. 增加 Feishu 接入检查清单：Bot 能力、消息事件订阅、租户安装/发布状态
+25. 增加 Operations Operator / Debug 视图，默认隐藏低频调试信息并优先展示风险日志
+26. 增加 Operations 风险日志一键复盘按钮：confirm risk / false positive / handled
+27. 增加 Operations 风险日志 review 状态筛选
+28. 增加 Operations 风险日志 risk label 筛选
+29. 增加 Operations 风险日志 user / run / channel 筛选
+30. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
+31. 改进 Telegram / 飞书用户侧额度与私聊提示文案：`/credits`、额度不足、私聊未解锁
+32. 改进 Telegram / 飞书首次使用文案：`/start`、`/help` 直接说明怎么问、群聊可见性、每日免费、私聊解锁和 operator 管理
+33. 增加 Telegram bot 入群欢迎触发，自动发送快速开始说明
 
 接下来再考虑：
 
-1. 把 Feishu 事件回调、可见性检查、访问名单继续表单化。
+1. 把 Feishu 真实事件触发、可见性检查、访问名单继续表单化。
 2. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
 3. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
 4. 增加用户侧空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
