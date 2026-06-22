@@ -138,6 +138,10 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /feishu-setup-bot-enabled-input/);
       assert.match(homeHtml, /feishu-setup-event-subscription-input/);
       assert.match(homeHtml, /feishu-setup-tenant-installed-input/);
+      assert.match(homeHtml, /feishu-setup-summary/);
+      assert.match(homeHtml, /Save app credentials/);
+      assert.match(homeHtml, /Subscribe im\.message\.receive_v1/);
+      assert.match(homeHtml, /Install or publish to tenant/);
       assert.match(homeHtml, /Operator View/);
       assert.match(homeHtml, /operations-show-debug/);
       assert.match(homeHtml, /riskOnly=true/);

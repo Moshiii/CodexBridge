@@ -185,6 +185,7 @@
    - Feishu tab 已新增 Quick Settings，可直接保存 enabled、appId、appSecret、mention required 和 mention names，不必进入 Raw Config。
    - Feishu Quick Settings 已补齐 verification token、encrypt key、receive id type，并对这些敏感字段做脱敏展示和 `[redacted]` 保留。
    - Feishu Quick Settings 已新增接入检查清单，可记录 Bot 能力、`im.message.receive_v1` 事件订阅、租户安装/发布状态，减少排障时反复打开 Raw Config。
+   - Feishu tab 已新增动态 Setup Summary，会按当前配置提示启用渠道、保存凭证、事件安全字段、Bot 能力、消息事件订阅、租户安装/发布等下一步动作。
    - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
    - Operations 风险日志已新增 Confirm Risk / False Positive / Handled 按钮，运营复盘不需要手写 review API。
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
@@ -708,10 +709,11 @@ denied
 33. 增加 Telegram bot 入群欢迎触发，自动发送快速开始说明
 34. 改进 Telegram / 飞书常见失败提示：不支持的消息类型、未知命令、已有请求运行中、请求失败
 35. 改进 Setup Checklist / Quick Test preflight 的具体修复提示，能明确指出缺 token、bot username、Feishu 接入检查、访问名单或 runtime
+36. 增加 Feishu Setup Summary，让 Feishu tab 直接显示当前接入完成度和下一步动作，不需要 operator 自己解读配置字段
 
 接下来再考虑：
 
-1. 把 Feishu 真实事件触发、可见性检查、访问名单继续表单化。
+1. 把 Feishu 真实事件触发、可见性检查、访问名单继续表单化，并把检查结果继续接入 Setup Summary。
 2. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
 3. 继续完善 Quick Test 自动诊断：把 Telegram / 飞书 / 权限 / runtime 的检查结果和一键修复动作绑定到具体表单字段。
 4. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。

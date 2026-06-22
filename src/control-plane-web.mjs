@@ -1903,6 +1903,7 @@ Skills: installed capabilities</pre>
               </div>
               <div class="card">
                 <h3>Setup Notes</h3>
+                <div class="list" id="feishu-setup-summary"></div>
                 <div class="list">
                   <div class="list-item">Use the Feishu app credentials from the developer console.</div>
                   <div class="list-item">Keep App Secret blank when you only want to edit non-secret settings.</div>
@@ -2637,6 +2638,51 @@ Skills: installed capabilities</pre>
         );
       }
 
+      function renderFeishuSetupSummary(config) {
+        const feishu = config.channels?.feishu || {};
+        const setup = feishu.setup || {};
+        const items = [
+          {
+            label: "Enable Feishu channel",
+            done: Boolean(feishu.enabled),
+            hint: "Set Enabled to true when the Feishu app is ready to receive messages.",
+          },
+          {
+            label: "Save app credentials",
+            done: Boolean(feishu.appId && feishu.appSecret),
+            hint: "Paste App ID and App Secret from the Feishu developer console.",
+          },
+          {
+            label: "Verify event security fields",
+            done: Boolean(feishu.verificationToken || feishu.encryptKey),
+            hint: "Fill Verification Token or Encrypt Key if your Feishu event subscription requires them.",
+          },
+          {
+            label: "Enable bot capability",
+            done: Boolean(setup.botCapabilityEnabled),
+            hint: "Turn on bot capability in the Feishu app, then mark this checked.",
+          },
+          {
+            label: "Subscribe message event",
+            done: Boolean(setup.messageEventSubscribed),
+            hint: "Subscribe im.message.receive_v1 so group and private messages reach CodexBridge.",
+          },
+          {
+            label: "Install or publish to tenant",
+            done: Boolean(setup.tenantInstalled),
+            hint: "Install or publish the app to the tenant before inviting users.",
+          },
+        ];
+        document.getElementById("feishu-setup-summary").innerHTML = renderList(
+          items.map((item) => renderBotItem(
+            (item.done ? "Done: " : "Next: ") + item.label,
+            item.hint,
+            [],
+          )),
+          "No Feishu setup steps available."
+        );
+      }
+
       function setOperationsView(mode) {
         const debugVisible = mode === "debug";
         document.querySelectorAll(".operations-debug").forEach((node) => {
@@ -2858,6 +2904,7 @@ Skills: installed capabilities</pre>
           ["message event", config.channels?.feishu?.setup?.messageEventSubscribed ? "checked" : "not checked"],
           ["tenant installed", config.channels?.feishu?.setup?.tenantInstalled ? "checked" : "not checked"],
         ]);
+        renderFeishuSetupSummary(config);
         document.getElementById("telegram-private-access").textContent = JSON.stringify(payload.access.privateChats || [], null, 2);
         document.getElementById("telegram-group-access").textContent = JSON.stringify({
           groupChats: payload.access.groupChats || [],
