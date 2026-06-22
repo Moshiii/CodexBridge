@@ -1993,6 +1993,10 @@ Skills: installed capabilities</pre>
               <div class="section-title">
                 <h3>Metrics</h3>
               </div>
+              <div class="kv" id="operations-growth-snapshot">
+                <div>Status</div><div>Waiting for user activity.</div>
+                <div>Next</div><div>Invite one test user after setup is ready.</div>
+              </div>
               <div class="list" id="operations-metrics">Loading...</div>
             </div>
             <div class="two-col">
@@ -2776,6 +2780,11 @@ Skills: installed capabilities</pre>
           ["prompt injection", metrics.riskLabelCounts?.prompt_injection_signal ?? 0],
           ["possible secrets", metrics.riskLabelCounts?.possible_secret ?? 0],
         ];
+        renderKV("operations-growth-snapshot", [
+          ["status", metrics.growthSnapshot?.status || "unknown"],
+          ["summary", metrics.growthSnapshot?.summary || "No growth snapshot yet."],
+          ["next", metrics.growthSnapshot?.nextStep || "Invite one test user after setup is ready."],
+        ]);
         document.getElementById("operations-metrics").innerHTML = renderList(
           metricRows.map(([label, value]) => renderBotItem(label, String(value))),
           "No metrics yet. Send a Quick Test or connect Telegram/Feishu to generate activity."

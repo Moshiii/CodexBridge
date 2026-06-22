@@ -147,6 +147,8 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /Install or publish to tenant/);
       assert.match(homeHtml, /Operator View/);
       assert.match(homeHtml, /operations-show-debug/);
+      assert.match(homeHtml, /operations-growth-snapshot/);
+      assert.match(homeHtml, /Waiting for user activity/);
       assert.match(homeHtml, /riskOnly=true/);
       assert.match(homeHtml, /__reviewConversationLog/);
       assert.match(homeHtml, /Confirm Risk/);

@@ -188,6 +188,7 @@
    - Feishu Quick Settings 已新增接入检查清单，可记录 Bot 能力、`im.message.receive_v1` 事件订阅、租户安装/发布状态，减少排障时反复打开 Raw Config。
    - Feishu tab 已新增动态 Setup Summary，会按当前配置提示启用渠道、保存凭证、事件安全字段、Bot 能力、消息事件订阅、租户安装/发布等下一步动作。
    - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
+   - Operations Metrics 已新增 Growth Snapshot，把试用人数、付费/私聊人数、失败 run 和风险事件合成一个可行动状态，方便 operator 判断是否可以继续扩群。
    - Operations 风险日志已新增 Confirm Risk / False Positive / Handled 按钮，运营复盘不需要手写 review API。
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
    - Operations 风险日志已新增 risk label 筛选，可按 prompt injection、possible secret、credential-like、email、phone 聚焦复盘。
@@ -720,6 +721,7 @@ denied
 39. 改进 Operations Admin Actions：新增选中用户摘要和按钮语义说明，降低 grant/deduct/private/ban 误操作风险
 40. 改进 Telegram / 飞书首次欢迎语，补齐可照抄的群聊 mention 示例和提问格式
 41. 增加 Web Overview Invite Readiness，让 operator 一眼判断是否可以邀请真实用户，并看到最关键下一步
+42. 增加 Operations Growth Snapshot，让 operator 一眼判断试用是否顺利、是否有失败或风险、下一步该扩群还是先排障
 
 接下来再考虑：
 

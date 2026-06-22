@@ -107,6 +107,9 @@ test("getBotMetrics aggregates users, credits, usage, and run health", async () 
     assert.equal(metrics.totals.groupTrialUsers, 1);
     assert.equal(metrics.totals.paidActiveUsers, 1);
     assert.equal(metrics.totals.paidConversionRate, 0.5);
+    assert.equal(metrics.growthSnapshot.status, "needs_runtime_attention");
+    assert.match(metrics.growthSnapshot.summary, /1 group trial user seen/);
+    assert.match(metrics.growthSnapshot.nextStep, /Runtime Log/);
     assert.equal(metrics.userStatusCounts.free, 1);
     assert.equal(metrics.userStatusCounts.paid, 1);
     assert.equal(metrics.runStatusCounts.completed, 1);

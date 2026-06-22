@@ -28,6 +28,46 @@ function sumRunDurationMs(runs = []) {
   return { total, count };
 }
 
+function buildGrowthSnapshot({ totalUsers, groupTrialUsers, paidUserCount, runStatusCounts, conversationTotals }) {
+  const failedRuns = runStatusCounts.failed || 0;
+  const riskyEvents = conversationTotals.riskyEvents || 0;
+  if (totalUsers === 0) {
+    return {
+      status: "waiting_for_users",
+      summary: "No users yet. Invite one test user or group after setup is ready.",
+      nextStep: "Run Quick Test, invite one test user, then watch users, usage, and risk logs here.",
+    };
+  }
+  if (groupTrialUsers === 0) {
+    return {
+      status: "waiting_for_group_trial",
+      summary: `${totalUsers} user${totalUsers === 1 ? "" : "s"} seen, but no daily free group trial usage yet.`,
+      nextStep: "Ask a user to try one public group question before selling private access.",
+    };
+  }
+  if (failedRuns > 0) {
+    return {
+      status: "needs_runtime_attention",
+      summary: `${groupTrialUsers} group trial user${groupTrialUsers === 1 ? "" : "s"} seen, with ${failedRuns} failed run${failedRuns === 1 ? "" : "s"}.`,
+      nextStep: "Check Runtime Log before inviting more users.",
+    };
+  }
+  if (riskyEvents > 0) {
+    return {
+      status: "needs_review",
+      summary: `${groupTrialUsers} group trial user${groupTrialUsers === 1 ? "" : "s"} seen, with ${riskyEvents} risky conversation event${riskyEvents === 1 ? "" : "s"}.`,
+      nextStep: "Review risky conversation logs before expanding the group.",
+    };
+  }
+  return {
+    status: paidUserCount > 0 ? "trial_converting" : "trial_running",
+    summary: `${groupTrialUsers} group trial user${groupTrialUsers === 1 ? "" : "s"} seen; ${paidUserCount} paid/private user${paidUserCount === 1 ? "" : "s"}.`,
+    nextStep: paidUserCount > 0
+      ? "Keep monitoring paid credits, refunds, and risk logs while expanding slowly."
+      : "If users are satisfied, grant paid credits or unlock private chat for the first buyer.",
+  };
+}
+
 export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 } = {}) {
   const [users, usageEvents, runs, conversationEvents, reviewEvents] = await Promise.all([
     listUsers({ botHome }),
@@ -116,6 +156,17 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
   const duration = sumRunDurationMs(finishedRuns);
   const totalUsers = users.length;
   const paidUserCount = paidActiveUsers.size;
+  const conversationTotals = {
+    events: conversationEvents.length,
+    inputs: conversationDirectionCounts.input || 0,
+    outputs: conversationDirectionCounts.output || 0,
+    system: conversationDirectionCounts.system || 0,
+    errors: conversationDirectionCounts.error || 0,
+    riskyEvents,
+    blockedEvents: policyActionCounts.block || 0,
+    reviewedEvents: reviewEvents.length,
+    uniqueLoggedUsers: loggedUsers.size,
+  };
   return {
     ok: true,
     totals: {
@@ -127,17 +178,14 @@ export async function getBotMetrics({ botHome = resolveBotHome(), limit = 10000 
       finishedRuns: finishedRuns.length,
       averageRunLatencyMs: duration.count > 0 ? Math.round(duration.total / duration.count) : 0,
     },
-    conversationTotals: {
-      events: conversationEvents.length,
-      inputs: conversationDirectionCounts.input || 0,
-      outputs: conversationDirectionCounts.output || 0,
-      system: conversationDirectionCounts.system || 0,
-      errors: conversationDirectionCounts.error || 0,
-      riskyEvents,
-      blockedEvents: policyActionCounts.block || 0,
-      reviewedEvents: reviewEvents.length,
-      uniqueLoggedUsers: loggedUsers.size,
-    },
+    growthSnapshot: buildGrowthSnapshot({
+      totalUsers,
+      groupTrialUsers: groupTrialUsers.size,
+      paidUserCount,
+      runStatusCounts,
+      conversationTotals,
+    }),
+    conversationTotals,
     userStatusCounts,
     runStatusCounts,
     usageEventCounts,
