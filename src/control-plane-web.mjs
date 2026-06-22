@@ -1,7 +1,7 @@
 import http from "node:http";
 import path from "node:path";
 import crypto from "node:crypto";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { URL } from "node:url";
 
 import {
@@ -678,21 +678,29 @@ async function stopBotChat(botId, sessionLabel = null) {
   return await readChatStatus(botId, status.sessionLabel);
 }
 
-function listWorkspaceFilesFrom(entries, prefix = "") {
-  return entries.flatMap((entry) => {
+async function listWorkspaceFilesFrom(entries, workspacePath, prefix = "") {
+  const files = await Promise.all(entries.map(async (entry) => {
     const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const absolute = path.join(workspacePath, relative);
+    const metadata = await stat(absolute).catch(() => null);
     if (entry.isDirectory()) {
-      return [{ path: relative, type: "dir" }];
+      return { path: relative, type: "dir", updatedAt: metadata?.mtime?.toISOString?.() || null };
     }
-    return [{ path: relative, type: "file" }];
-  });
+    return {
+      path: relative,
+      type: "file",
+      size: metadata?.size ?? null,
+      updatedAt: metadata?.mtime?.toISOString?.() || null,
+    };
+  }));
+  return files;
 }
 
 async function listWorkspaceFiles(botId) {
   const botHome = await getBotHome(botId);
   const workspacePath = getWorkspacePath(botHome);
   const entries = await readdir(workspacePath, { withFileTypes: true }).catch(() => []);
-  return listWorkspaceFilesFrom(entries)
+  return (await listWorkspaceFilesFrom(entries, workspacePath))
     .filter((entry) => entry.path !== "memory")
     .sort((a, b) => a.path.localeCompare(b.path));
 }
@@ -2340,6 +2348,8 @@ Skills: installed capabilities</pre>
             <div class="kv" id="overview-runtime"></div>
             <div class="divider-title" style="margin-top:16px;">Workspace Paths</div>
             <div class="kv" id="overview-workspace"></div>
+            <div class="divider-title" style="margin-top:16px;">Recent Files</div>
+            <div class="list" id="overview-recent-files"></div>
           </section>
 
           <section class="panel compact-card">
@@ -2554,6 +2564,17 @@ Skills: installed capabilities</pre>
           buttons.length ? '<div class="toolbar">' + buttons.join("") + '</div>' : '',
           '</div>',
         ].join("");
+      }
+
+      function formatWorkspaceFileMeta(entry) {
+        if (entry.type !== "file") return "folder";
+        const size = typeof entry.size === "number" ? entry.size + " bytes" : "unknown size";
+        const updated = entry.updatedAt ? new Date(entry.updatedAt).toLocaleString() : "unknown time";
+        return size + " · " + updated;
+      }
+
+      function renderWorkspaceFileButton(entry, label = "Open") {
+        return "<button onclick=\\\"window.__openWorkspaceFileFromOverview(decodeURIComponent('" + encodeURIComponent(entry.path) + "'))\\\">" + escapeHtml(label) + "</button>";
       }
 
       function textMatchesFilter(value, filter) {
@@ -3287,7 +3308,7 @@ Skills: installed capabilities</pre>
         document.getElementById("workspace-tree").innerHTML = renderList(
           files.map((entry) => renderBotItem(
             entry.path,
-            entry.type,
+            entry.type === "file" ? formatWorkspaceFileMeta(entry) : entry.type,
             entry.type === "file"
               ? ["<button onclick=\\\"window.__openWorkspaceFile(decodeURIComponent('" + encodeURIComponent(entry.path) + "'))\\\">Open</button>"]
               : [],
@@ -3304,6 +3325,18 @@ Skills: installed capabilities</pre>
         const payload = await request('/api/bots/' + botId + '/workspace/file?path=' + encodeURIComponent(filePath));
         document.getElementById("workspace-file-path").value = payload.path;
         document.getElementById("workspace-editor").value = payload.content;
+      }
+
+      async function loadOverviewRecentFiles(botId) {
+        const files = await request('/api/bots/' + botId + '/workspace');
+        const recentFiles = files
+          .filter((entry) => entry.type === "file")
+          .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+          .slice(0, 3);
+        document.getElementById("overview-recent-files").innerHTML = renderList(
+          recentFiles.map((entry) => renderBotItem(entry.path, formatWorkspaceFileMeta(entry), [renderWorkspaceFileButton(entry)])),
+          "No files yet. Run Quick Test or ask the assistant to create a markdown file."
+        );
       }
 
       async function loadSkills(botId) {
@@ -3360,6 +3393,7 @@ Skills: installed capabilities</pre>
           ["runtime log", compactPath(payload.detail.paths.runtimeLogPath)],
           ["bridge log", compactPath(payload.detail.paths.bridgeLogPath)],
         ]);
+        await loadOverviewRecentFiles(bot.id);
         document.getElementById("overview-error").textContent = payload.health.lastError || "No error.";
         const telegramPairingRows = [
           ["paired", config.channels?.telegram?.enabled ? "yes" : "no"],
@@ -3803,6 +3837,11 @@ Skills: installed capabilities</pre>
 
       window.__openWorkspaceFile = async (filePath) => {
         if (!state.selectedBotId) return;
+        await openWorkspaceFile(state.selectedBotId, filePath);
+      };
+      window.__openWorkspaceFileFromOverview = async (filePath) => {
+        if (!state.selectedBotId) return;
+        setSelectedTab("workspace");
         await openWorkspaceFile(state.selectedBotId, filePath);
       };
 

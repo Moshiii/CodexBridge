@@ -14,12 +14,17 @@
 - [CodexBridge 架构审计报告](./codexbridge-architecture-audit-report.md)
 - [Session Routing Refactor Checklist](./session-routing-refactor-checklist.md)
 - [CodexBridge Storage Migration Decision](./storage-migration-decision.md)
+- Demo Workflows 规划草案
 
 当前战略已经明确：
 
 > CodexBridge 不做通用 token/API 转卖。长期方向是 IM-native 的去中心化 Codex 服务：群聊免费公开体验，满意后购买 credits，付费解锁私聊和更高额度。
 
-因此，接下来开发重点不应该继续扩散功能，而应该先稳住「增长漏斗 + 用量计费 + 私聊付费」闭环，再把已经跑通的功能收敛成更常规、可维护的工程架构。
+同时，CodexBridge 的用户价值不应该只被解释成“把 Codex 接到 IM”。更准确的产品定位是：
+
+> CodexBridge 是一个接入 IM 的通用 AI 助手运行时，背后有持久文件工作区。用户可以在群聊或私聊里提需求，让助手创建、读取、修改文件，并在后续会话里继续推进。
+
+因此，接下来开发重点不应该继续扩散功能，而应该先稳住「开箱即用体验 + 文件工作区演示 + 增长漏斗 + 用量计费 + 私聊付费」闭环，再把已经跑通的功能收敛成更常规、可维护的工程架构。
 
 ## 二、当前已经有的基础
 
@@ -94,6 +99,8 @@
 - Web config secret redaction
 
 当前验证：`npm test` 通过，136 个测试全部通过。
+
+最近验证：`npm test` 通过，140 个测试全部通过。
 
 ## 三、当前进度与已完成项
 
@@ -774,13 +781,26 @@ denied
 64. 改进私聊未解锁提示，提醒用户群聊公开可见，不要在免费群聊里发送 private/sensitive content
 65. 增加 Operations Admin Actions Last Action 确认区，让最近一次运营操作结果持续可见
 66. 增加 Operations 选中用户 Next Action，按阶段提示观察、Grant + Unlock、复核 ban 或先群聊试用
+67. 新增 Demo Workflows 规划，把首个对外演示从“技术桥接”改成“用户在 IM 里让 AI 创建、编辑、延续真实文件”的文件工作区体验
+68. 增加 Web Overview Recent Files，展示最近工作区文件的大小、更新时间和一键打开入口，让“AI 产出真实文件”的价值在首屏可见
+
+当前进度判断：
+
+- 商业闭环 MVP 已经能本地跑通：群聊免费试用、每日额度、付费 credits、私聊解锁、运营台 grant/deduct/ban/unlock、runs 和 usage 可见。
+- Operator 首屏体验已经从 raw config 驱动转向 Setup Checklist / Quick Test / Invite Readiness / Setup Summary 驱动，新用户更容易判断下一步。
+- Telegram 接入体验已经有 Quick Settings、Known Chats / Users、Setup Summary 和入群欢迎第一版。
+- 飞书接入体验已经有 Quick Settings、Setup Summary、接入检查清单和 Test Audience 字段，但真实事件可见性与进群欢迎还需要继续补。
+- Operations 已经开始支持增长运营：Growth Snapshot、Conversion Funnel、用户阶段标签、Next Action、Grant + Unlock 和 Last Action。
+- 当前新的产品表达已开始补进控制台：CodexBridge 不是单纯“Codex 接 IM”，而是“IM 入口 + 持久文件工作区 + 可继续推进的 AI 助手运行时”。README / 演示还需要继续统一。
 
 接下来再考虑：
 
-1. 把 Feishu 真实事件触发、真实可见性检查继续表单化，并把检查结果继续接入 Setup Summary。
-2. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
-3. 继续完善 Quick Test 自动诊断：把 Telegram / 飞书 / 权限 / runtime 的检查结果绑定到具体表单字段，并继续补一键修复动作。
-4. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
+1. 把 Demo Workflows 里的 3 条核心路径产品化：创建文件、编辑已有文件、延续长期项目，并在 README / Web Overview / Quick Test 中用同一套示例解释。
+2. 继续增强工作区文件成果可见性：把最近一次 run 对应的文件变更摘要、文件打开路径和演示 prompt 接进 Overview / Quick Test。
+3. 把 Feishu 真实事件触发、真实可见性检查继续表单化，并把检查结果继续接入 Setup Summary。
+4. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
+5. 继续完善 Quick Test 自动诊断：把 Telegram / 飞书 / 权限 / runtime 的检查结果绑定到具体表单字段，并继续补一键修复动作。
+6. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
 
 ## 七、当前已有规划需要调整的地方
 
@@ -825,8 +845,10 @@ denied
 
 ### 尚未完成但已经明确要做
 
-- Feishu 配置继续表单化。
-- 用户侧欢迎、额度、付费转化文案。
+- Demo Workflows 产品化：README、Web Overview、Quick Test、短视频演示脚本要围绕“创建/编辑/延续文件工作区”统一表达。
+- 工作区成果可见性：Web 需要更直接显示最近文件、文件变更和可继续编辑的入口。
+- Feishu 真实事件检查和真实进群欢迎继续补齐。
+- 用户侧欢迎、额度、付费转化文案继续细化，尤其是“免费群聊公开可见，满意后付费私聊”的转化路径。
 - Web 控制台拆分。
 - 数据库存储迁移。
 - 支付订单系统。

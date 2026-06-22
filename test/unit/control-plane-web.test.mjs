@@ -137,6 +137,8 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /invite-readiness/);
       assert.match(homeHtml, /quick-test-diagnostics/);
       assert.match(homeHtml, /quick-test-missing-steps/);
+      assert.match(homeHtml, /overview-recent-files/);
+      assert.match(homeHtml, /No files yet\. Run Quick Test or ask the assistant to create a markdown file\./);
       assert.match(homeHtml, /Run Quick Test can verify this host/);
       assert.match(homeHtml, /__startRuntimeFromSetup/);
       assert.match(homeHtml, /__runQuickTestFromSetup/);
@@ -832,6 +834,14 @@ test("web console sessions and workspace endpoints are usable", async () => {
       assert.equal(workspaceReadResponse.status, 200);
       const workspacePayload = await workspaceReadResponse.json();
       assert.equal(workspacePayload.content, "# notes\n");
+
+      const workspaceListResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/zeta/workspace`);
+      assert.equal(workspaceListResponse.status, 200);
+      const workspaceListPayload = await workspaceListResponse.json();
+      const notesEntry = workspaceListPayload.find((entry) => entry.path === "NOTES.md");
+      assert.equal(notesEntry.type, "file");
+      assert.equal(notesEntry.size, 8);
+      assert.match(notesEntry.updatedAt, /^\d{4}-\d{2}-\d{2}T/);
 
       const raw = await readFile(path.join(tempHome, "bots", "zeta", "workspace", "NOTES.md"), "utf8");
       assert.equal(raw, "# notes\n");
