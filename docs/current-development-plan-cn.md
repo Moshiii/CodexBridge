@@ -182,6 +182,7 @@
    - Telegram tab 已新增 Quick Settings，可直接保存 enabled、bot username、mention required 和 token，不必进入 Raw Config。
    - Known Chats / Known Users 已新增一键允许入口，可直接加入 private chat、group chat 或 group user 访问名单。
    - Feishu tab 已新增 Quick Settings，可直接保存 enabled、appId、appSecret、mention required 和 mention names，不必进入 Raw Config。
+   - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
 
 ### 本轮审计已修复的严重问题
 
@@ -655,12 +656,13 @@ denied
 20. 增加 Telegram Quick Settings，把最常用配置从 Raw Config 前移到 Telegram tab
 21. 增加 Telegram Known Chats / Known Users 一键加入访问名单
 22. 增加 Feishu Quick Settings，把飞书常用配置从 Raw Config 前移到 Feishu tab
+23. 增加 Operations Operator / Debug 视图，默认隐藏低频调试信息并优先展示风险日志
 
 接下来再考虑：
 
 1. 把 Feishu 事件回调、可见性检查、访问名单继续表单化。
 2. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
-3. 简化 Operations：普通用户运营只看用户、充值、封禁、风险日志，隐藏低频调试信息。
+3. 继续简化 Operations：把风险日志 review 操作做成直接按钮，减少 API/JSON 思维。
 4. 增加空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
 5. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
 

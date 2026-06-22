@@ -1894,6 +1894,16 @@ Skills: installed capabilities</pre>
           <section class="panel tab-panel" id="tab-operations">
             <div class="card" style="margin-bottom:14px;">
               <div class="section-title">
+                <h3>Operator View</h3>
+                <div class="toolbar" style="margin-top:0;">
+                  <button class="primary" id="operations-show-operator">Operator</button>
+                  <button id="operations-show-debug">Debug</button>
+                </div>
+              </div>
+              <p class="subtle">Daily operations focus on users, credits, private access, bans, and risky conversation logs. Usage ledger and runs stay in Debug.</p>
+            </div>
+            <div class="card" style="margin-bottom:14px;">
+              <div class="section-title">
                 <h3>Metrics</h3>
               </div>
               <div class="list" id="operations-metrics">Loading...</div>
@@ -1922,7 +1932,7 @@ Skills: installed capabilities</pre>
                 </div>
               </div>
             </div>
-            <div class="two-col" style="margin-top:14px;">
+            <div class="two-col operations-debug" style="margin-top:14px; display:none;">
               <div class="card">
                 <h3>Usage Ledger</h3>
                 <div class="list" id="operations-usage">Loading...</div>
@@ -2470,13 +2480,22 @@ Skills: installed capabilities</pre>
         );
       }
 
+      function setOperationsView(mode) {
+        const debugVisible = mode === "debug";
+        document.querySelectorAll(".operations-debug").forEach((node) => {
+          node.style.display = debugVisible ? "" : "none";
+        });
+        document.getElementById("operations-show-operator").classList.toggle("primary", !debugVisible);
+        document.getElementById("operations-show-debug").classList.toggle("primary", debugVisible);
+      }
+
       async function loadOperations(botId) {
         const [users, usage, runs, metrics, conversationLogs] = await Promise.all([
           request('/api/bots/' + botId + '/users'),
           request('/api/bots/' + botId + '/usage?limit=100'),
           request('/api/bots/' + botId + '/runs?limit=100'),
           request('/api/bots/' + botId + '/metrics'),
-          request('/api/bots/' + botId + '/conversation-logs?limit=100'),
+          request('/api/bots/' + botId + '/conversation-logs?riskOnly=true&limit=100'),
         ]);
         const metricRows = [
           ["users", metrics.totals?.users ?? 0],
@@ -2681,6 +2700,7 @@ Skills: installed capabilities</pre>
         document.getElementById("config-editor").value = JSON.stringify(payload.detail.config, null, 2);
         applyFormFromConfig(payload.detail.config);
         document.getElementById("chat-bot-name").textContent = bot.name;
+        setOperationsView("operator");
         await Promise.all([
           loadSessions(botId),
           loadGoals(botId),
@@ -2827,6 +2847,8 @@ Skills: installed capabilities</pre>
         await loadSchedules(state.selectedBotId);
       };
       document.getElementById('operations-refresh').onclick = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
+      document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
       document.getElementById('operations-grant').onclick = async () => {
         if (!state.selectedBotId) return;
         const userId = document.getElementById('operations-user-id').value.trim();
