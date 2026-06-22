@@ -1696,6 +1696,24 @@ Skills: installed capabilities</pre>
                   </div>
                 </div>
                 <label>Telegram Bot Token<input id="telegram-token-input" type="password" placeholder="Paste a real BotFather token only" /></label>
+                <div class="modal-grid">
+                  <label>Enabled
+                    <select id="telegram-enabled-input">
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+                  <label>Bot Username<input id="telegram-username-input" placeholder="your_bot" /></label>
+                  <label>Mention Required
+                    <select id="telegram-mention-required-input">
+                      <option value="true">true</option>
+                      <option value="false">false</option>
+                    </select>
+                  </label>
+                </div>
+                <div class="toolbar" style="margin-top:14px;">
+                  <button id="save-telegram-settings">Save Telegram Settings</button>
+                </div>
                 <div class="kv" id="telegram-pairing-panel"></div>
               </div>
               <div class="card">
@@ -2157,6 +2175,9 @@ Skills: installed capabilities</pre>
         document.getElementById("config-bot-username").value = config.channels?.telegram?.botUsername || "";
         document.getElementById("config-mention-required").value = String(config.channels?.telegram?.groups?.requireExplicitMention ?? true);
         document.getElementById("telegram-token-input").value = "";
+        document.getElementById("telegram-enabled-input").value = String(config.channels?.telegram?.enabled ?? false);
+        document.getElementById("telegram-username-input").value = config.channels?.telegram?.botUsername || "";
+        document.getElementById("telegram-mention-required-input").value = String(config.channels?.telegram?.groups?.requireExplicitMention ?? true);
       }
 
       async function saveConfig(botId) {
@@ -2190,6 +2211,27 @@ Skills: installed capabilities</pre>
           body: JSON.stringify(payload),
         });
         showToast("Saved form config");
+        await loadBots();
+        await loadDetail(botId);
+      }
+
+      async function saveTelegramSettings(botId) {
+        const token = document.getElementById("telegram-token-input").value.trim();
+        const telegram = {
+          enabled: document.getElementById("telegram-enabled-input").value === "true",
+          botUsername: document.getElementById("telegram-username-input").value.trim(),
+          groups: {
+            requireExplicitMention: document.getElementById("telegram-mention-required-input").value === "true",
+          },
+        };
+        if (token) {
+          telegram.botToken = token;
+        }
+        await request('/api/bots/' + botId + '/config', {
+          method: 'POST',
+          body: JSON.stringify({ channels: { telegram } }),
+        });
+        showToast("Saved Telegram settings");
         await loadBots();
         await loadDetail(botId);
       }
@@ -2531,6 +2573,10 @@ Skills: installed capabilities</pre>
       document.getElementById('save-form-config').onclick = async () => {
         if (!state.selectedBotId) return;
         await saveFormConfig(state.selectedBotId);
+      };
+      document.getElementById('save-telegram-settings').onclick = async () => {
+        if (!state.selectedBotId) return;
+        await saveTelegramSettings(state.selectedBotId);
       };
 
       document.getElementById('action-start').onclick = async () => state.selectedBotId && mutateBot(state.selectedBotId, 'start');

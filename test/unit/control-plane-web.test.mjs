@@ -125,6 +125,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       const homeHtml = await homeResponse.text();
       assert.match(homeHtml, /Setup Checklist/);
       assert.match(homeHtml, /__openSetupStep/);
+      assert.match(homeHtml, /Save Telegram Settings/);
 
       const logsResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/logs`);
       assert.equal(logsResponse.status, 200);
@@ -171,6 +172,29 @@ test("control plane web server exposes logs and config update endpoints", async 
       });
       assert.equal(nestedResponse.status, 200);
 
+      const telegramQuickResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          channels: {
+            telegram: {
+              enabled: true,
+              botUsername: "gamma_quick_bot",
+              groups: {
+                requireExplicitMention: false,
+              },
+            },
+          },
+        }),
+      });
+      assert.equal(telegramQuickResponse.status, 200);
+      const telegramQuickPayload = await telegramQuickResponse.json();
+      assert.equal(telegramQuickPayload.channels.telegram.enabled, true);
+      assert.equal(telegramQuickPayload.channels.telegram.botUsername, "gamma_quick_bot");
+      assert.equal(telegramQuickPayload.channels.telegram.groups.requireExplicitMention, false);
+
       const feishuSecretResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",
         headers: {
@@ -210,8 +234,10 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(redactedSaveResponse.status, 200);
 
       const persisted = await readConfig(path.join(tempHome, "bots", "gamma"));
-      assert.equal(persisted.channels.telegram.enabled, false);
+      assert.equal(persisted.channels.telegram.enabled, true);
       assert.equal(persisted.channels.telegram.botToken, "123456:ABCDEF");
+      assert.equal(persisted.channels.telegram.botUsername, "gamma_quick_bot");
+      assert.equal(persisted.channels.telegram.groups.requireExplicitMention, false);
       assert.equal(persisted.channels.feishu.appSecret, "secret-gamma");
       assert.deepEqual(persisted.channels.telegram.private.allowedChatIds, ["100"]);
       assert.deepEqual(persisted.channels.telegram.groups.allowedUserIds, ["300"]);
