@@ -51,7 +51,7 @@ import {
   getLatestConversationReviews,
   listConversationReviewEvents,
 } from "./conversation-review.mjs";
-import { getStateMigrationStatus } from "./state-migrations.mjs";
+import { getStateMigrationStatus, runStateMigrations } from "./state-migrations.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -1067,6 +1067,11 @@ async function getMetricsForBot(botId) {
   return await getBotMetrics({ botHome });
 }
 
+async function runMigrationsForBot(botId) {
+  const botHome = await getBotHome(botId);
+  return await runStateMigrations({ botHome });
+}
+
 async function listConversationLogsForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
   const [events, latestReviews] = await Promise.all([
@@ -1761,6 +1766,9 @@ function renderHtmlPage() {
                 <div class="kv" id="storage-readiness">
                   <div>Storage</div><div>Checking state schema.</div>
                   <div>Next</div><div>Run migrations before inviting users if pending migrations appear.</div>
+                </div>
+                <div class="toolbar" style="margin-top:12px;">
+                  <button id="run-state-migrations">Run Migrations</button>
                 </div>
               </div>
               <div class="card">
@@ -2701,6 +2709,7 @@ Skills: installed capabilities</pre>
             : "Run /migrate for this bot before inviting more users."],
           ["pending", pending.length === 0 ? "none" : pending.map((migration) => migration.id).join(", ")],
         ]);
+        document.getElementById("run-state-migrations").style.display = pending.length === 0 ? "none" : "";
       }
 
       function renderFeishuSetupSummary(config) {
@@ -3165,6 +3174,12 @@ Skills: installed capabilities</pre>
       document.getElementById('operations-user-id').oninput = () => renderSelectedOperationsUser();
       document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
       document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
+      document.getElementById('run-state-migrations').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const result = await request('/api/bots/' + state.selectedBotId + '/migrations/run', { method: 'POST' });
+        showToast(result.executed?.length ? 'Migrations completed' : 'No migrations pending');
+        await loadDetail(state.selectedBotId);
+      };
       document.getElementById('operations-grant').onclick = async () => {
         if (!state.selectedBotId) return;
         const userId = document.getElementById('operations-user-id').value.trim();
@@ -3672,6 +3687,11 @@ async function handleApi(request, response, pathname) {
   const botMetricsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/metrics$/);
   if (request.method === "GET" && botMetricsMatch) {
     return json(response, 200, await getMetricsForBot(decodeURIComponent(botMetricsMatch[1])));
+  }
+
+  const botMigrationsRunMatch = pathname.match(/^\/api\/bots\/([^/]+)\/migrations\/run$/);
+  if (request.method === "POST" && botMigrationsRunMatch) {
+    return json(response, 200, await runMigrationsForBot(decodeURIComponent(botMigrationsRunMatch[1])));
   }
 
   const botConversationLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs$/);

@@ -135,6 +135,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /Ready to invite users/);
       assert.match(homeHtml, /storage-readiness/);
       assert.match(homeHtml, /Run migrations before inviting users/);
+      assert.match(homeHtml, /run-state-migrations/);
       assert.match(homeHtml, /Save Telegram Settings/);
       assert.match(homeHtml, /__allowTelegramAccess/);
       assert.match(homeHtml, /Feishu Quick Settings/);
@@ -197,6 +198,18 @@ test("control plane web server exposes logs and config update endpoints", async 
       const detailPayload = await detailResponse.json();
       assert.equal(detailPayload.detail.config.channels.telegram.botToken, "[redacted]");
       assert.equal(JSON.stringify(detailPayload).includes("123456:ABCDEF"), false);
+      assert.equal(detailPayload.migrationStatus.pending.length, 1);
+
+      const migrationResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/migrations/run`, {
+        method: "POST",
+      });
+      assert.equal(migrationResponse.status, 200);
+      const migrationPayload = await migrationResponse.json();
+      assert.equal(migrationPayload.executed.length, 1);
+      const migratedDetailResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma`);
+      assert.equal(migratedDetailResponse.status, 200);
+      const migratedDetailPayload = await migratedDetailResponse.json();
+      assert.equal(migratedDetailPayload.migrationStatus.pending.length, 0);
 
       const nestedResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",
