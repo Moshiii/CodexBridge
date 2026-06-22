@@ -92,7 +92,7 @@
 - Web Operations API
 - Web config secret redaction
 
-当前验证：`npm test` 通过，113 个测试全部通过。
+当前验证：`npm test` 通过，136 个测试全部通过。
 
 ## 三、当前进度与已完成项
 
@@ -178,6 +178,7 @@
    - Web Overview 已新增 Quick Test，用户可以从首屏一键发起 main session 试聊，不需要先理解 Sessions / Chat tab 的区别。
    - Chat / Quick Test 状态已新增 friendlyMessage，失败时会提示检查 Runtime Log，并确认主机上的 Codex 已安装且已登录。
    - Quick Test 已新增 preflight 提示：即使 IM 尚未完全配置，也能先验证本机 Codex；同时明确邀请用户前还缺哪些步骤。
+   - Quick Test / Setup Checklist 已新增更具体的修复 hint：能提示缺 Telegram token、bot username、Feishu credentials/setup checklist、audience、runtime 等具体动作。
    - Setup Checklist 每一步已提供 Go 跳转按钮，用户看到缺口后可以直接进入对应配置页，不需要自己理解 tab 结构。
    - Telegram tab 已新增 Quick Settings，可直接保存 enabled、bot username、mention required 和 token，不必进入 Raw Config。
    - Known Chats / Known Users 已新增一键允许入口，可直接加入 private chat、group chat 或 group user 访问名单。
@@ -706,12 +707,13 @@ denied
 32. 改进 Telegram / 飞书首次使用文案：`/start`、`/help` 直接说明怎么问、群聊可见性、每日免费、私聊解锁和 operator 管理
 33. 增加 Telegram bot 入群欢迎触发，自动发送快速开始说明
 34. 改进 Telegram / 飞书常见失败提示：不支持的消息类型、未知命令、已有请求运行中、请求失败
+35. 改进 Setup Checklist / Quick Test preflight 的具体修复提示，能明确指出缺 token、bot username、Feishu 接入检查、访问名单或 runtime
 
 接下来再考虑：
 
 1. 把 Feishu 真实事件触发、可见性检查、访问名单继续表单化。
 2. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
-3. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
+3. 继续完善 Quick Test 自动诊断：把 Telegram / 飞书 / 权限 / runtime 的检查结果和一键修复动作绑定到具体表单字段。
 4. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
 
 ## 七、当前已有规划需要调整的地方

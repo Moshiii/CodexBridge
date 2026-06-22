@@ -41,8 +41,11 @@ test("getBotControlPlaneDetail includes inspect, health, and logs", async () => 
     assert.equal(detail.setupGuide.ready, false);
     assert.equal(detail.setupGuide.total, 5);
     assert.equal(detail.setupGuide.nextStep.id, "configure_channel");
+    assert.match(detail.setupGuide.nextStep.hint, /Choose Telegram or Feishu/);
     assert.equal(detail.quickTestPreflight.readyForIm, false);
     assert.equal(detail.quickTestPreflight.missingSteps[0].id, "configure_channel");
+    assert.match(detail.quickTestPreflight.missingSteps[0].hint, /Choose Telegram or Feishu/);
+    assert.match(detail.quickTestPreflight.message, /Connect an IM channel: Choose Telegram or Feishu/);
   });
 });
 
@@ -462,6 +465,8 @@ test("control plane quick test starts a main-session smoke prompt", async () => 
       assert.equal(quickPayload.prompt, "Reply with one short sentence confirming CodexBridge is ready.");
       assert.equal(quickPayload.preflight.readyForIm, false);
       assert.equal(quickPayload.preflight.missingSteps.some((step) => step.id === "configure_channel"), true);
+      assert.equal(quickPayload.preflight.missingSteps.some((step) => step.hint), true);
+      assert.match(quickPayload.preflight.message, /Before inviting users/);
 
         await new Promise((resolve) => setTimeout(resolve, 50));
         const statusResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/smoke/chat?sessionLabel=main`);
@@ -518,6 +523,7 @@ test("control plane quick test preflight recognizes configured IM setup", async 
         assert.equal(quickPayload.preflight.readyForIm, false);
         assert.equal(quickPayload.preflight.missingSteps.length, 1);
         assert.equal(quickPayload.preflight.missingSteps[0].id, "start_runtime");
+        assert.match(quickPayload.preflight.missingSteps[0].hint, /Start the bot runtime/);
       } finally {
         await runtime.close();
       }

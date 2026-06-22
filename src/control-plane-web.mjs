@@ -244,43 +244,83 @@ async function buildSetupGuide(detail, health, access) {
   const config = detail.config || {};
   const telegram = config.channels?.telegram || {};
   const feishu = config.channels?.feishu || {};
+  const feishuSetup = feishu.setup || {};
   const runs = await listRunRecords({ limit: 1, botHome: detail.bot.homePath }).catch(() => []);
-  const hasImChannel = Boolean(telegram.enabled || feishu.enabled);
   const hasTelegramToken = Boolean(telegram.botToken);
   const hasTelegramIdentity = Boolean(telegram.botUsername || telegram.metadata?.bot?.username);
-  const hasAnyAudience = Boolean(
+  const hasTelegramAudience = Boolean(
     access.privateChats.length ||
     access.groupChats.length ||
-    access.groupUsers.length ||
-    feishu.enabled,
+    access.groupUsers.length,
   );
+  const missingFeishuSetupChecks = [
+    ["Bot capability", feishuSetup.botCapabilityEnabled],
+    ["im.message.receive_v1 event", feishuSetup.messageEventSubscribed],
+    ["Tenant install/publish", feishuSetup.tenantInstalled],
+  ].filter(([, ready]) => !ready).map(([label]) => label);
+  const feishuHasCredentials = Boolean(feishu.appId && feishu.appSecret);
+  const feishuReady = Boolean(feishu.enabled && feishuHasCredentials && missingFeishuSetupChecks.length === 0);
+  const channelReady = Boolean((telegram.enabled && hasTelegramToken) || feishuReady);
+  const hasAnyAudience = Boolean(hasTelegramAudience || feishuReady);
+  const channelTargetTab = telegram.enabled ? "telegram" : feishu.enabled ? "feishu" : "telegram";
+  const channelHint = telegram.enabled
+    ? hasTelegramToken
+      ? "Telegram token is saved. Confirm the bot username next."
+      : "Paste the BotFather token in Telegram Quick Settings."
+    : feishu.enabled
+      ? feishuHasCredentials
+        ? missingFeishuSetupChecks.length > 0
+          ? `Feishu credentials are saved. Check: ${missingFeishuSetupChecks.join(", ")}.`
+          : "Feishu credentials and setup checklist are complete."
+        : "Fill Feishu App ID and App Secret in Feishu Quick Settings."
+      : "Choose Telegram or Feishu, then save the channel credentials.";
+  const identityHint = telegram.enabled
+    ? hasTelegramIdentity
+      ? "Telegram bot identity is known."
+      : "Set Bot Username in Telegram Quick Settings or use Pair / Re-pair."
+    : feishu.enabled
+      ? feishuHasCredentials
+        ? "Feishu app credentials identify the bot; keep mention names aligned with the app display name."
+        : "Finish Feishu App ID and App Secret first."
+      : "Connect a channel before confirming identity.";
+  const audienceHint = telegram.enabled
+    ? hasTelegramAudience
+      ? "At least one Telegram private chat, group chat, or group user is allowed."
+      : "Use Telegram Known Chats / Known Users to allow a private chat, group, or group user."
+    : feishu.enabled
+      ? "Feishu uses tenant installation and user credits; send /start after the app is installed."
+      : "Connect a channel before adding an audience.";
   const steps = [
     {
       id: "configure_channel",
       label: "Connect an IM channel",
-      status: hasImChannel && (hasTelegramToken || feishu.enabled) ? "done" : "todo",
-      action: "Add a Telegram token or enable Feishu in Config.",
-      targetTab: telegram.enabled ? "telegram" : "config",
+      status: channelReady ? "done" : "todo",
+      action: "Add Telegram or Feishu credentials in Quick Settings.",
+      hint: channelHint,
+      targetTab: channelTargetTab,
     },
     {
       id: "pair_identity",
       label: "Confirm bot identity",
-      status: hasTelegramIdentity || feishu.enabled ? "done" : "todo",
-      action: "Use Telegram Pair / Re-pair after pasting the BotFather token.",
-      targetTab: "telegram",
+      status: hasTelegramIdentity || feishuReady ? "done" : "todo",
+      action: "Confirm the bot name users will mention or message.",
+      hint: identityHint,
+      targetTab: telegram.enabled ? "telegram" : feishu.enabled ? "feishu" : "telegram",
     },
     {
       id: "allow_audience",
       label: "Allow a test group or user",
       status: hasAnyAudience ? "done" : "todo",
-      action: "Add a group, private chat, or allowed group user so someone can try it.",
-      targetTab: "telegram",
+      action: "Allow one test audience before inviting real users.",
+      hint: audienceHint,
+      targetTab: telegram.enabled ? "telegram" : feishu.enabled ? "feishu" : "telegram",
     },
     {
       id: "start_runtime",
       label: "Start the bridge runtime",
       status: health.healthy ? "done" : "todo",
       action: "Click Start in the top toolbar.",
+      hint: "Start the bot runtime after saving channel settings. If it fails, check Runtime Log.",
       targetTab: "overview",
     },
     {
@@ -288,6 +328,7 @@ async function buildSetupGuide(detail, health, access) {
       label: "Send one test message",
       status: runs.length > 0 ? "done" : "todo",
       action: "Use Chat or send a message from the connected IM group.",
+      hint: "Run Quick Test from Overview first; then invite a real user into the IM channel.",
       targetTab: "chat",
     },
   ];
@@ -313,11 +354,12 @@ function buildQuickTestPreflight(setupGuide) {
   }
   return {
     readyForIm: false,
-    message: `Quick test can still verify local Codex. Before inviting users, finish: ${missing.map((step) => step.label).join(", ")}.`,
+    message: `Quick test can still verify local Codex. Before inviting users, finish: ${missing.map((step) => `${step.label}: ${step.hint || step.action}`).join("; ")}.`,
     missingSteps: missing.map((step) => ({
       id: step.id,
       label: step.label,
       action: step.action,
+      hint: step.hint || "",
       targetTab: step.targetTab,
     })),
   };
@@ -2586,7 +2628,7 @@ Skills: installed capabilities</pre>
         document.getElementById("setup-checklist").innerHTML = renderList(
           (guide.steps || []).map((step) => renderBotItem(
             (step.status === "done" ? "Done: " : "Next: ") + step.label,
-            [step.action, step.targetTab ? "tab " + step.targetTab : null].filter(Boolean).join(" | "),
+            [step.action, step.hint, step.targetTab ? "tab " + step.targetTab : null].filter(Boolean).join(" | "),
             step.targetTab
               ? ["<button onclick=\\\"window.__openSetupStep('" + escapeHtml(step.targetTab) + "')\\\">Go</button>"]
               : [],
