@@ -50,6 +50,18 @@ function validateFeishuConfig(feishu, errors) {
   if (!isStringArray(feishu.botMentionNames)) {
     addError(errors, "channels.feishu.botMentionNames", "Feishu botMentionNames must be a string array.");
   }
+  if (feishu.testAudience !== undefined) {
+    if (!isPlainObject(feishu.testAudience)) {
+      addError(errors, "channels.feishu.testAudience", "Feishu testAudience must be an object.");
+    } else {
+      if (!isStringArray(feishu.testAudience.userIds)) {
+        addError(errors, "channels.feishu.testAudience.userIds", "Feishu testAudience userIds must be a string array.");
+      }
+      if (!isStringArray(feishu.testAudience.chatIds)) {
+        addError(errors, "channels.feishu.testAudience.chatIds", "Feishu testAudience chatIds must be a string array.");
+      }
+    }
+  }
 }
 
 function validateStorageConfig(storage, errors) {

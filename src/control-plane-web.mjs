@@ -271,6 +271,7 @@ async function buildSetupGuide(detail, health, access) {
   const telegram = config.channels?.telegram || {};
   const feishu = config.channels?.feishu || {};
   const feishuSetup = feishu.setup || {};
+  const feishuTestAudience = feishu.testAudience || {};
   const runs = await listRunRecords({ limit: 1, botHome: detail.bot.homePath }).catch(() => []);
   const hasTelegramToken = Boolean(telegram.botToken);
   const hasTelegramIdentity = Boolean(telegram.botUsername || telegram.metadata?.bot?.username);
@@ -287,9 +288,10 @@ async function buildSetupGuide(detail, health, access) {
     ["Test group ready", feishuSetup.testGroupReady],
   ].filter(([, ready]) => !ready).map(([label]) => label);
   const feishuHasCredentials = Boolean(feishu.appId && feishu.appSecret);
+  const hasFeishuTestAudience = Boolean((feishuTestAudience.userIds || []).length || (feishuTestAudience.chatIds || []).length);
   const feishuReady = Boolean(feishu.enabled && feishuHasCredentials && missingFeishuSetupChecks.length === 0);
   const channelReady = Boolean((telegram.enabled && hasTelegramToken) || feishuReady);
-  const hasAnyAudience = Boolean(hasTelegramAudience || feishuReady);
+  const hasAnyAudience = Boolean(hasTelegramAudience || (feishuReady && hasFeishuTestAudience));
   const channelTargetTab = telegram.enabled ? "telegram" : feishu.enabled ? "feishu" : "telegram";
   const channelHint = telegram.enabled
     ? hasTelegramToken
@@ -316,7 +318,9 @@ async function buildSetupGuide(detail, health, access) {
       ? "At least one Telegram private chat, group chat, or group user is allowed."
       : "Use Telegram Known Chats / Known Users to allow a private chat, group, or group user."
     : feishu.enabled
-      ? "Feishu uses tenant installation and user credits; send /start after the app is installed."
+      ? hasFeishuTestAudience
+        ? "Feishu test audience is recorded. Send /start in the test group or direct chat."
+        : "Paste one Feishu open_id or chat_id in Test Audience before inviting real users."
       : "Connect a channel before adding an audience.";
   const steps = [
     {
@@ -2045,6 +2049,8 @@ Skills: installed capabilities</pre>
                   </label>
                 </div>
                 <label>Bot Mention Names<input id="feishu-mention-names-input" placeholder="CodexBridge, 助手" /></label>
+                <label>Test User Open IDs<input id="feishu-test-users-input" placeholder="ou_xxx, ou_yyy" /></label>
+                <label>Test Group Chat IDs<input id="feishu-test-chats-input" placeholder="oc_xxx, oc_yyy" /></label>
                 <div class="kv" id="feishu-settings-panel"></div>
               </div>
               <div class="card">
@@ -2054,6 +2060,7 @@ Skills: installed capabilities</pre>
                   <div class="list-item">Use the Feishu app credentials from the developer console.</div>
                   <div class="list-item">Keep App Secret blank when you only want to edit non-secret settings.</div>
                   <div class="list-item">Mention names help group messages identify when CodexBridge should respond.</div>
+                  <div class="list-item">Test audience fields are operator notes for the first Feishu users or groups to try before broader rollout.</div>
                 </div>
               </div>
             </div>
@@ -2605,6 +2612,8 @@ Skills: installed capabilities</pre>
         document.getElementById("feishu-receive-id-type-input").value = config.channels?.feishu?.defaultReceiveIdType || "chat_id";
         document.getElementById("feishu-mention-required-input").value = String(config.channels?.feishu?.requireExplicitMention ?? true);
         document.getElementById("feishu-mention-names-input").value = (config.channels?.feishu?.botMentionNames || []).join(", ");
+        document.getElementById("feishu-test-users-input").value = (config.channels?.feishu?.testAudience?.userIds || []).join(", ");
+        document.getElementById("feishu-test-chats-input").value = (config.channels?.feishu?.testAudience?.chatIds || []).join(", ");
         document.getElementById("feishu-setup-bot-enabled-input").value = String(config.channels?.feishu?.setup?.botCapabilityEnabled ?? false);
         document.getElementById("feishu-setup-event-subscription-input").value = String(config.channels?.feishu?.setup?.messageEventSubscribed ?? false);
         document.getElementById("feishu-setup-tenant-installed-input").value = String(config.channels?.feishu?.setup?.tenantInstalled ?? false);
@@ -2681,6 +2690,16 @@ Skills: installed capabilities</pre>
             .split(",")
             .map((name) => name.trim())
             .filter(Boolean),
+          testAudience: {
+            userIds: document.getElementById("feishu-test-users-input").value
+              .split(",")
+              .map((id) => id.trim())
+              .filter(Boolean),
+            chatIds: document.getElementById("feishu-test-chats-input").value
+              .split(",")
+              .map((id) => id.trim())
+              .filter(Boolean),
+          },
           setup: {
             botCapabilityEnabled: document.getElementById("feishu-setup-bot-enabled-input").value === "true",
             messageEventSubscribed: document.getElementById("feishu-setup-event-subscription-input").value === "true",
@@ -2914,6 +2933,8 @@ Skills: installed capabilities</pre>
       function renderFeishuSetupSummary(config) {
         const feishu = config.channels?.feishu || {};
         const setup = feishu.setup || {};
+        const testAudience = feishu.testAudience || {};
+        const hasTestAudience = Boolean((testAudience.userIds || []).length || (testAudience.chatIds || []).length);
         const items = [
           {
             label: "Enable Feishu channel",
@@ -2954,6 +2975,11 @@ Skills: installed capabilities</pre>
             label: "Prepare one test group",
             done: Boolean(setup.testGroupReady),
             hint: "Add the bot to one test group and send /start before inviting more users.",
+          },
+          {
+            label: "Record first test audience",
+            done: hasTestAudience,
+            hint: "Paste one Feishu open_id or chat_id so the operator knows exactly where to run the first trial.",
           },
         ];
         document.getElementById("feishu-setup-summary").innerHTML = renderList(
@@ -3228,6 +3254,8 @@ Skills: installed capabilities</pre>
           ["receive id type", config.channels?.feishu?.defaultReceiveIdType || "chat_id"],
           ["mention required", String(config.channels?.feishu?.requireExplicitMention ?? true)],
           ["mention names", (config.channels?.feishu?.botMentionNames || []).join(", ") || "(none)"],
+          ["test users", (config.channels?.feishu?.testAudience?.userIds || []).join(", ") || "(none)"],
+          ["test groups", (config.channels?.feishu?.testAudience?.chatIds || []).join(", ") || "(none)"],
           ["bot capability", config.channels?.feishu?.setup?.botCapabilityEnabled ? "checked" : "not checked"],
           ["message event", config.channels?.feishu?.setup?.messageEventSubscribed ? "checked" : "not checked"],
           ["tenant installed", config.channels?.feishu?.setup?.tenantInstalled ? "checked" : "not checked"],

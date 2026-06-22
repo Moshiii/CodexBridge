@@ -41,9 +41,11 @@ test("validateBotConfig reports malformed channel arrays", async () => {
 
     const config = normalizeBotConfig(createDefaultBotConfig());
     config.channels.telegram.groups.allowedUserIds = "not-array";
+    config.channels.feishu.testAudience.userIds = "not-array";
     const errors = validateBotConfig(config);
 
     assert.equal(errors.some((error) => error.path === "channels.telegram.groups.allowedUserIds"), true);
+    assert.equal(errors.some((error) => error.path === "channels.feishu.testAudience.userIds"), true);
   });
 });
 

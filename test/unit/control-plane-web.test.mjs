@@ -152,12 +152,15 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /feishu-setup-tenant-installed-input/);
       assert.match(homeHtml, /feishu-setup-visibility-input/);
       assert.match(homeHtml, /feishu-setup-test-group-input/);
+      assert.match(homeHtml, /feishu-test-users-input/);
+      assert.match(homeHtml, /feishu-test-chats-input/);
       assert.match(homeHtml, /feishu-setup-summary/);
       assert.match(homeHtml, /Save app credentials/);
       assert.match(homeHtml, /Subscribe im\.message\.receive_v1/);
       assert.match(homeHtml, /Install or publish to tenant/);
       assert.match(homeHtml, /Confirm user visibility/);
       assert.match(homeHtml, /Prepare one test group/);
+      assert.match(homeHtml, /Record first test audience/);
       assert.match(homeHtml, /Operator View/);
       assert.match(homeHtml, /operations-show-debug/);
       assert.match(homeHtml, /operations-growth-snapshot/);
@@ -349,6 +352,10 @@ test("control plane web server exposes logs and config update endpoints", async 
               defaultReceiveIdType: "open_id",
               requireExplicitMention: false,
               botMentionNames: ["CodexBridge", "助手"],
+              testAudience: {
+                userIds: ["ou_quick"],
+                chatIds: ["oc_quick"],
+              },
               setup: {
                 botCapabilityEnabled: true,
                 messageEventSubscribed: true,
@@ -370,6 +377,10 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(feishuQuickPayload.channels.feishu.defaultReceiveIdType, "open_id");
       assert.equal(feishuQuickPayload.channels.feishu.requireExplicitMention, false);
       assert.deepEqual(feishuQuickPayload.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
+      assert.deepEqual(feishuQuickPayload.channels.feishu.testAudience, {
+        userIds: ["ou_quick"],
+        chatIds: ["oc_quick"],
+      });
       assert.deepEqual(feishuQuickPayload.channels.feishu.setup, {
         botCapabilityEnabled: true,
         messageEventSubscribed: true,
@@ -415,6 +426,10 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(persisted.channels.feishu.defaultReceiveIdType, "open_id");
       assert.equal(persisted.channels.feishu.requireExplicitMention, false);
       assert.deepEqual(persisted.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
+      assert.deepEqual(persisted.channels.feishu.testAudience, {
+        userIds: ["ou_quick"],
+        chatIds: ["oc_quick"],
+      });
       assert.deepEqual(persisted.channels.feishu.setup, {
         botCapabilityEnabled: true,
         messageEventSubscribed: true,

@@ -197,6 +197,7 @@
    - Feishu Quick Settings 已补齐 verification token、encrypt key、receive id type，并对这些敏感字段做脱敏展示和 `[redacted]` 保留。
    - Feishu Quick Settings 已新增接入检查清单，可记录 Bot 能力、`im.message.receive_v1` 事件订阅、租户安装/发布状态，减少排障时反复打开 Raw Config。
    - Feishu Quick Settings 已新增用户可见性和测试群准备检查，operator 可在表单里确认目标用户能看到应用、已准备一个测试群，不需要进 Raw Config。
+   - Feishu Quick Settings 已新增 Test Audience 字段，可记录首批测试 open_id / chat_id，并接入 Setup Summary 和 Setup Checklist 的测试对象判断。
    - Feishu tab 已新增动态 Setup Summary，会按当前配置提示启用渠道、保存凭证、事件安全字段、Bot 能力、消息事件订阅、租户安装/发布等下一步动作。
    - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
    - Operations Metrics 已新增 Growth Snapshot，把试用人数、付费/私聊人数、失败 run 和风险事件合成一个可行动状态，方便 operator 判断是否可以继续扩群。
@@ -753,10 +754,11 @@ denied
 53. 增加 Operations Conversation Privacy Summary，说明 API 脱敏预览、本地原文保留和日志时间范围，减少 operator 对风险日志的误解
 54. 增加 conversation log cutoff cleanup API，支持 dry-run、按 olderThan 删除本地 JSONL 日志，并写入 admin audit
 55. 增加 Operations conversation log cleanup 控件，让 operator 可先 preview 再删除旧的本地原始 JSONL 日志
+56. 增加 Feishu Test Audience 表单字段，记录首批测试 open_id / chat_id，并接入 Setup Summary / Setup Checklist
 
 接下来再考虑：
 
-1. 把 Feishu 真实事件触发、可见性检查、访问名单继续表单化，并把检查结果继续接入 Setup Summary。
+1. 把 Feishu 真实事件触发、真实可见性检查继续表单化，并把检查结果继续接入 Setup Summary。
 2. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
 3. 继续完善 Quick Test 自动诊断：把 Telegram / 飞书 / 权限 / runtime 的检查结果绑定到具体表单字段，并继续补一键修复动作。
 4. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。

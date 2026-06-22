@@ -59,6 +59,10 @@ test("readConfig returns defaults when config is missing", async () => {
       defaultReceiveIdType: "chat_id",
       requireExplicitMention: true,
       botMentionNames: [],
+      testAudience: {
+        userIds: [],
+        chatIds: [],
+      },
       setup: {
         botCapabilityEnabled: false,
         messageEventSubscribed: false,

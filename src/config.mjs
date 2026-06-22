@@ -253,6 +253,10 @@ export function createDefaultBotConfig() {
         defaultReceiveIdType: "chat_id",
         requireExplicitMention: true,
         botMentionNames: [],
+        testAudience: {
+          userIds: [],
+          chatIds: [],
+        },
         setup: {
           botCapabilityEnabled: false,
           messageEventSubscribed: false,
@@ -304,6 +308,16 @@ function normalizeFeishuConfig(feishu = {}) {
     botMentionNames: Array.isArray(feishu.botMentionNames)
       ? feishu.botMentionNames.map((name) => String(name || "").trim()).filter(Boolean)
       : createDefaultBotConfig().channels.feishu.botMentionNames,
+    testAudience: {
+      ...createDefaultBotConfig().channels.feishu.testAudience,
+      ...(feishu.testAudience && typeof feishu.testAudience === "object" ? feishu.testAudience : {}),
+      userIds: Array.isArray(feishu.testAudience?.userIds)
+        ? feishu.testAudience.userIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : createDefaultBotConfig().channels.feishu.testAudience.userIds,
+      chatIds: Array.isArray(feishu.testAudience?.chatIds)
+        ? feishu.testAudience.chatIds.map((id) => String(id || "").trim()).filter(Boolean)
+        : createDefaultBotConfig().channels.feishu.testAudience.chatIds,
+    },
     setup: {
       ...createDefaultBotConfig().channels.feishu.setup,
       ...(feishu.setup && typeof feishu.setup === "object" ? feishu.setup : {}),
