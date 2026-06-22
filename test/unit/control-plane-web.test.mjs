@@ -192,6 +192,8 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /operations-risk-run-filter/);
       assert.match(homeHtml, /operations-risk-channel-filter/);
       assert.match(homeHtml, /operations-selected-user/);
+      assert.match(homeHtml, /operations-admin-result/);
+      assert.match(homeHtml, /Last Action/);
       assert.match(homeHtml, /Grant adds paid credits/);
       assert.match(homeHtml, /operations-grant-unlock/);
       assert.match(homeHtml, /Grant \+ Unlock/);

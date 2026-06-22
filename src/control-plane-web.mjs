@@ -2199,6 +2199,10 @@ Skills: installed capabilities</pre>
                   <button id="operations-unban">Unban</button>
                 </div>
                 <p class="subtle" id="operations-admin-hint">Grant adds paid credits. Grant + Unlock adds paid credits and enables paid direct chat. Ban blocks both group and private chat.</p>
+                <div class="kv" id="operations-admin-result">
+                  <div>Last Action</div><div>No admin action yet.</div>
+                  <div>Result</div><div>Select a user, then grant credits, unlock private, or update status.</div>
+                </div>
               </div>
             </div>
             <div class="two-col operations-debug" style="margin-top:14px; display:none;">
@@ -2906,6 +2910,14 @@ Skills: installed capabilities</pre>
         }
       }
 
+      function renderOperationsAdminResult(action, result) {
+        renderKV("operations-admin-result", [
+          ["last action", action || "none"],
+          ["user", result?.userId || result?.id || "none"],
+          ["result", result?.message || "No admin action yet."],
+        ]);
+      }
+
       function renderSetupGuide(setupGuide) {
         const guide = setupGuide || { completed: 0, total: 0, steps: [] };
         const next = guide.nextStep;
@@ -3574,6 +3586,10 @@ Skills: installed capabilities</pre>
           method: 'POST',
           body: JSON.stringify({ amount }),
         });
+        renderOperationsAdminResult("grant credits", {
+          userId,
+          message: "Granted " + amount + " paid credits.",
+        });
         showToast('Credits granted');
         await loadOperations(state.selectedBotId);
       };
@@ -3593,6 +3609,10 @@ Skills: installed capabilities</pre>
           method: 'POST',
           body: JSON.stringify({ privateEnabled: true }),
         });
+        renderOperationsAdminResult("grant and unlock", {
+          userId,
+          message: "Granted " + amount + " paid credits and unlocked private chat.",
+        });
         showToast('Credits granted and private unlocked');
         await loadOperations(state.selectedBotId);
       };
@@ -3607,6 +3627,10 @@ Skills: installed capabilities</pre>
         await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/adjust', {
           method: 'POST',
           body: JSON.stringify({ amount: -Math.abs(amount), reason: 'manual_deduct' }),
+        });
+        renderOperationsAdminResult("deduct credits", {
+          userId,
+          message: "Deducted " + amount + " paid credits.",
         });
         showToast('Credits deducted');
         await loadOperations(state.selectedBotId);
@@ -3810,6 +3834,10 @@ Skills: installed capabilities</pre>
           method: 'POST',
           body: JSON.stringify({ privateEnabled }),
         });
+        renderOperationsAdminResult(privateEnabled ? "unlock private" : "lock private", {
+          userId,
+          message: privateEnabled ? "Private chat unlocked." : "Private chat locked.",
+        });
         showToast(privateEnabled ? 'Private unlocked' : 'Private locked');
         await loadOperations(state.selectedBotId);
       }
@@ -3823,6 +3851,10 @@ Skills: installed capabilities</pre>
         await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/status', {
           method: 'POST',
           body: JSON.stringify({ status }),
+        });
+        renderOperationsAdminResult("set status", {
+          userId,
+          message: "Status set to " + status + ".",
         });
         showToast('Status set to ' + status);
         await loadOperations(state.selectedBotId);
