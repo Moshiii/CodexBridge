@@ -784,6 +784,7 @@ denied
 67. 新增 Demo Workflows 规划，把首个对外演示从“技术桥接”改成“用户在 IM 里让 AI 创建、编辑、延续真实文件”的文件工作区体验
 68. 增加 Web Overview Recent Files，展示最近工作区文件的大小、更新时间和一键打开入口，让“AI 产出真实文件”的价值在首屏可见
 69. 增加 Web Overview / Chat Workspace Demo Prompts，把创建文件、编辑草稿、延续项目 3 条演示路径做成可一键填入的 prompt，降低首次试用理解成本
+70. 增加 Web Run File Demo，一键用“创建北京周末计划 markdown 文件”的真实文件工作区 prompt 启动 main session，让 Quick Start 不只验证连通性，也能展示核心价值
 
 当前进度判断：
 
@@ -792,11 +793,11 @@ denied
 - Telegram 接入体验已经有 Quick Settings、Known Chats / Users、Setup Summary 和入群欢迎第一版。
 - 飞书接入体验已经有 Quick Settings、Setup Summary、接入检查清单和 Test Audience 字段，但真实事件可见性与进群欢迎还需要继续补。
 - Operations 已经开始支持增长运营：Growth Snapshot、Conversion Funnel、用户阶段标签、Next Action、Grant + Unlock 和 Last Action。
-- 当前新的产品表达已开始补进控制台：CodexBridge 不是单纯“Codex 接 IM”，而是“IM 入口 + 持久文件工作区 + 可继续推进的 AI 助手运行时”。控制台已有最近文件和 3 条文件工作区示例 prompt；README / 演示还需要继续统一。
+- 当前新的产品表达已开始补进控制台：CodexBridge 不是单纯“Codex 接 IM”，而是“IM 入口 + 持久文件工作区 + 可继续推进的 AI 助手运行时”。控制台已有最近文件、3 条文件工作区示例 prompt 和一键 Run File Demo；README / 演示还需要继续统一。
 
 接下来再考虑：
 
-1. 把 Demo Workflows 的表达继续统一到 README / Quick Test / 短视频脚本，控制台已经先接入 3 条示例 prompt。
+1. 把 Demo Workflows 的表达继续统一到 README / 短视频脚本，控制台已经先接入 3 条示例 prompt 和 Run File Demo。
 2. 继续增强工作区文件成果可见性：把最近一次 run 对应的文件变更摘要和文件打开路径接进 Overview / Quick Test。
 3. 把 Feishu 真实事件触发、真实可见性检查继续表单化，并把检查结果继续接入 Setup Summary。
 4. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。

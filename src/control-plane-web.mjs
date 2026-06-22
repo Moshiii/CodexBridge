@@ -96,6 +96,7 @@ const WORKSPACE_DEMO_PROMPTS = [
     ].join("\n"),
   },
 ];
+const WORKSPACE_FILE_DEMO_PROMPT = WORKSPACE_DEMO_PROMPTS.find((item) => item.id === "create-file")?.prompt || QUICK_TEST_PROMPT;
 const REDACTED_SECRET = "[redacted]";
 const activeChatRuns = new Map();
 const activeGoalRuns = new Map();
@@ -681,14 +682,24 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   return await readChatStatus(botId, label);
 }
 
-async function startQuickTestForBot(botId) {
+function resolveQuickTestPrompt(mode) {
+  if (mode === "workspace_file_demo") {
+    return WORKSPACE_FILE_DEMO_PROMPT;
+  }
+  return QUICK_TEST_PROMPT;
+}
+
+async function startQuickTestForBot(botId, options = {}) {
   const detail = await getBotControlPlaneDetail(botId);
+  const mode = options.mode === "workspace_file_demo" ? "workspace_file_demo" : "smoke";
+  const prompt = resolveQuickTestPrompt(mode);
   const run = await startBotChat(botId, {
-    prompt: QUICK_TEST_PROMPT,
+    prompt,
     sessionLabel: "main",
   });
   return {
     ...run,
+    mode,
     preflight: buildQuickTestPreflight(detail.setupGuide),
   };
 }
@@ -1941,6 +1952,7 @@ function renderHtmlPage() {
                 <div class="list" id="setup-checklist">Loading...</div>
                 <div class="toolbar" style="margin-top:14px;">
                   <button class="primary" id="quick-test-chat">Run Quick Test</button>
+                  <button id="quick-test-file-demo">Run File Demo</button>
                 </div>
                 <div class="kv" id="quick-test-diagnostics" style="margin-top:14px;">
                   <div>Quick Test</div><div>Waiting for setup status.</div>
@@ -2868,16 +2880,19 @@ Skills: installed capabilities</pre>
         await loadChatStatus(state.selectedBotId);
       }
 
-      async function runQuickTest() {
+      async function runQuickTest(mode = "smoke") {
         if (!state.selectedBotId) return;
-        const payload = await request('/api/bots/' + state.selectedBotId + '/quick-test', { method: 'POST' });
+        const payload = await request('/api/bots/' + state.selectedBotId + '/quick-test', {
+          method: 'POST',
+          body: JSON.stringify({ mode }),
+        });
         renderQuickTestDiagnostics(payload.preflight);
         document.getElementById('chat-session-label').textContent = "main";
-        document.getElementById('chat-input').value = '${QUICK_TEST_PROMPT}';
+        document.getElementById('chat-input').value = payload.prompt || '${QUICK_TEST_PROMPT}';
         if (payload.preflight?.message) {
           document.getElementById('chat-output').textContent = payload.preflight.message;
         }
-        showToast('Quick test started');
+        showToast(mode === "workspace_file_demo" ? 'File demo started' : 'Quick test started');
         await loadChatStatus(state.selectedBotId);
       }
 
@@ -3632,6 +3647,9 @@ Skills: installed capabilities</pre>
       document.getElementById('quick-test-chat').onclick = async () => {
         await runQuickTest();
       };
+      document.getElementById('quick-test-file-demo').onclick = async () => {
+        await runQuickTest("workspace_file_demo");
+      };
       document.getElementById('create-goal').onclick = async () => {
         if (!state.selectedBotId) return;
         const objective = document.getElementById('goal-objective-input').value.trim();
@@ -4101,7 +4119,8 @@ async function handleApi(request, response, pathname) {
 
   const botQuickTestMatch = pathname.match(/^\/api\/bots\/([^/]+)\/quick-test$/);
   if (request.method === "POST" && botQuickTestMatch) {
-    return json(response, 200, await startQuickTestForBot(decodeURIComponent(botQuickTestMatch[1])));
+    const body = await readJsonBody(request);
+    return json(response, 200, await startQuickTestForBot(decodeURIComponent(botQuickTestMatch[1]), { mode: body.mode }));
   }
 
   const botTelegramPairMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/pair$/);

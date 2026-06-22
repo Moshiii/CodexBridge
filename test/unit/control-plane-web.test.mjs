@@ -144,6 +144,7 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /Create a 3-day Beijing weekend plan/);
       assert.match(homeHtml, /__useWorkspaceDemoPrompt/);
       assert.match(homeHtml, /Run Quick Test can verify this host/);
+      assert.match(homeHtml, /Run File Demo/);
       assert.match(homeHtml, /__startRuntimeFromSetup/);
       assert.match(homeHtml, /__runQuickTestFromSetup/);
       assert.match(homeHtml, /Start Runtime/);
@@ -592,6 +593,50 @@ test("control plane quick test starts a main-session smoke prompt", async () => 
     } finally {
       await runtime.close();
     }
+    });
+  } finally {
+    if (previousStartCommand == null) {
+      delete process.env.CODEX_START_COMMAND;
+    } else {
+      process.env.CODEX_START_COMMAND = previousStartCommand;
+    }
+  }
+});
+
+test("control plane quick test can start a workspace file demo prompt", async () => {
+  const previousStartCommand = process.env.CODEX_START_COMMAND;
+  try {
+    await withTempHome(async () => {
+      process.env.CODEX_START_COMMAND = "printf '%s\\n' '{\"type\":\"thread.started\",\"thread_id\":\"file-demo-thread\"}' '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"Created beijing-weekend-plan.md.\"}}'";
+      const { createBot } = await importFresh("../../src/bots.mjs");
+      const { startControlPlaneWebServer } = await importFresh("../../src/control-plane-web.mjs");
+
+      await createBot({ id: "file-demo", name: "File Demo" });
+      const runtime = await startControlPlaneWebServer({ port: 0 });
+      try {
+        const quickResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/file-demo/quick-test`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({ mode: "workspace_file_demo" }),
+        });
+        assert.equal(quickResponse.status, 200);
+        const quickPayload = await quickResponse.json();
+        assert.equal(quickPayload.mode, "workspace_file_demo");
+        assert.equal(quickPayload.sessionLabel, "main");
+        assert.match(quickPayload.prompt, /Create a 3-day Beijing weekend plan/);
+        assert.match(quickPayload.prompt, /Save it as beijing-weekend-plan\.md/);
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        const statusResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/file-demo/chat?sessionLabel=main`);
+        assert.equal(statusResponse.status, 200);
+        const statusPayload = await statusResponse.json();
+        assert.equal(statusPayload.status, "completed");
+        assert.equal(statusPayload.output, "Created beijing-weekend-plan.md.");
+      } finally {
+        await runtime.close();
+      }
     });
   } finally {
     if (previousStartCommand == null) {
