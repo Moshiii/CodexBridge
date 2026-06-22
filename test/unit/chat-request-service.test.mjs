@@ -83,6 +83,8 @@ test("prepareChatRequest blocks obvious secrets before charging", async () => {
 
     assert.equal(result.ok, false);
     assert.equal(result.reason, "conversation_policy_blocked");
+    assert.match(result.message, /No credits were charged/);
+    assert.match(result.message, /Remove the credential/);
     assert.equal(result.run.status, "denied");
     assert.equal(result.policy.action, "block");
     assert.equal(result.policy.blockingLabels.includes("possible_secret"), true);

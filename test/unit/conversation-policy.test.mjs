@@ -13,7 +13,9 @@ test("conversation policy blocks secrets, reviews injection signals, and allows 
 
     assert.equal(blocked.action, "block");
     assert.equal(blocked.blockingLabels.includes("possible_secret"), true);
-    assert.match(blocked.userMessage, /sensitive credential/i);
+    assert.match(blocked.userMessage, /secret or access token/i);
+    assert.match(blocked.userMessage, /No credits were charged/);
+    assert.match(blocked.userMessage, /send the request again/);
     assert.equal(review.action, "review");
     assert.equal(review.reviewLabels.includes("prompt_injection_signal"), true);
     assert.equal(allowed.action, "allow");

@@ -34,7 +34,11 @@ export function evaluateConversationPolicy(content = "", options = {}) {
       blockingLabels,
       reviewLabels: labels.filter((label) => reviewLabels.has(label)),
       reason: `Blocked by conversation policy: ${blockingLabels.join(", ")}`,
-      userMessage: "This message appears to contain sensitive credential material. Remove secrets or tokens before sending it to CodexBridge.",
+      userMessage: [
+        "CodexBridge blocked this message because it looks like it contains a secret or access token.",
+        "No credits were charged.",
+        "Remove the credential, rotate it if it was real, then send the request again.",
+      ].join(" "),
     };
   }
   const reviewMatches = labels.filter((label) => reviewLabels.has(label));
