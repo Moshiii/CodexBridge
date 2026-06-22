@@ -980,6 +980,7 @@ async function upsertTelegramUserFromMessage(message, botHome) {
 export function renderCreditsStatus(creditsInfo, user = null) {
   const account = creditsInfo.account;
   const privateUnlocked = user ? canUsePrivateChat(user) : false;
+  const dailyFreeRemaining = Math.max(0, Number(account.dailyFreeLimit || 0) - Number(account.dailyFreeUsed || 0));
   return [
     "CodexBridge credits",
     `User: ${account.userId}`,
@@ -988,12 +989,15 @@ export function renderCreditsStatus(creditsInfo, user = null) {
       `Private chat: ${privateUnlocked ? "unlocked" : "locked - use the group for daily free access"}`,
     ] : []),
     `Daily free used: ${account.dailyFreeUsed}/${account.dailyFreeLimit}`,
+    `Daily free remaining: ${dailyFreeRemaining}`,
     `Paid credits: ${account.paidCredits}`,
     `Cost: ${creditsInfo.defaults.turnCost} credit per request`,
     `Total consumed: ${account.totalConsumed}`,
     privateUnlocked
-      ? "You can use both group chat and private chat."
-      : "Top up paid credits or ask the operator to unlock private chat.",
+      ? "Next: you can use both group chat and private chat."
+      : dailyFreeRemaining > 0
+        ? "Next: ask in the group to use your remaining daily free quota; top up paid credits to unlock private chat."
+        : "Next: top up paid credits to continue now, or wait for the next daily free reset in group chat.",
   ].join("\n");
 }
 

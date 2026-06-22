@@ -422,10 +422,14 @@ export function renderInsufficientCreditsMessage(result, options = {}) {
   const label = userId ? ` for user ${userId}` : "";
   const freeUsed = Number(result?.account?.dailyFreeUsed ?? 0);
   const freeLimit = Number(result?.account?.dailyFreeLimit ?? result?.defaults?.dailyFreeLimit ?? 0);
+  const freeRemaining = Math.max(0, freeLimit - freeUsed);
   return [
     `No credits left${label}.`,
-    `Daily free used: ${freeUsed}/${freeLimit}.`,
+    "No credits were charged for this request.",
+    `Daily free used: ${freeUsed}/${freeLimit}. Daily free remaining: ${freeRemaining}.`,
     `Paid credits: ${balance}. Each request costs ${cost} credit${cost === 1 ? "" : "s"}.`,
-    "Top up paid credits to continue, or wait for the next daily free reset in group chat.",
+    freeRemaining > 0
+      ? "Next: ask in the group to use the remaining daily free quota, or top up paid credits for private chat."
+      : "Next: top up paid credits to continue now, or wait for the next daily free reset in group chat.",
   ].join(" ");
 }

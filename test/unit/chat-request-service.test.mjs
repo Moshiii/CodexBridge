@@ -55,6 +55,8 @@ test("prepareChatRequest denies locked private chat without charging", async () 
 
     assert.equal(result.ok, false);
     assert.equal(result.reason, "private_chat_locked");
+    assert.match(result.message, /No credits were charged/);
+    assert.match(result.message, /Next:/);
     assert.match(result.message, /keep using CodexBridge in the group/);
     assert.match(result.message, /unlock private chat/);
     assert.equal(result.run.status, "denied");
@@ -116,7 +118,41 @@ test("prepareChatRequest denies group chat after free quota when paid credits ar
 
     assert.equal(result.ok, false);
     assert.equal(result.reason, "insufficient_credits");
+    assert.match(result.message, /No credits were charged/);
+    assert.match(result.message, /Daily free remaining: 0/);
+    assert.match(result.message, /Next: top up paid credits/);
     assert.equal(result.run.status, "denied");
     assert.equal(events.at(-1).eventType, "deny");
+  });
+});
+
+test("prepareChatRequest returns actionable banned user message", async () => {
+  await withTempHome(async () => {
+    const service = await importFresh("../../src/chat-request-service.mjs");
+    const users = await importFresh("../../src/users-state.mjs");
+
+    await users.upsertUser({
+      channel: "telegram",
+      externalUserId: "1",
+      status: "banned",
+    });
+
+    const result = await service.prepareChatRequest({
+      channel: "telegram",
+      externalUserId: "1",
+      envelope: {
+        channel: "telegram",
+        userId: "1",
+        chatType: "group",
+      },
+      chatId: "-100",
+      messageId: "m1",
+    });
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "user_banned");
+    assert.match(result.message, /blocked from using CodexBridge/);
+    assert.match(result.message, /No credits were charged/);
+    assert.match(result.message, /ask the operator/);
   });
 });

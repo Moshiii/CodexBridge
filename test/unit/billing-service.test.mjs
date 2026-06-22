@@ -44,7 +44,7 @@ test("chargeRequestUsage rejects direct usage without paid credits", async () =>
     assert.equal(denied.ok, false);
     assert.match(
       billing.renderBillingDeniedMessage(denied, { userId: "telegram:1" }),
-      /Top up paid credits/,
+      /Next: ask in the group to use the remaining daily free quota/,
     );
   });
 });

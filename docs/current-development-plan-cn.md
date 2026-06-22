@@ -206,6 +206,7 @@
    - Operations Admin Actions 已新增选中用户摘要和操作说明，operator 能在 grant/deduct/private/ban 前看到该用户状态、私聊权限、paid credits 和 daily free 使用情况。
    - Operations Admin Actions 已新增防误点校验：未选用户、金额无效、未知用户会被前端禁用或返回清楚 4xx 错误，不再变成含糊失败。
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
+   - Telegram / 飞书用户侧 `/credits` 已新增每日免费剩余额度和 Next 提示；额度不足、私聊未解锁、被封禁都会明确说明本次未扣 credits 和下一步。
    - Telegram / 飞书 `/start` 和 `/help` 已改为首次使用说明，解释群聊每日免费、群聊公开可见、`/credits`、私聊解锁和 operator 管理入口。
    - Telegram / 飞书首次欢迎语已补齐可照抄的群聊提问示例：Telegram 提示 `@your_bot summarize this repo in 3 bullets`，飞书提示提到 CodexBridge 或应用名后提问。
    - Telegram 已新增 bot 入群欢迎触发：当当前 bot 被加入群聊时，会自动发送快速开始说明，避免新群用户不知道怎么问。
@@ -740,6 +741,7 @@ denied
 48. 增加 `storageReadiness` 能力状态：SQLite provider 被选择但 adapter 未实现时明确提示不可用，防止误放量
 49. 改进 Operations Admin Actions 防误点体验：未选用户/金额无效时禁用操作，API 对未知用户和无效金额返回明确 4xx
 50. 补齐 Feishu Quick Settings 的用户可见性和测试群准备检查，并接入 Setup Guide / Setup Summary
+51. 改进 Telegram / 飞书 `/credits` 和拒绝类提示：显示每日免费剩余、Next 行，并说明私聊锁定/额度不足/封禁时本次未扣 credits
 
 接下来再考虑：
 

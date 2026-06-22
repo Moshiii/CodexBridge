@@ -6,6 +6,7 @@ import {
   buildUserId,
   canUseGroupChat,
   canUsePrivateChat,
+  renderBannedUserMessage,
   renderPrivateChatLockedMessage,
   upsertUser,
 } from "./users-state.mjs";
@@ -43,7 +44,7 @@ function accessDeniedReason(user, chatType, isDirect) {
 
 function accessDeniedMessage(user, chatType, isDirect) {
   if (user?.status === "banned") {
-    return "This user is banned from CodexBridge.";
+    return renderBannedUserMessage();
   }
   if (isDirectChat(chatType, isDirect)) {
     return renderPrivateChatLockedMessage(user);

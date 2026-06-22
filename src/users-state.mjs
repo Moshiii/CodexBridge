@@ -145,7 +145,16 @@ export function canUseGroupChat(user = {}) {
 export function renderPrivateChatLockedMessage() {
   return [
     "Private chat is locked for this account.",
-    "You can keep using CodexBridge in the group with the daily free quota.",
+    "No credits were charged for this request.",
+    "Next: keep using CodexBridge in the group with the daily free quota.",
     "Top up paid credits or ask the operator to unlock private chat when you want private conversations.",
+  ].join("\n");
+}
+
+export function renderBannedUserMessage() {
+  return [
+    "This account is blocked from using CodexBridge.",
+    "No credits were charged for this request.",
+    "Next: ask the operator to review the ban if you think this is a mistake.",
   ].join("\n");
 }
