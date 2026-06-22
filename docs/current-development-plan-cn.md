@@ -192,6 +192,7 @@
    - Operations 风险日志已新增 risk label 筛选，可按 prompt injection、possible secret、credential-like、email、phone 聚焦复盘。
    - Operations 风险日志已新增 user / run / channel 筛选，可直接定位某个用户、某次执行或某个入口的风险事件。
    - Operations 已改进空状态文案，用户、用量、runs、风险日志为空或筛选无结果时会提示下一步操作。
+   - Operations Admin Actions 已新增选中用户摘要和操作说明，operator 能在 grant/deduct/private/ban 前看到该用户状态、私聊权限、paid credits 和 daily free 使用情况。
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
    - Telegram / 飞书 `/start` 和 `/help` 已改为首次使用说明，解释群聊每日免费、群聊公开可见、`/credits`、私聊解锁和 operator 管理入口。
    - Telegram 已新增 bot 入群欢迎触发：当当前 bot 被加入群聊时，会自动发送快速开始说明，避免新群用户不知道怎么问。
@@ -714,6 +715,7 @@ denied
 36. 增加 Feishu Setup Summary，让 Feishu tab 直接显示当前接入完成度和下一步动作，不需要 operator 自己解读配置字段
 37. 改进 conversation policy block 用户提示，说明疑似 secret/access token、未扣 credits、移除或轮换凭证后重发
 38. 改进 Telegram / 飞书请求失败退款提示，明确 paid credits 自动退款、daily free 不消耗 paid credits、下一步找 operator 看 runtime log
+39. 改进 Operations Admin Actions：新增选中用户摘要和按钮语义说明，降低 grant/deduct/private/ban 误操作风险
 
 接下来再考虑：
 

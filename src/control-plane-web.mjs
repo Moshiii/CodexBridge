@@ -2001,6 +2001,10 @@ Skills: installed capabilities</pre>
               </div>
               <div class="card">
                 <h3>Admin Actions</h3>
+                <div class="kv" id="operations-selected-user">
+                  <div>Selected</div><div>No user selected.</div>
+                  <div>Access</div><div>Select a user to review credits and private access before changing anything.</div>
+                </div>
                 <div class="modal-grid">
                   <label>User ID<input id="operations-user-id" placeholder="telegram:123" /></label>
                   <label>Credits<input id="operations-credit-amount" type="number" min="1" step="1" value="10" /></label>
@@ -2013,6 +2017,7 @@ Skills: installed capabilities</pre>
                   <button id="operations-ban" class="danger">Ban</button>
                   <button id="operations-unban">Unban</button>
                 </div>
+                <p class="subtle" id="operations-admin-hint">Grant adds paid credits. Deduct removes paid credits. Unlock Private enables paid direct chat. Ban blocks both group and private chat.</p>
               </div>
             </div>
             <div class="two-col operations-debug" style="margin-top:14px; display:none;">
@@ -2245,6 +2250,7 @@ Skills: installed capabilities</pre>
         selectedBotId: null,
         bots: [],
         detail: null,
+        operationsUsers: [],
       };
 
       async function request(path, options = {}) {
@@ -2620,6 +2626,27 @@ Skills: installed capabilities</pre>
         ].filter(Boolean).join(" | ");
       }
 
+      function renderSelectedOperationsUser() {
+        const userId = document.getElementById("operations-user-id")?.value.trim() || "";
+        const user = (state.operationsUsers || []).find((entry) => entry.id === userId);
+        if (!userId || !user) {
+          renderKV("operations-selected-user", [
+            ["selected", userId || "none"],
+            ["access", "Select a user from the list before changing credits, private access, or status."],
+            ["credits", "Grant adds paid credits; daily free resets separately."],
+          ]);
+          return;
+        }
+        const credits = user.credits || {};
+        renderKV("operations-selected-user", [
+          ["selected", user.displayName ? user.displayName + " (" + user.id + ")" : user.id],
+          ["status", user.status],
+          ["private", user.privateEnabled ? "unlocked" : "locked"],
+          ["paid credits", String(credits.paidCredits ?? 0)],
+          ["daily free", String((credits.dailyFreeUsed ?? 0) + "/" + (credits.dailyFreeLimit ?? 0))],
+        ]);
+      }
+
       function renderSetupGuide(setupGuide) {
         const guide = setupGuide || { completed: 0, total: 0, steps: [] };
         const next = guide.nextStep;
@@ -2700,6 +2727,7 @@ Skills: installed capabilities</pre>
           request('/api/bots/' + botId + '/metrics'),
           request('/api/bots/' + botId + '/conversation-logs?riskOnly=true&limit=100'),
         ]);
+        state.operationsUsers = users;
         const reviewFilter = document.getElementById("operations-review-filter")?.value || "all";
         const riskLabelFilter = document.getElementById("operations-risk-label-filter")?.value || "all";
         const riskUserFilter = document.getElementById("operations-risk-user-filter")?.value || "";
@@ -2748,6 +2776,7 @@ Skills: installed capabilities</pre>
           )),
           "No users yet. Invite a user to the group or send a test message from an allowed chat."
         );
+        renderSelectedOperationsUser();
         document.getElementById("operations-usage").innerHTML = renderList(
           usage.map((event) => renderBotItem(
             event.eventType + " " + (event.amount ?? 0) + " " + (event.source || ""),
@@ -3089,6 +3118,7 @@ Skills: installed capabilities</pre>
       document.getElementById('operations-risk-channel-filter').onchange = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-risk-user-filter').oninput = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-risk-run-filter').oninput = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-user-id').oninput = () => renderSelectedOperationsUser();
       document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
       document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
       document.getElementById('operations-grant').onclick = async () => {
@@ -3285,6 +3315,7 @@ Skills: installed capabilities</pre>
       window.__selectOperationsUser = (userId) => {
         document.getElementById('operations-user-id').value = userId;
         document.getElementById('operations-risk-user-filter').value = userId;
+        renderSelectedOperationsUser();
         setSelectedTab('operations');
         if (state.selectedBotId) {
           loadOperations(state.selectedBotId);
