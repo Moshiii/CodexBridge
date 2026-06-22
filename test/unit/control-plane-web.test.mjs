@@ -150,10 +150,14 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /feishu-setup-bot-enabled-input/);
       assert.match(homeHtml, /feishu-setup-event-subscription-input/);
       assert.match(homeHtml, /feishu-setup-tenant-installed-input/);
+      assert.match(homeHtml, /feishu-setup-visibility-input/);
+      assert.match(homeHtml, /feishu-setup-test-group-input/);
       assert.match(homeHtml, /feishu-setup-summary/);
       assert.match(homeHtml, /Save app credentials/);
       assert.match(homeHtml, /Subscribe im\.message\.receive_v1/);
       assert.match(homeHtml, /Install or publish to tenant/);
+      assert.match(homeHtml, /Confirm user visibility/);
+      assert.match(homeHtml, /Prepare one test group/);
       assert.match(homeHtml, /Operator View/);
       assert.match(homeHtml, /operations-show-debug/);
       assert.match(homeHtml, /operations-growth-snapshot/);
@@ -340,6 +344,8 @@ test("control plane web server exposes logs and config update endpoints", async 
                 botCapabilityEnabled: true,
                 messageEventSubscribed: true,
                 tenantInstalled: true,
+                visibilityConfirmed: true,
+                testGroupReady: true,
               },
             },
           },
@@ -359,6 +365,8 @@ test("control plane web server exposes logs and config update endpoints", async 
         botCapabilityEnabled: true,
         messageEventSubscribed: true,
         tenantInstalled: true,
+        visibilityConfirmed: true,
+        testGroupReady: true,
       });
 
       const redactedSaveResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
@@ -402,6 +410,8 @@ test("control plane web server exposes logs and config update endpoints", async 
         botCapabilityEnabled: true,
         messageEventSubscribed: true,
         tenantInstalled: true,
+        visibilityConfirmed: true,
+        testGroupReady: true,
       });
     } finally {
       await runtime.close();

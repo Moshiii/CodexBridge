@@ -194,6 +194,7 @@
    - Feishu tab 已新增 Quick Settings，可直接保存 enabled、appId、appSecret、mention required 和 mention names，不必进入 Raw Config。
    - Feishu Quick Settings 已补齐 verification token、encrypt key、receive id type，并对这些敏感字段做脱敏展示和 `[redacted]` 保留。
    - Feishu Quick Settings 已新增接入检查清单，可记录 Bot 能力、`im.message.receive_v1` 事件订阅、租户安装/发布状态，减少排障时反复打开 Raw Config。
+   - Feishu Quick Settings 已新增用户可见性和测试群准备检查，operator 可在表单里确认目标用户能看到应用、已准备一个测试群，不需要进 Raw Config。
    - Feishu tab 已新增动态 Setup Summary，会按当前配置提示启用渠道、保存凭证、事件安全字段、Bot 能力、消息事件订阅、租户安装/发布等下一步动作。
    - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
    - Operations Metrics 已新增 Growth Snapshot，把试用人数、付费/私聊人数、失败 run 和风险事件合成一个可行动状态，方便 operator 判断是否可以继续扩群。
@@ -738,6 +739,7 @@ denied
 47. 增加 `storage.provider = json | sqlite` 配置入口，并在 Web Storage Readiness 中显示当前 provider
 48. 增加 `storageReadiness` 能力状态：SQLite provider 被选择但 adapter 未实现时明确提示不可用，防止误放量
 49. 改进 Operations Admin Actions 防误点体验：未选用户/金额无效时禁用操作，API 对未知用户和无效金额返回明确 4xx
+50. 补齐 Feishu Quick Settings 的用户可见性和测试群准备检查，并接入 Setup Guide / Setup Summary
 
 接下来再考虑：
 

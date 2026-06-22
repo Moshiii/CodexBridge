@@ -253,6 +253,13 @@ export function createDefaultBotConfig() {
         defaultReceiveIdType: "chat_id",
         requireExplicitMention: true,
         botMentionNames: [],
+        setup: {
+          botCapabilityEnabled: false,
+          messageEventSubscribed: false,
+          tenantInstalled: false,
+          visibilityConfirmed: false,
+          testGroupReady: false,
+        },
         metadata: {
           chats: {},
           users: {},
@@ -297,6 +304,15 @@ function normalizeFeishuConfig(feishu = {}) {
     botMentionNames: Array.isArray(feishu.botMentionNames)
       ? feishu.botMentionNames.map((name) => String(name || "").trim()).filter(Boolean)
       : createDefaultBotConfig().channels.feishu.botMentionNames,
+    setup: {
+      ...createDefaultBotConfig().channels.feishu.setup,
+      ...(feishu.setup && typeof feishu.setup === "object" ? feishu.setup : {}),
+      botCapabilityEnabled: Boolean(feishu.setup?.botCapabilityEnabled),
+      messageEventSubscribed: Boolean(feishu.setup?.messageEventSubscribed),
+      tenantInstalled: Boolean(feishu.setup?.tenantInstalled),
+      visibilityConfirmed: Boolean(feishu.setup?.visibilityConfirmed),
+      testGroupReady: Boolean(feishu.setup?.testGroupReady),
+    },
   };
 }
 

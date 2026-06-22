@@ -283,6 +283,8 @@ async function buildSetupGuide(detail, health, access) {
     ["Bot capability", feishuSetup.botCapabilityEnabled],
     ["im.message.receive_v1 event", feishuSetup.messageEventSubscribed],
     ["Tenant install/publish", feishuSetup.tenantInstalled],
+    ["User visibility", feishuSetup.visibilityConfirmed],
+    ["Test group ready", feishuSetup.testGroupReady],
   ].filter(([, ready]) => !ready).map(([label]) => label);
   const feishuHasCredentials = Boolean(feishu.appId && feishu.appSecret);
   const feishuReady = Boolean(feishu.enabled && feishuHasCredentials && missingFeishuSetupChecks.length === 0);
@@ -2004,6 +2006,18 @@ Skills: installed capabilities</pre>
                       <option value="true">installed/published</option>
                     </select>
                   </label>
+                  <label>User Visibility
+                    <select id="feishu-setup-visibility-input">
+                      <option value="false">not checked</option>
+                      <option value="true">visible to target users</option>
+                    </select>
+                  </label>
+                  <label>Test Group
+                    <select id="feishu-setup-test-group-input">
+                      <option value="false">not checked</option>
+                      <option value="true">test group ready</option>
+                    </select>
+                  </label>
                 </div>
                 <label>Bot Mention Names<input id="feishu-mention-names-input" placeholder="CodexBridge, 助手" /></label>
                 <div class="kv" id="feishu-settings-panel"></div>
@@ -2535,6 +2549,8 @@ Skills: installed capabilities</pre>
         document.getElementById("feishu-setup-bot-enabled-input").value = String(config.channels?.feishu?.setup?.botCapabilityEnabled ?? false);
         document.getElementById("feishu-setup-event-subscription-input").value = String(config.channels?.feishu?.setup?.messageEventSubscribed ?? false);
         document.getElementById("feishu-setup-tenant-installed-input").value = String(config.channels?.feishu?.setup?.tenantInstalled ?? false);
+        document.getElementById("feishu-setup-visibility-input").value = String(config.channels?.feishu?.setup?.visibilityConfirmed ?? false);
+        document.getElementById("feishu-setup-test-group-input").value = String(config.channels?.feishu?.setup?.testGroupReady ?? false);
       }
 
       async function saveConfig(botId) {
@@ -2610,6 +2626,8 @@ Skills: installed capabilities</pre>
             botCapabilityEnabled: document.getElementById("feishu-setup-bot-enabled-input").value === "true",
             messageEventSubscribed: document.getElementById("feishu-setup-event-subscription-input").value === "true",
             tenantInstalled: document.getElementById("feishu-setup-tenant-installed-input").value === "true",
+            visibilityConfirmed: document.getElementById("feishu-setup-visibility-input").value === "true",
+            testGroupReady: document.getElementById("feishu-setup-test-group-input").value === "true",
           },
         };
         if (secret) {
@@ -2868,6 +2886,16 @@ Skills: installed capabilities</pre>
             done: Boolean(setup.tenantInstalled),
             hint: "Install or publish the app to the tenant before inviting users.",
           },
+          {
+            label: "Confirm user visibility",
+            done: Boolean(setup.visibilityConfirmed),
+            hint: "Confirm the app is visible to the target users or departments in Feishu.",
+          },
+          {
+            label: "Prepare one test group",
+            done: Boolean(setup.testGroupReady),
+            hint: "Add the bot to one test group and send /start before inviting more users.",
+          },
         ];
         document.getElementById("feishu-setup-summary").innerHTML = renderList(
           items.map((item) => renderBotItem(
@@ -3107,6 +3135,8 @@ Skills: installed capabilities</pre>
           ["bot capability", config.channels?.feishu?.setup?.botCapabilityEnabled ? "checked" : "not checked"],
           ["message event", config.channels?.feishu?.setup?.messageEventSubscribed ? "checked" : "not checked"],
           ["tenant installed", config.channels?.feishu?.setup?.tenantInstalled ? "checked" : "not checked"],
+          ["user visibility", config.channels?.feishu?.setup?.visibilityConfirmed ? "checked" : "not checked"],
+          ["test group", config.channels?.feishu?.setup?.testGroupReady ? "checked" : "not checked"],
         ]);
         renderFeishuSetupSummary(config);
         document.getElementById("telegram-private-access").textContent = JSON.stringify(payload.access.privateChats || [], null, 2);
