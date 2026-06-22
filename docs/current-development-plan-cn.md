@@ -188,6 +188,7 @@
    - Web Overview 已新增 Quick Test，用户可以从首屏一键发起 main session 试聊，不需要先理解 Sessions / Chat tab 的区别。
    - Chat / Quick Test 状态已新增 friendlyMessage，失败时会提示检查 Runtime Log，并确认主机上的 Codex 已安装且已登录。
    - Quick Test 已新增 preflight 提示：即使 IM 尚未完全配置，也能先验证本机 Codex；同时明确邀请用户前还缺哪些步骤。
+   - Web Overview 已新增 Quick Test Diagnostics，把 preflight 的本机试跑状态、邀请 gate、缺失步骤和 Go 跳转直接放在首屏。
    - Web Overview 已新增 Invite Readiness 摘要，直接告诉 operator “现在是否可以邀请真实用户”，并列出当前最关键的下一步。
    - Quick Test / Setup Checklist 已新增更具体的修复 hint：能提示缺 Telegram token、bot username、Feishu credentials/setup checklist、audience、runtime 等具体动作。
    - Setup Checklist 每一步已提供 Go 跳转按钮，用户看到缺口后可以直接进入对应配置页，不需要自己理解 tab 结构。
@@ -755,6 +756,7 @@ denied
 54. 增加 conversation log cutoff cleanup API，支持 dry-run、按 olderThan 删除本地 JSONL 日志，并写入 admin audit
 55. 增加 Operations conversation log cleanup 控件，让 operator 可先 preview 再删除旧的本地原始 JSONL 日志
 56. 增加 Feishu Test Audience 表单字段，记录首批测试 open_id / chat_id，并接入 Setup Summary / Setup Checklist
+57. 增加 Web Overview Quick Test Diagnostics，把本机试跑、邀请 gate、缺失步骤和 Go 跳转放在首屏
 
 接下来再考虑：
 

@@ -1902,6 +1902,11 @@ function renderHtmlPage() {
                 <div class="toolbar" style="margin-top:14px;">
                   <button class="primary" id="quick-test-chat">Run Quick Test</button>
                 </div>
+                <div class="kv" id="quick-test-diagnostics" style="margin-top:14px;">
+                  <div>Quick Test</div><div>Waiting for setup status.</div>
+                  <div>Invite Gate</div><div>Finish the checklist before inviting real users.</div>
+                </div>
+                <div class="list" id="quick-test-missing-steps">Loading diagnostics...</div>
               </div>
               <div class="card">
                 <div class="section-kicker">Modes</div>
@@ -2784,6 +2789,7 @@ Skills: installed capabilities</pre>
       async function runQuickTest() {
         if (!state.selectedBotId) return;
         const payload = await request('/api/bots/' + state.selectedBotId + '/quick-test', { method: 'POST' });
+        renderQuickTestDiagnostics(payload.preflight);
         document.getElementById('chat-session-label').textContent = "main";
         document.getElementById('chat-input').value = '${QUICK_TEST_PROMPT}';
         if (payload.preflight?.message) {
@@ -2912,6 +2918,27 @@ Skills: installed capabilities</pre>
             ? "channel, audience, runtime, and first test are complete"
             : missingBeforeInvite.map((step) => step.label).join(", ")],
         ]);
+      }
+
+      function renderQuickTestDiagnostics(preflight) {
+        const missingSteps = preflight?.missingSteps || [];
+        renderKV("quick-test-diagnostics", [
+          ["local test", "Run Quick Test can verify this host's Codex before IM is fully ready"],
+          ["invite gate", preflight?.readyForIm ? "ready for a real IM test" : "finish the missing IM setup first"],
+          ["next", preflight?.message || "Run Quick Test and finish the setup checklist before inviting users."],
+        ]);
+        document.getElementById("quick-test-missing-steps").innerHTML = renderList(
+          missingSteps.map((step) => renderBotItem(
+            "Missing: " + step.label,
+            [step.action, step.hint, step.targetTab ? "tab " + step.targetTab : null].filter(Boolean).join(" | "),
+            step.targetTab
+              ? ["<button onclick=\\\"window.__openSetupStep('" + escapeHtml(step.targetTab) + "')\\\">Go</button>"]
+              : [],
+          )),
+          preflight?.readyForIm
+            ? "IM setup is ready. Run Quick Test, then invite one test user or group."
+            : "No diagnostic details yet. Select a bot to load setup status."
+        );
       }
 
       function renderStorageReadiness(storageReadiness) {
@@ -3211,6 +3238,7 @@ Skills: installed capabilities</pre>
         renderBadges(bot, config);
         setTopStatus(payload);
         renderSetupGuide(payload.setupGuide);
+        renderQuickTestDiagnostics(payload.quickTestPreflight);
         renderStorageReadiness(payload.storageReadiness);
         document.getElementById("metric-bot").textContent = bot.name;
         document.getElementById("metric-runtime").textContent = payload.health.healthy ? "Online" : "Offline";

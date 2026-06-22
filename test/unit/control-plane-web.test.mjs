@@ -135,6 +135,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /Setup Checklist/);
       assert.match(homeHtml, /__openSetupStep/);
       assert.match(homeHtml, /invite-readiness/);
+      assert.match(homeHtml, /quick-test-diagnostics/);
+      assert.match(homeHtml, /quick-test-missing-steps/);
+      assert.match(homeHtml, /Run Quick Test can verify this host/);
       assert.match(homeHtml, /Do not invite users yet/);
       assert.match(homeHtml, /Ready to invite users/);
       assert.match(homeHtml, /storage-readiness/);
