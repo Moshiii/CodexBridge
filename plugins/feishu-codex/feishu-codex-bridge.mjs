@@ -120,6 +120,30 @@ function createDefaultRouterState() {
   };
 }
 
+export function renderWelcomeMessage() {
+  return [
+    "CodexBridge is ready.",
+    "Ask a normal question in the group to try it with the daily free quota.",
+    "Everyone in the group can see the conversation, so avoid private or sensitive content there.",
+    "Use /credits to check your daily free usage, paid credits, and private chat access.",
+    "Private chat unlocks after paid credits are added or an operator enables it.",
+  ].join("\n");
+}
+
+export function renderHelpMessage() {
+  return [
+    renderWelcomeMessage(),
+    "",
+    "Commands:",
+    "/start - show the quick start",
+    "/credits - check quota and private access",
+    "/where - show the current session",
+    "/stop - stop the running request",
+    "",
+    "Operators manage credits, bans, and access in the local web control plane.",
+  ].join("\n");
+}
+
 async function readRouterState(filePath) {
   const parsed = await readJsonFile(filePath, createDefaultRouterState());
   return {
@@ -527,15 +551,7 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
     await sendText(
       client,
       chatId,
-      [
-        "CodexBridge is ready.",
-        "Send a normal message to chat.",
-        "Supported commands:",
-        "/help",
-        "/where",
-        "/credits",
-        "/stop",
-      ].join("\n"),
+      renderWelcomeMessage(),
       options,
     );
     return true;
@@ -558,16 +574,7 @@ async function handleSlashCommand(command, chatState, client, chatId, activeRuns
     await sendText(
       client,
       chatId,
-      [
-        "Commands:",
-        "/start",
-        "/where",
-        "/credits",
-        "/stop",
-        "",
-        "Send a normal message to chat with CodexBridge.",
-        "Management actions belong in the local CLI or web control plane.",
-      ].join("\n"),
+      renderHelpMessage(),
       options,
     );
     return true;

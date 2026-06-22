@@ -238,6 +238,30 @@ function renderRunningMessage(prompt, sessionLabel, mode) {
   return `Running ${mode} on [${sessionLabel}]...`;
 }
 
+function renderWelcomeMessage() {
+  return [
+    "CodexBridge is ready.",
+    "Ask a normal question in the group to try it with the daily free quota.",
+    "Everyone in the group can see the conversation, so avoid private or sensitive content there.",
+    "Use /credits to check your daily free usage, paid credits, and private chat access.",
+    "Private chat unlocks after paid credits are added or an operator enables it.",
+  ].join("\n");
+}
+
+function renderHelpMessage() {
+  return [
+    renderWelcomeMessage(),
+    "",
+    "Commands:",
+    "/start - show the quick start",
+    "/credits - check quota and private access",
+    "/where - show the current session",
+    "/stop - stop the running request",
+    "",
+    "Operators manage credits, bans, and access in the local web control plane.",
+  ].join("\n");
+}
+
 function renderStopRequestedMessage(sessionLabel) {
   return `Stop requested for [${sessionLabel}].`;
 }
@@ -1419,15 +1443,7 @@ async function handleSlashCommand({
     await sendMessage(
       token,
       message.chat.id,
-      [
-        "CodexBridge is ready.",
-        "Send a normal message to chat.",
-        "Supported commands:",
-        "/help",
-        "/where",
-        "/credits",
-        "/stop",
-      ].join("\n"),
+      renderWelcomeMessage(),
       message.message_id,
     );
     return { stateChanged: true, handled: true };
@@ -1455,16 +1471,7 @@ async function handleSlashCommand({
     await sendMessage(
       token,
       message.chat.id,
-      [
-        "Commands:",
-        "/start",
-        "/where",
-        "/credits",
-        "/stop",
-        "",
-        "Send a normal message to talk to CodexBridge.",
-        "Management actions belong in the local CLI or web control plane.",
-      ].join("\n"),
+      renderHelpMessage(),
       message.message_id,
     );
     return { stateChanged: false, handled: true };
@@ -2184,6 +2191,8 @@ export {
   parseCommand,
   resolveBotRuntimeContext,
   renderCodexResult,
+  renderHelpMessage,
   renderRunningMessage,
+  renderWelcomeMessage,
   stripExplicitBotMention,
 };

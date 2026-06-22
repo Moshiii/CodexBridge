@@ -63,3 +63,19 @@ test("renderCreditsStatus includes daily free and paid credit fields", async () 
     assert.match(text, /You can use both group chat and private chat/);
   });
 });
+
+test("feishu welcome and help explain free group use and private unlock", async () => {
+  await withTempHome(async () => {
+    const { renderHelpMessage, renderWelcomeMessage } = await importFresh("../../plugins/feishu-codex/feishu-codex-bridge.mjs");
+
+    const welcome = renderWelcomeMessage();
+    const help = renderHelpMessage();
+
+    assert.match(welcome, /daily free quota/);
+    assert.match(welcome, /Everyone in the group can see/);
+    assert.match(welcome, /Use \/credits/);
+    assert.match(welcome, /Private chat unlocks/);
+    assert.match(help, /\/start - show the quick start/);
+    assert.match(help, /Operators manage credits/);
+  });
+});
