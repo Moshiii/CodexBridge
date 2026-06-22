@@ -2144,6 +2144,18 @@ Skills: installed capabilities</pre>
                 <div>Conversation Privacy</div><div>Operations shows redacted previews.</div>
                 <div>Retention</div><div>Raw JSONL stays local until cleanup is configured.</div>
               </div>
+              <div class="kv" id="operations-cleanup-result">
+                <div>Cleanup</div><div>Preview before deleting local raw JSONL logs.</div>
+                <div>Next</div><div>Enter an ISO timestamp, then run Preview Cleanup.</div>
+              </div>
+              <div class="modal-grid">
+                <label>Delete Logs Before<input id="operations-cleanup-older-than" placeholder="2026-01-01T00:00:00.000Z" /></label>
+              </div>
+              <div class="toolbar" style="margin-top:10px;">
+                <button id="operations-cleanup-preview">Preview Cleanup</button>
+                <button class="danger" id="operations-cleanup-run">Run Cleanup</button>
+              </div>
+              <p class="subtle">Cleanup deletes local raw JSONL conversation events older than the timestamp. Use Preview Cleanup first.</p>
               <div class="list" id="operations-metrics">Loading...</div>
             </div>
             <div class="two-col">
@@ -2481,6 +2493,23 @@ Skills: installed capabilities</pre>
           root.appendChild(k);
           root.appendChild(v);
         });
+      }
+
+      function renderConversationCleanupResult(result) {
+        if (!result) {
+          renderKV("operations-cleanup-result", [
+            ["cleanup", "Preview before deleting local raw JSONL logs."],
+            ["next", "Enter an ISO timestamp, then run Preview Cleanup."],
+          ]);
+          return;
+        }
+        renderKV("operations-cleanup-result", [
+          ["mode", result.dryRun ? "preview" : "deleted"],
+          ["older than", result.cutoff || "unknown"],
+          ["removed", String(result.removed ?? 0)],
+          ["kept", String(result.kept ?? 0)],
+          ["malformed kept", String(result.malformed ?? 0)],
+        ]);
       }
 
       function escapeHtml(value) {
@@ -3082,6 +3111,28 @@ Skills: installed capabilities</pre>
         );
       }
 
+      async function runConversationCleanup(dryRun) {
+        if (!state.selectedBotId) return;
+        const olderThan = document.getElementById("operations-cleanup-older-than").value.trim();
+        if (!olderThan) {
+          showToast("Enter an ISO timestamp first");
+          return;
+        }
+        if (!dryRun && !window.confirm("Delete local raw conversation logs older than " + olderThan + "?")) {
+          return;
+        }
+        const result = await request('/api/bots/' + state.selectedBotId + '/conversation-logs/cleanup', {
+          method: 'POST',
+          body: JSON.stringify({ olderThan, dryRun }),
+        });
+        renderConversationCleanupResult(result);
+        showToast(dryRun ? "Cleanup preview ready" : "Conversation logs cleaned");
+        if (!dryRun) {
+          await loadOperations(state.selectedBotId);
+          renderConversationCleanupResult(result);
+        }
+      }
+
       async function loadWorkspace(botId) {
         const files = await request('/api/bots/' + botId + '/workspace');
         document.getElementById("workspace-tree").innerHTML = renderList(
@@ -3372,6 +3423,8 @@ Skills: installed capabilities</pre>
       document.getElementById('operations-credit-amount').oninput = () => renderSelectedOperationsUser();
       document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
       document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
+      document.getElementById('operations-cleanup-preview').onclick = async () => runConversationCleanup(true);
+      document.getElementById('operations-cleanup-run').onclick = async () => runConversationCleanup(false);
       document.getElementById('run-state-migrations').onclick = async () => {
         if (!state.selectedBotId) return;
         const result = await request('/api/bots/' + state.selectedBotId + '/migrations/run', { method: 'POST' });

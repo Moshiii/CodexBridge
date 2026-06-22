@@ -179,6 +179,7 @@
    - 已新增 conversation review ledger，可对风险日志标记 confirmed_risk / false_positive / handled，并在日志查询和 metrics 中回显复盘结果。
    - conversation log API 已支持按时间窗口、riskOnly、riskLabel、reviewStatus 筛选，方便做风险复盘和样本分析。
    - conversation log 已新增 cutoff cleanup API，支持 dry-run 预估和正式删除指定时间以前的本地 JSONL 事件，并写入 admin audit。
+   - Operations 已把 conversation log cleanup 暴露成可操作控件：输入 ISO cutoff 后先 Preview Cleanup 看 removed/kept，再 Run Cleanup 删除本地原始 JSONL 旧日志。
 
 9. **Phase 9：开箱即用和使用体验**
    - Web Overview 已新增 Setup Checklist，按当前 bot 状态提示连接 IM、确认身份、允许测试用户/群、启动 runtime、发送第一条消息。
@@ -751,6 +752,7 @@ denied
 52. 增加 Operations Conversion Funnel，把 users seen、group trial、paid/private、successful runs 做成可复用 metrics 和 Web 展示
 53. 增加 Operations Conversation Privacy Summary，说明 API 脱敏预览、本地原文保留和日志时间范围，减少 operator 对风险日志的误解
 54. 增加 conversation log cutoff cleanup API，支持 dry-run、按 olderThan 删除本地 JSONL 日志，并写入 admin audit
+55. 增加 Operations conversation log cleanup 控件，让 operator 可先 preview 再删除旧的本地原始 JSONL 日志
 
 接下来再考虑：
 

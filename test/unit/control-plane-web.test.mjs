@@ -164,6 +164,12 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /operations-conversion-funnel/);
       assert.match(homeHtml, /operations-conversation-privacy/);
       assert.match(homeHtml, /Operations shows redacted previews/);
+      assert.match(homeHtml, /operations-cleanup-older-than/);
+      assert.match(homeHtml, /operations-cleanup-preview/);
+      assert.match(homeHtml, /operations-cleanup-run/);
+      assert.match(homeHtml, /Preview Cleanup/);
+      assert.match(homeHtml, /Run Cleanup/);
+      assert.match(homeHtml, /Cleanup deletes local raw JSONL conversation events/);
       assert.match(homeHtml, /Waiting for user activity/);
       assert.match(homeHtml, /riskOnly=true/);
       assert.match(homeHtml, /__reviewConversationLog/);
