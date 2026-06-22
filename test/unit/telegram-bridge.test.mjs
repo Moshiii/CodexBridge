@@ -67,6 +67,30 @@ test("extractBotMention finds explicit group mentions", async () => {
   });
 });
 
+test("isTelegramBotAddedToChat detects the configured bot join event", async () => {
+  await withTempHome(async () => {
+    const { isTelegramBotAddedToChat } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");
+
+    assert.equal(
+      isTelegramBotAddedToChat({
+        new_chat_members: [
+          { is_bot: false, username: "alice" },
+          { is_bot: true, username: "CodexBridgeBot" },
+        ],
+      }, "@CodexBridgeBot"),
+      true,
+    );
+    assert.equal(
+      isTelegramBotAddedToChat({
+        new_chat_members: [
+          { is_bot: true, username: "OtherBot" },
+        ],
+      }, "CodexBridgeBot"),
+      false,
+    );
+  });
+});
+
 test("stripExplicitBotMention removes the mention and preserves the request", async () => {
   await withTempHome(async () => {
     const { stripExplicitBotMention } = await importFresh("../../plugins/telegram-codex/telegram-codex-bridge.mjs");

@@ -166,6 +166,17 @@ function isGroupChat(message) {
   return chatType === "group" || chatType === "supergroup";
 }
 
+function isTelegramBotAddedToChat(message, botUsername) {
+  const normalizedBotUsername = String(botUsername || "").replace(/^@+/, "").toLowerCase();
+  if (!normalizedBotUsername || !Array.isArray(message?.new_chat_members)) {
+    return false;
+  }
+  return message.new_chat_members.some((member) => {
+    const memberUsername = String(member?.username || "").replace(/^@+/, "").toLowerCase();
+    return Boolean(member?.is_bot && memberUsername === normalizedBotUsername);
+  });
+}
+
 function extractBotMention(messageText, entities, botUsername) {
   if (!messageText || !botUsername) {
     return null;
@@ -1564,6 +1575,22 @@ async function processUpdate(update, context) {
 
   const text = getMessageText(message);
   const hasDocument = Boolean(message.document);
+  if (isGroupChat(message) && isTelegramBotAddedToChat(message, context.botUsername)) {
+    if (context.allowedGroupChatIds && !context.allowedGroupChatIds.has(chatId)) {
+      logBridgeEvent("telegram bot join ignored: group not allowed", {
+        chatId,
+        senderId,
+      });
+      return;
+    }
+    await sendMessage(
+      context.token,
+      message.chat.id,
+      renderWelcomeMessage(),
+      message.message_id,
+    );
+    return;
+  }
   if (!text && !hasDocument) {
     logBridgeEvent("telegram update rejected: unsupported payload", {
       chatId,
@@ -2187,6 +2214,7 @@ if (process.argv[1] === __filename) {
 export {
   extractBotMention,
   isGroupChat,
+  isTelegramBotAddedToChat,
   isTelegramReplyReferenceError,
   parseCommand,
   resolveBotRuntimeContext,
