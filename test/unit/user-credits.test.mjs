@@ -170,7 +170,7 @@ test("chargeTurnCredits blocks turns once balance is exhausted", async () => {
     assert.equal(denied.balanceAfter, 0);
     assert.match(
       credits.renderInsufficientCreditsMessage(denied, { userId: "user-1" }),
-      /No credits left for user user-1 on this bot/,
+      /wait for the next daily free reset in group chat/,
     );
   });
 });

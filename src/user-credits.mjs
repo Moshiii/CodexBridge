@@ -423,9 +423,9 @@ export function renderInsufficientCreditsMessage(result, options = {}) {
   const freeUsed = Number(result?.account?.dailyFreeUsed ?? 0);
   const freeLimit = Number(result?.account?.dailyFreeLimit ?? result?.defaults?.dailyFreeLimit ?? 0);
   return [
-    `No credits left${label} on this bot.`,
-    `Paid credits: ${balance}. Each turn costs ${cost} credit${cost === 1 ? "" : "s"}.`,
-    `Daily free quota: ${freeUsed}/${freeLimit}.`,
-    "Top up paid credits to continue.",
+    `No credits left${label}.`,
+    `Daily free used: ${freeUsed}/${freeLimit}.`,
+    `Paid credits: ${balance}. Each request costs ${cost} credit${cost === 1 ? "" : "s"}.`,
+    "Top up paid credits to continue, or wait for the next daily free reset in group chat.",
   ].join(" ");
 }

@@ -416,13 +416,21 @@ async function upsertFeishuUserFromEvent(event, botHome) {
 
 export function renderCreditsStatus(creditsInfo, user = null) {
   const account = creditsInfo.account;
+  const privateUnlocked = user ? canUsePrivateChat(user) : false;
   return [
-    `Credits for ${account.userId}:`,
-    ...(user ? [`Status: ${user.status}`, `Private chat: ${canUsePrivateChat(user) ? "unlocked" : "locked"}`] : []),
-    `Daily free: ${account.dailyFreeUsed}/${account.dailyFreeLimit}`,
+    "CodexBridge credits",
+    `User: ${account.userId}`,
+    ...(user ? [
+      `Plan: ${user.status}`,
+      `Private chat: ${privateUnlocked ? "unlocked" : "locked - use the group for daily free access"}`,
+    ] : []),
+    `Daily free used: ${account.dailyFreeUsed}/${account.dailyFreeLimit}`,
     `Paid credits: ${account.paidCredits}`,
-    `Turn cost: ${creditsInfo.defaults.turnCost}`,
+    `Cost: ${creditsInfo.defaults.turnCost} credit per request`,
     `Total consumed: ${account.totalConsumed}`,
+    privateUnlocked
+      ? "You can use both group chat and private chat."
+      : "Top up paid credits or ask the operator to unlock private chat.",
   ].join("\n");
 }
 

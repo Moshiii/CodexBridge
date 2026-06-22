@@ -144,7 +144,8 @@ export function canUseGroupChat(user = {}) {
 
 export function renderPrivateChatLockedMessage() {
   return [
-    "Private chat is a paid feature.",
-    "Use the group chat for the daily free quota, or top up credits to unlock private chat.",
+    "Private chat is locked for this account.",
+    "You can keep using CodexBridge in the group with the daily free quota.",
+    "Top up paid credits or ask the operator to unlock private chat when you want private conversations.",
   ].join("\n");
 }

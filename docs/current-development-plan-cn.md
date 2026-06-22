@@ -188,6 +188,7 @@
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
    - Operations 风险日志已新增 risk label 筛选，可按 prompt injection、possible secret、credential-like、email、phone 聚焦复盘。
    - Operations 已改进空状态文案，用户、用量、runs、风险日志为空或筛选无结果时会提示下一步操作。
+   - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
 
 ### 本轮审计已修复的严重问题
 
@@ -694,11 +695,12 @@ denied
 26. 增加 Operations 风险日志 review 状态筛选
 27. 增加 Operations 风险日志 risk label 筛选
 28. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
+29. 改进 Telegram / 飞书用户侧额度与私聊提示文案：`/credits`、额度不足、私聊未解锁
 
 接下来再考虑：
 
 1. 把 Feishu 事件回调、可见性检查、访问名单继续表单化。
-2. 补进群欢迎语、免费额度说明、付费私聊权益说明和额度不足转化文案。
+2. 补进群欢迎语、首次使用说明和更明确的付费私聊转化入口。
 3. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
 4. 继续简化 Operations：增加按用户/run/channel 的复盘筛选。
 5. 增加用户侧空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。

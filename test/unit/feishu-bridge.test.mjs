@@ -54,9 +54,12 @@ test("renderCreditsStatus includes daily free and paid credit fields", async () 
       },
     );
 
-    assert.match(text, /Status: paid/);
+    assert.match(text, /CodexBridge credits/);
+    assert.match(text, /User: feishu:ou_1/);
+    assert.match(text, /Plan: paid/);
     assert.match(text, /Private chat: unlocked/);
-    assert.match(text, /Daily free: 2\/5/);
+    assert.match(text, /Daily free used: 2\/5/);
     assert.match(text, /Paid credits: 7/);
+    assert.match(text, /You can use both group chat and private chat/);
   });
 });

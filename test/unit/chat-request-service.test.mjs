@@ -55,6 +55,8 @@ test("prepareChatRequest denies locked private chat without charging", async () 
 
     assert.equal(result.ok, false);
     assert.equal(result.reason, "private_chat_locked");
+    assert.match(result.message, /keep using CodexBridge in the group/);
+    assert.match(result.message, /unlock private chat/);
     assert.equal(result.run.status, "denied");
     assert.equal(events.length, 0);
   });
