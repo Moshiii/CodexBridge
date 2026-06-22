@@ -105,3 +105,37 @@ test("conversation log filters by time window and risky events", async () => {
     assert.deepEqual(risky.map((event) => event.runId), ["run_risky"]);
   });
 });
+
+test("conversation log cleanup removes events older than cutoff", async () => {
+  await withTempHome(async () => {
+    const logs = await importFresh("../../src/conversation-log.mjs");
+
+    await logs.appendConversationLogEvent({
+      runId: "run_old",
+      userId: "telegram:1",
+      direction: "input",
+      content: "old message",
+      createdAt: "2026-01-01T00:00:00.000Z",
+    });
+    await logs.appendConversationLogEvent({
+      runId: "run_new",
+      userId: "telegram:1",
+      direction: "input",
+      content: "new message",
+      createdAt: "2026-01-03T00:00:00.000Z",
+    });
+
+    const dryRun = await logs.cleanupConversationLogEvents({
+      olderThan: "2026-01-02T00:00:00.000Z",
+      dryRun: true,
+    });
+    assert.equal(dryRun.removed, 1);
+    assert.deepEqual((await logs.listConversationLogEvents({})).map((event) => event.runId), ["run_old", "run_new"]);
+
+    const cleanup = await logs.cleanupConversationLogEvents({
+      olderThan: "2026-01-02T00:00:00.000Z",
+    });
+    assert.equal(cleanup.removed, 1);
+    assert.deepEqual((await logs.listConversationLogEvents({})).map((event) => event.runId), ["run_new"]);
+  });
+});

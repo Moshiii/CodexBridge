@@ -1014,6 +1014,39 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       const timeWindowPayload = await timeWindowResponse.json();
       assert.equal(timeWindowPayload.length, 1);
       assert.equal(timeWindowPayload[0].runId, "run_conversation_2");
+
+      const invalidCleanupResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/conversation-logs/cleanup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ olderThan: "" }),
+      });
+      assert.equal(invalidCleanupResponse.status, 400);
+      const invalidCleanupPayload = await invalidCleanupResponse.json();
+      assert.equal(invalidCleanupPayload.code, "conversation_cleanup_older_than_required");
+
+      const cleanupDryRunResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/conversation-logs/cleanup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ olderThan: "2026-01-03T00:00:00.000Z", dryRun: true }),
+      });
+      assert.equal(cleanupDryRunResponse.status, 200);
+      const cleanupDryRunPayload = await cleanupDryRunResponse.json();
+      assert.equal(cleanupDryRunPayload.dryRun, true);
+      assert.equal(cleanupDryRunPayload.removed, 1);
+
+      const cleanupResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/conversation-logs/cleanup`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ olderThan: "2026-01-03T00:00:00.000Z" }),
+      });
+      assert.equal(cleanupResponse.status, 200);
+      const cleanupPayload = await cleanupResponse.json();
+      assert.equal(cleanupPayload.dryRun, false);
+      assert.equal(cleanupPayload.removed, 1);
+      const cleanupAuditResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/admin-audit`);
+      assert.equal(cleanupAuditResponse.status, 200);
+      const cleanupAuditPayload = await cleanupAuditResponse.json();
+      assert.equal(cleanupAuditPayload.some((event) => event.action === "cleanup_conversation_logs"), true);
     } finally {
       await runtime.close();
     }

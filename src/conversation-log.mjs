@@ -165,3 +165,64 @@ export async function listConversationLogEvents({
   }
   return events.slice(-Math.max(1, Number.parseInt(String(limit), 10) || 100));
 }
+
+export async function cleanupConversationLogEvents({
+  olderThan = null,
+  dryRun = false,
+  botHome = resolveBotHome(),
+} = {}) {
+  const cutoffMs = parseDateMs(olderThan);
+  if (cutoffMs == null) {
+    throw new Error("Conversation log cleanup requires a valid olderThan timestamp.");
+  }
+  const logPath = getConversationLogPath(botHome);
+  let raw = "";
+  try {
+    raw = await readFile(logPath, "utf8");
+  } catch {
+    return {
+      ok: true,
+      dryRun: Boolean(dryRun),
+      cutoff: new Date(cutoffMs).toISOString(),
+      kept: 0,
+      removed: 0,
+      malformed: 0,
+    };
+  }
+  const kept = [];
+  let removed = 0;
+  let malformed = 0;
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      continue;
+    }
+    try {
+      const event = normalizeConversationLogEvent(JSON.parse(trimmed));
+      const createdAtMs = parseDateMs(event.createdAt);
+      if (createdAtMs != null && createdAtMs < cutoffMs) {
+        removed += 1;
+      } else {
+        kept.push(event);
+      }
+    } catch {
+      malformed += 1;
+      kept.push(trimmed);
+    }
+  }
+  if (!dryRun) {
+    await mkdir(path.dirname(logPath), { recursive: true });
+    const serialized = kept.map((event) => (
+      typeof event === "string" ? event : JSON.stringify(event)
+    )).join("\n");
+    await writeFile(logPath, serialized ? `${serialized}\n` : "", "utf8");
+  }
+  return {
+    ok: true,
+    dryRun: Boolean(dryRun),
+    cutoff: new Date(cutoffMs).toISOString(),
+    kept: kept.length,
+    removed,
+    malformed,
+  };
+}

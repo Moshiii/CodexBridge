@@ -45,7 +45,7 @@ import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.
 import { appendAdminAuditEvent, listAdminAuditEvents } from "./admin-audit-log.mjs";
 import { getBotMetrics } from "./analytics-service.mjs";
 import { NotFoundError, UserInputError, toPublicError } from "./errors.mjs";
-import { appendConversationLogEvent, listConversationLogEvents } from "./conversation-log.mjs";
+import { appendConversationLogEvent, cleanupConversationLogEvents, listConversationLogEvents } from "./conversation-log.mjs";
 import {
   appendConversationReviewEvent,
   getLatestConversationReviews,
@@ -1195,6 +1195,31 @@ async function listConversationReviewsForBot(botId, options = {}) {
     status: options.status || null,
     limit: options.limit || 100,
   });
+}
+
+async function cleanupConversationLogsForBot(botId, options = {}) {
+  const botHome = await getBotHome(botId);
+  const olderThan = String(options.olderThan || "").trim();
+  if (!olderThan || !Number.isFinite(Date.parse(olderThan))) {
+    throw new UserInputError("Conversation log cleanup requires a valid olderThan timestamp.", {
+      code: "conversation_cleanup_older_than_required",
+      details: { path: "olderThan" },
+    });
+  }
+  const result = await cleanupConversationLogEvents({
+    botHome,
+    olderThan,
+    dryRun: options.dryRun === true || options.dryRun === "true",
+  });
+  await appendAdminAuditEvent({
+    action: "cleanup_conversation_logs",
+    userId: "operator",
+    amount: result.removed,
+    reason: result.dryRun
+      ? `dry_run older_than ${result.cutoff}`
+      : `removed older_than ${result.cutoff}`,
+  }, botHome);
+  return result;
 }
 
 async function reviewConversationLogForBot(botId, eventId, body = {}) {
@@ -3897,6 +3922,15 @@ async function handleApi(request, response, pathname) {
       createdBefore: url.searchParams.get("createdBefore"),
       limit: url.searchParams.get("limit"),
     }));
+  }
+
+  const botConversationLogsCleanupMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs\/cleanup$/);
+  if (request.method === "POST" && botConversationLogsCleanupMatch) {
+    const body = await readJsonBody(request);
+    return json(response, 200, await cleanupConversationLogsForBot(
+      decodeURIComponent(botConversationLogsCleanupMatch[1]),
+      body,
+    ));
   }
 
   const botConversationReviewsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-reviews$/);
