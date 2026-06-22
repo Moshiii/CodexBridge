@@ -187,6 +187,7 @@
    - Operations 风险日志已新增 Confirm Risk / False Positive / Handled 按钮，运营复盘不需要手写 review API。
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
    - Operations 风险日志已新增 risk label 筛选，可按 prompt injection、possible secret、credential-like、email、phone 聚焦复盘。
+   - Operations 风险日志已新增 user / run / channel 筛选，可直接定位某个用户、某次执行或某个入口的风险事件。
    - Operations 已改进空状态文案，用户、用量、runs、风险日志为空或筛选无结果时会提示下一步操作。
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
    - Telegram / 飞书 `/start` 和 `/help` 已改为首次使用说明，解释群聊每日免费、群聊公开可见、`/credits`、私聊解锁和 operator 管理入口。
@@ -696,19 +697,19 @@ denied
 25. 增加 Operations 风险日志一键复盘按钮：confirm risk / false positive / handled
 26. 增加 Operations 风险日志 review 状态筛选
 27. 增加 Operations 风险日志 risk label 筛选
-28. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
-29. 改进 Telegram / 飞书用户侧额度与私聊提示文案：`/credits`、额度不足、私聊未解锁
-30. 改进 Telegram / 飞书首次使用文案：`/start`、`/help` 直接说明怎么问、群聊可见性、每日免费、私聊解锁和 operator 管理
-31. 增加 Telegram bot 入群欢迎触发，自动发送快速开始说明
+28. 增加 Operations 风险日志 user / run / channel 筛选
+29. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
+30. 改进 Telegram / 飞书用户侧额度与私聊提示文案：`/credits`、额度不足、私聊未解锁
+31. 改进 Telegram / 飞书首次使用文案：`/start`、`/help` 直接说明怎么问、群聊可见性、每日免费、私聊解锁和 operator 管理
+32. 增加 Telegram bot 入群欢迎触发，自动发送快速开始说明
 
 接下来再考虑：
 
 1. 把 Feishu 事件回调、可见性检查、访问名单继续表单化。
 2. 增加 Feishu 真实进群欢迎触发和更明确的付费私聊转化入口。
 3. 继续完善 Quick Test 前置检查：把 Telegram / 飞书 / 权限 / runtime 的具体修复动作做成更细粒度的表单操作。
-4. 继续简化 Operations：增加按用户/run/channel 的复盘筛选。
-5. 增加用户侧空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
-6. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
+4. 增加用户侧空状态和错误状态文案，避免出现只有 `Loading...`、空列表或内部字段名的界面。
+5. 数据库迁移、支付订单、worker queue、多实例并发继续作为后续工程化事项。
 
 ## 七、当前已有规划需要调整的地方
 
@@ -753,7 +754,6 @@ denied
 
 ### 尚未完成但已经明确要做
 
-- Operations 按用户/run/channel 的复盘筛选。
 - Feishu 配置继续表单化。
 - 用户侧欢迎、额度、付费转化文案。
 - Web 控制台拆分。

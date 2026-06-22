@@ -1987,6 +1987,18 @@ Skills: installed capabilities</pre>
                   </select>
                 </label>
               </div>
+              <div class="modal-grid">
+                <label>User<input id="operations-risk-user-filter" placeholder="telegram:123" /></label>
+                <label>Run<input id="operations-risk-run-filter" placeholder="run_..." /></label>
+                <label>Channel
+                  <select id="operations-risk-channel-filter">
+                    <option value="all">all</option>
+                    <option value="telegram">telegram</option>
+                    <option value="feishu">feishu</option>
+                    <option value="web">web</option>
+                  </select>
+                </label>
+              </div>
               <div class="list" id="operations-conversation-logs">Loading...</div>
             </div>
           </section>
@@ -2275,12 +2287,24 @@ Skills: installed capabilities</pre>
         ].join("");
       }
 
-      function operationsRiskLogEmptyText(totalRiskLogs, reviewFilter, riskLabelFilter) {
+      function textMatchesFilter(value, filter) {
+        const normalizedFilter = String(filter || "").trim().toLowerCase();
+        if (!normalizedFilter) return true;
+        return String(value || "").toLowerCase().includes(normalizedFilter);
+      }
+
+      function operationsRiskLogEmptyText(totalRiskLogs, filters = {}) {
         if (totalRiskLogs === 0) {
           return "No risky conversation logs yet. Normal traffic can stay empty here; risky or blocked messages will appear for review.";
         }
-        if (reviewFilter !== "all" || riskLabelFilter !== "all") {
-          return "No conversation logs match these filters. Set Review and Label back to all to see every risky log.";
+        if (
+          filters.review !== "all" ||
+          filters.label !== "all" ||
+          filters.channel !== "all" ||
+          filters.user ||
+          filters.run
+        ) {
+          return "No conversation logs match these filters. Clear User/Run and set Review, Label, and Channel back to all to see every risky log.";
         }
         return "No risky conversation logs yet.";
       }
@@ -2564,11 +2588,17 @@ Skills: installed capabilities</pre>
         ]);
         const reviewFilter = document.getElementById("operations-review-filter")?.value || "all";
         const riskLabelFilter = document.getElementById("operations-risk-label-filter")?.value || "all";
+        const riskUserFilter = document.getElementById("operations-risk-user-filter")?.value || "";
+        const riskRunFilter = document.getElementById("operations-risk-run-filter")?.value || "";
+        const riskChannelFilter = document.getElementById("operations-risk-channel-filter")?.value || "all";
         const filteredConversationLogs = conversationLogs.filter((event) => {
           const reviewMatches = reviewFilter === "all"
             || (reviewFilter === "unreviewed" ? !event.review?.status : event.review?.status === reviewFilter);
           const riskLabelMatches = riskLabelFilter === "all" || (event.riskLabels || []).includes(riskLabelFilter);
-          return reviewMatches && riskLabelMatches;
+          const userMatches = textMatchesFilter(event.userId, riskUserFilter);
+          const runMatches = textMatchesFilter(event.runId, riskRunFilter);
+          const channelMatches = riskChannelFilter === "all" || event.channel === riskChannelFilter;
+          return reviewMatches && riskLabelMatches && userMatches && runMatches && channelMatches;
         });
         const metricRows = [
           ["users", metrics.totals?.users ?? 0],
@@ -2652,7 +2682,13 @@ Skills: installed capabilities</pre>
               ]
               : [],
           )),
-          operationsRiskLogEmptyText(conversationLogs.length, reviewFilter, riskLabelFilter)
+          operationsRiskLogEmptyText(conversationLogs.length, {
+            review: reviewFilter,
+            label: riskLabelFilter,
+            user: riskUserFilter,
+            run: riskRunFilter,
+            channel: riskChannelFilter,
+          })
         );
       }
 
@@ -2932,6 +2968,9 @@ Skills: installed capabilities</pre>
       document.getElementById('operations-refresh').onclick = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-review-filter').onchange = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-risk-label-filter').onchange = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-risk-channel-filter').onchange = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-risk-user-filter').oninput = async () => state.selectedBotId && loadOperations(state.selectedBotId);
+      document.getElementById('operations-risk-run-filter').oninput = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
       document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
       document.getElementById('operations-grant').onclick = async () => {
@@ -3127,7 +3166,11 @@ Skills: installed capabilities</pre>
 
       window.__selectOperationsUser = (userId) => {
         document.getElementById('operations-user-id').value = userId;
+        document.getElementById('operations-risk-user-filter').value = userId;
         setSelectedTab('operations');
+        if (state.selectedBotId) {
+          loadOperations(state.selectedBotId);
+        }
       };
 
       async function updateOperationsPrivate(privateEnabled) {
