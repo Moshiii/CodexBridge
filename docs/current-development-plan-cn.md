@@ -203,6 +203,7 @@
    - Operations 风险日志已新增 user / run / channel 筛选，可直接定位某个用户、某次执行或某个入口的风险事件。
    - Operations 已改进空状态文案，用户、用量、runs、风险日志为空或筛选无结果时会提示下一步操作。
    - Operations Admin Actions 已新增选中用户摘要和操作说明，operator 能在 grant/deduct/private/ban 前看到该用户状态、私聊权限、paid credits 和 daily free 使用情况。
+   - Operations Admin Actions 已新增防误点校验：未选用户、金额无效、未知用户会被前端禁用或返回清楚 4xx 错误，不再变成含糊失败。
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
    - Telegram / 飞书 `/start` 和 `/help` 已改为首次使用说明，解释群聊每日免费、群聊公开可见、`/credits`、私聊解锁和 operator 管理入口。
    - Telegram / 飞书首次欢迎语已补齐可照抄的群聊提问示例：Telegram 提示 `@your_bot summarize this repo in 3 bullets`，飞书提示提到 CodexBridge 或应用名后提问。
@@ -736,6 +737,7 @@ denied
 46. 增加 Storage Migration Decision 文档，明确 JSON / JSONL、SQLite、Postgres 的使用边界和迁移触发条件
 47. 增加 `storage.provider = json | sqlite` 配置入口，并在 Web Storage Readiness 中显示当前 provider
 48. 增加 `storageReadiness` 能力状态：SQLite provider 被选择但 adapter 未实现时明确提示不可用，防止误放量
+49. 改进 Operations Admin Actions 防误点体验：未选用户/金额无效时禁用操作，API 对未知用户和无效金额返回明确 4xx
 
 接下来再考虑：
 

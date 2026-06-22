@@ -861,6 +861,24 @@ test("control plane exposes user, credit, usage, and run operations", async () =
       const grantPayload = await grantResponse.json();
       assert.equal(grantPayload.credits.granted, 10);
 
+      const invalidGrantResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:123")}/grant`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ amount: 0 }),
+      });
+      assert.equal(invalidGrantResponse.status, 400);
+      const invalidGrantPayload = await invalidGrantResponse.json();
+      assert.equal(invalidGrantPayload.code, "invalid_credit_amount");
+
+      const unknownUserResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:missing")}/status`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "banned" }),
+      });
+      assert.equal(unknownUserResponse.status, 400);
+      const unknownUserPayload = await unknownUserResponse.json();
+      assert.equal(unknownUserPayload.code, "operations_user_not_found");
+
       const adjustResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/theta/users/${encodeURIComponent("telegram:123")}/adjust`, {
         method: "POST",
         headers: { "content-type": "application/json" },

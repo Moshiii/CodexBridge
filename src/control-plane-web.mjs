@@ -1006,42 +1006,91 @@ async function listBotUsers(botId) {
   return users.sort((a, b) => String(b.lastSeenAt || "").localeCompare(String(a.lastSeenAt || "")));
 }
 
+function normalizeOperationsUserId(userId) {
+  return String(userId || "").trim();
+}
+
+function normalizePositiveIntegerAmount(amount, path = "amount") {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
+    throw new UserInputError("Amount must be a positive whole number.", {
+      code: "invalid_credit_amount",
+      details: { path },
+    });
+  }
+  return value;
+}
+
+function normalizeIntegerAdjustment(amount, path = "amount") {
+  const value = Number(amount);
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value === 0) {
+    throw new UserInputError("Adjustment amount must be a non-zero whole number.", {
+      code: "invalid_credit_adjustment",
+      details: { path },
+    });
+  }
+  return value;
+}
+
+async function assertKnownOperationsUser(botHome, userId) {
+  const normalizedUserId = normalizeOperationsUserId(userId);
+  if (!normalizedUserId) {
+    throw new UserInputError("Select a user before changing credits, private access, or status.", {
+      code: "operations_user_required",
+      details: { path: "userId" },
+    });
+  }
+  const user = (await readUsersState(botHome)).users[normalizedUserId];
+  if (!user) {
+    throw new UserInputError(`Unknown user: ${normalizedUserId}`, {
+      code: "operations_user_not_found",
+      details: { userId: normalizedUserId },
+    });
+  }
+  return user;
+}
+
 async function grantCreditsForBot(botId, userId, amount) {
   const botHome = await getBotHome(botId);
-  const result = await grantPaidCredits({ userId, amount, botHome });
+  const user = await assertKnownOperationsUser(botHome, userId);
+  const normalizedAmount = normalizePositiveIntegerAmount(amount);
+  const result = await grantPaidCredits({ userId: user.id, amount: normalizedAmount, botHome });
   await appendAdminAuditEvent({
     action: "grant_credits",
-    userId,
+    userId: user.id,
     amount: result.granted,
     reason: "manual_grant",
   }, botHome);
   return {
-    user: (await readUsersState(botHome)).users[userId] || null,
+    user,
     credits: result,
   };
 }
 
 async function adjustCreditsForBot(botId, userId, amount, reason) {
   const botHome = await getBotHome(botId);
-  const result = await adjustPaidCredits({ userId, amount, reason, botHome });
+  const user = await assertKnownOperationsUser(botHome, userId);
+  const normalizedAmount = normalizeIntegerAdjustment(amount);
+  const result = await adjustPaidCredits({ userId: user.id, amount: normalizedAmount, reason, botHome });
   await appendAdminAuditEvent({
     action: "adjust_credits",
-    userId,
+    userId: user.id,
     amount: result.adjusted,
     reason,
   }, botHome);
   return {
-    user: (await readUsersState(botHome)).users[userId] || null,
+    user,
     credits: result,
   };
 }
 
 async function updateUserStatusForBot(botId, userId, status) {
   const botHome = await getBotHome(botId);
-  const user = await setUserStatus(userId, status, botHome);
+  const existing = await assertKnownOperationsUser(botHome, userId);
+  const user = await setUserStatus(existing.id, status, botHome);
   await appendAdminAuditEvent({
     action: "set_user_status",
-    userId,
+    userId: existing.id,
     status: user.status,
     reason: "manual_status_update",
   }, botHome);
@@ -1050,10 +1099,11 @@ async function updateUserStatusForBot(botId, userId, status) {
 
 async function updatePrivateEnabledForBot(botId, userId, privateEnabled) {
   const botHome = await getBotHome(botId);
-  const user = await setPrivateEnabled(userId, privateEnabled, botHome);
+  const existing = await assertKnownOperationsUser(botHome, userId);
+  const user = await setPrivateEnabled(existing.id, privateEnabled, botHome);
   await appendAdminAuditEvent({
     action: "set_private_enabled",
-    userId,
+    userId: existing.id,
     privateEnabled: user.privateEnabled,
     reason: "manual_private_update",
   }, botHome);
@@ -2696,6 +2746,7 @@ Skills: installed capabilities</pre>
             ["access", "Select a user from the list before changing credits, private access, or status."],
             ["credits", "Grant adds paid credits; daily free resets separately."],
           ]);
+          updateOperationsActionState(user);
           return;
         }
         const credits = user.credits || {};
@@ -2706,6 +2757,37 @@ Skills: installed capabilities</pre>
           ["paid credits", String(credits.paidCredits ?? 0)],
           ["daily free", String((credits.dailyFreeUsed ?? 0) + "/" + (credits.dailyFreeLimit ?? 0))],
         ]);
+        updateOperationsActionState(user);
+      }
+
+      function readOperationsAmount() {
+        const raw = document.getElementById("operations-credit-amount")?.value.trim() || "";
+        const amount = Number(raw);
+        return Number.isInteger(amount) && amount > 0 ? amount : 0;
+      }
+
+      function updateOperationsActionState(selectedUser) {
+        const hasUser = Boolean(selectedUser);
+        const hasAmount = readOperationsAmount() > 0;
+        const setDisabled = (id, disabled) => {
+          const element = document.getElementById(id);
+          if (element) element.disabled = disabled;
+        };
+        setDisabled("operations-grant", !hasUser || !hasAmount);
+        setDisabled("operations-deduct", !hasUser || !hasAmount);
+        setDisabled("operations-unlock", !hasUser);
+        setDisabled("operations-lock", !hasUser);
+        setDisabled("operations-ban", !hasUser || selectedUser?.status === "banned");
+        setDisabled("operations-unban", !hasUser || selectedUser?.status !== "banned");
+        const hint = document.getElementById("operations-admin-hint");
+        if (!hint) return;
+        if (!hasUser) {
+          hint.textContent = "Select a user from the list before changing credits, private access, or status.";
+        } else if (!hasAmount) {
+          hint.textContent = "Enter a positive whole number before granting or deducting credits. Private and ban actions are ready.";
+        } else {
+          hint.textContent = "Actions are ready. Grant adds paid credits; deduct removes paid credits; ban blocks group and private chat.";
+        }
       }
 
       function renderSetupGuide(setupGuide) {
@@ -3212,6 +3294,7 @@ Skills: installed capabilities</pre>
       document.getElementById('operations-risk-user-filter').oninput = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-risk-run-filter').oninput = async () => state.selectedBotId && loadOperations(state.selectedBotId);
       document.getElementById('operations-user-id').oninput = () => renderSelectedOperationsUser();
+      document.getElementById('operations-credit-amount').oninput = () => renderSelectedOperationsUser();
       document.getElementById('operations-show-operator').onclick = () => setOperationsView('operator');
       document.getElementById('operations-show-debug').onclick = () => setOperationsView('debug');
       document.getElementById('run-state-migrations').onclick = async () => {
@@ -3223,7 +3306,11 @@ Skills: installed capabilities</pre>
       document.getElementById('operations-grant').onclick = async () => {
         if (!state.selectedBotId) return;
         const userId = document.getElementById('operations-user-id').value.trim();
-        const amount = Number.parseInt(document.getElementById('operations-credit-amount').value, 10);
+        const amount = readOperationsAmount();
+        if (!userId || !amount) {
+          showToast('Select a user and enter a positive credit amount');
+          return;
+        }
         await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/grant', {
           method: 'POST',
           body: JSON.stringify({ amount }),
@@ -3234,7 +3321,11 @@ Skills: installed capabilities</pre>
       document.getElementById('operations-deduct').onclick = async () => {
         if (!state.selectedBotId) return;
         const userId = document.getElementById('operations-user-id').value.trim();
-        const amount = Number.parseInt(document.getElementById('operations-credit-amount').value, 10);
+        const amount = readOperationsAmount();
+        if (!userId || !amount) {
+          showToast('Select a user and enter a positive credit amount');
+          return;
+        }
         await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/adjust', {
           method: 'POST',
           body: JSON.stringify({ amount: -Math.abs(amount), reason: 'manual_deduct' }),
@@ -3423,6 +3514,10 @@ Skills: installed capabilities</pre>
 
       async function updateOperationsPrivate(privateEnabled) {
         const userId = document.getElementById('operations-user-id').value.trim();
+        if (!userId) {
+          showToast('Select a user first');
+          return;
+        }
         await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/private', {
           method: 'POST',
           body: JSON.stringify({ privateEnabled }),
@@ -3433,6 +3528,10 @@ Skills: installed capabilities</pre>
 
       async function updateOperationsStatus(status) {
         const userId = document.getElementById('operations-user-id').value.trim();
+        if (!userId) {
+          showToast('Select a user first');
+          return;
+        }
         await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/status', {
           method: 'POST',
           body: JSON.stringify({ status }),
