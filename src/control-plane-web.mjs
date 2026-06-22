@@ -2922,6 +2922,16 @@ Skills: installed capabilities</pre>
 
       function renderQuickTestDiagnostics(preflight) {
         const missingSteps = preflight?.missingSteps || [];
+        const actionButtonsForStep = (step) => {
+          const buttons = [];
+          if (step.id === "start_runtime") {
+            buttons.push("<button class=\\\"primary\\\" onclick=\\\"window.__startRuntimeFromSetup()\\\">Start Runtime</button>");
+          }
+          if (step.targetTab) {
+            buttons.push("<button onclick=\\\"window.__openSetupStep('" + escapeHtml(step.targetTab) + "')\\\">Go</button>");
+          }
+          return buttons;
+        };
         renderKV("quick-test-diagnostics", [
           ["local test", "Run Quick Test can verify this host's Codex before IM is fully ready"],
           ["invite gate", preflight?.readyForIm ? "ready for a real IM test" : "finish the missing IM setup first"],
@@ -2931,9 +2941,7 @@ Skills: installed capabilities</pre>
           missingSteps.map((step) => renderBotItem(
             "Missing: " + step.label,
             [step.action, step.hint, step.targetTab ? "tab " + step.targetTab : null].filter(Boolean).join(" | "),
-            step.targetTab
-              ? ["<button onclick=\\\"window.__openSetupStep('" + escapeHtml(step.targetTab) + "')\\\">Go</button>"]
-              : [],
+            actionButtonsForStep(step),
           )),
           preflight?.readyForIm
             ? "IM setup is ready. Run Quick Test, then invite one test user or group."
@@ -3633,6 +3641,12 @@ Skills: installed capabilities</pre>
       window.__openSetupStep = (tabName) => {
         setSelectedTab(tabName);
         showToast('Opened ' + tabName);
+      };
+
+      window.__startRuntimeFromSetup = async () => {
+        if (!state.selectedBotId) return;
+        await mutateBot(state.selectedBotId, 'start');
+        showToast('Runtime started');
       };
 
       window.__allowTelegramAccess = async (accessType, id) => {
