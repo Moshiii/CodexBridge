@@ -2895,6 +2895,19 @@ Skills: installed capabilities</pre>
       function renderSetupGuide(setupGuide) {
         const guide = setupGuide || { completed: 0, total: 0, steps: [] };
         const next = guide.nextStep;
+        const actionButtonsForSetupStep = (step) => {
+          const buttons = [];
+          if (step.id === "start_runtime") {
+            buttons.push("<button class=\\\"primary\\\" onclick=\\\"window.__startRuntimeFromSetup()\\\">Start Runtime</button>");
+          }
+          if (step.id === "send_first_message") {
+            buttons.push("<button class=\\\"primary\\\" onclick=\\\"window.__runQuickTestFromSetup()\\\">Run Quick Test</button>");
+          }
+          if (step.targetTab) {
+            buttons.push("<button onclick=\\\"window.__openSetupStep('" + escapeHtml(step.targetTab) + "')\\\">Go</button>");
+          }
+          return buttons;
+        };
         document.getElementById("setup-summary").textContent = guide.ready
           ? "Ready to use. The bot has a channel, audience, runtime, and at least one test run."
           : "Setup " + (guide.completed ?? 0) + "/" + (guide.total ?? 0) + " complete. Next: " + (next?.label || "check configuration") + ".";
@@ -2902,9 +2915,7 @@ Skills: installed capabilities</pre>
           (guide.steps || []).map((step) => renderBotItem(
             (step.status === "done" ? "Done: " : "Next: ") + step.label,
             [step.action, step.hint, step.targetTab ? "tab " + step.targetTab : null].filter(Boolean).join(" | "),
-            step.targetTab
-              ? ["<button onclick=\\\"window.__openSetupStep('" + escapeHtml(step.targetTab) + "')\\\">Go</button>"]
-              : [],
+            actionButtonsForSetupStep(step),
           )),
           "No setup steps available."
         );
@@ -3647,6 +3658,10 @@ Skills: installed capabilities</pre>
         if (!state.selectedBotId) return;
         await mutateBot(state.selectedBotId, 'start');
         showToast('Runtime started');
+      };
+
+      window.__runQuickTestFromSetup = async () => {
+        await runQuickTest();
       };
 
       window.__allowTelegramAccess = async (accessType, id) => {
