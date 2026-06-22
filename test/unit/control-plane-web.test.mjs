@@ -42,6 +42,8 @@ test("getBotControlPlaneDetail includes inspect, health, and logs", async () => 
     assert.equal(detail.setupGuide.total, 5);
     assert.equal(detail.setupGuide.nextStep.id, "configure_channel");
     assert.match(detail.setupGuide.nextStep.hint, /Choose Telegram or Feishu/);
+    assert.equal(detail.migrationStatus.currentSchemaVersion, 1);
+    assert.equal(detail.migrationStatus.pending.length, 1);
     assert.equal(detail.quickTestPreflight.readyForIm, false);
     assert.equal(detail.quickTestPreflight.missingSteps[0].id, "configure_channel");
     assert.match(detail.quickTestPreflight.missingSteps[0].hint, /Choose Telegram or Feishu/);
@@ -131,6 +133,8 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /invite-readiness/);
       assert.match(homeHtml, /Do not invite users yet/);
       assert.match(homeHtml, /Ready to invite users/);
+      assert.match(homeHtml, /storage-readiness/);
+      assert.match(homeHtml, /Run migrations before inviting users/);
       assert.match(homeHtml, /Save Telegram Settings/);
       assert.match(homeHtml, /__allowTelegramAccess/);
       assert.match(homeHtml, /Feishu Quick Settings/);

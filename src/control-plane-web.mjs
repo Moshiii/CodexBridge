@@ -51,6 +51,7 @@ import {
   getLatestConversationReviews,
   listConversationReviewEvents,
 } from "./conversation-review.mjs";
+import { getStateMigrationStatus } from "./state-migrations.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -1163,6 +1164,7 @@ export async function getBotControlPlaneDetail(botId) {
     logs: await readBotLogs(botId, 50),
     access,
     setupGuide,
+    migrationStatus: await getStateMigrationStatus({ botHome: detail.bot.homePath }),
     quickTestPreflight: buildQuickTestPreflight(setupGuide),
   };
 }
@@ -1756,6 +1758,10 @@ function renderHtmlPage() {
                 <div class="section-kicker">Overview</div>
                 <h3>Control Room</h3>
                 <p class="subtle" id="setup-summary">Loading setup status...</p>
+                <div class="kv" id="storage-readiness">
+                  <div>Storage</div><div>Checking state schema.</div>
+                  <div>Next</div><div>Run migrations before inviting users if pending migrations appear.</div>
+                </div>
               </div>
               <div class="card">
                 <div class="section-kicker">Quick Start</div>
@@ -2683,6 +2689,20 @@ Skills: installed capabilities</pre>
         ]);
       }
 
+      function renderStorageReadiness(migrationStatus) {
+        const pending = migrationStatus?.pending || [];
+        const current = migrationStatus?.currentSchemaVersion ?? "unknown";
+        const actual = migrationStatus?.schemaVersion ?? "unknown";
+        renderKV("storage-readiness", [
+          ["storage", pending.length === 0 ? "ready" : "migration needed"],
+          ["schema", String(actual) + " / " + String(current)],
+          ["next", pending.length === 0
+            ? "State files are normalized for this version."
+            : "Run /migrate for this bot before inviting more users."],
+          ["pending", pending.length === 0 ? "none" : pending.map((migration) => migration.id).join(", ")],
+        ]);
+      }
+
       function renderFeishuSetupSummary(config) {
         const feishu = config.channels?.feishu || {};
         const setup = feishu.setup || {};
@@ -2910,6 +2930,7 @@ Skills: installed capabilities</pre>
         renderBadges(bot, config);
         setTopStatus(payload);
         renderSetupGuide(payload.setupGuide);
+        renderStorageReadiness(payload.migrationStatus);
         document.getElementById("metric-bot").textContent = bot.name;
         document.getElementById("metric-runtime").textContent = payload.health.healthy ? "Online" : "Offline";
         document.getElementById("metric-telegram").textContent = config.channels?.telegram?.enabled ? "Paired" : "Unpaired";
