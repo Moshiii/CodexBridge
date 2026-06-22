@@ -216,6 +216,7 @@
    - Operations Admin Actions 已新增 Grant + Unlock 付费转化快捷动作，可一次性增加 paid credits 并解锁私聊，减少 operator 对满意用户开通时的重复操作。
    - Operations Admin Actions 已新增 Last Action 确认区，grant / grant+unlock / deduct / lock / unlock / ban / unban 后会保留最近一次操作结果，不只依赖短暂 toast。
    - Operations Users 已新增用户阶段标签：New / Trial Lead / Paid Private / Admin / Banned，帮助 operator 快速判断谁是试用线索、谁已经付费解锁。
+   - Operations 选中用户摘要已新增 Next Action：按用户阶段提示继续观察、Grant + Unlock、复核 ban 或引导先完成一次群聊试用。
    - Telegram / 飞书用户侧 `/credits`、私聊未解锁、额度不足文案已改为更直接的产品说明，突出群聊每日免费、付费 credits、私聊解锁和下一步动作。
    - Telegram / 飞书用户侧 `/credits` 已新增每日免费剩余额度和 Next 提示；额度不足、私聊未解锁、被封禁都会明确说明本次未扣 credits 和下一步。
    - Telegram / 飞书用户侧 `/credits` 在私聊已解锁时会明确提示：直接私聊 bot 做 private work，群聊仍公开可见，私聊消耗 paid credits。
@@ -772,6 +773,7 @@ denied
 63. 改进 Telegram / 飞书 `/credits` 私聊已解锁提示，明确下一步是直接私聊 bot，群聊仍公开，私聊消耗 paid credits
 64. 改进私聊未解锁提示，提醒用户群聊公开可见，不要在免费群聊里发送 private/sensitive content
 65. 增加 Operations Admin Actions Last Action 确认区，让最近一次运营操作结果持续可见
+66. 增加 Operations 选中用户 Next Action，按阶段提示观察、Grant + Unlock、复核 ban 或先群聊试用
 
 接下来再考虑：
 

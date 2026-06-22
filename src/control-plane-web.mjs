@@ -2855,6 +2855,15 @@ Skills: installed capabilities</pre>
         return "New";
       }
 
+      function operationsUserNextAction(user) {
+        const stage = operationsUserStage(user);
+        if (stage === "Banned") return "Review the ban before changing credits or private access.";
+        if (stage === "Admin") return "Monitor usage and risk logs; admin already has private access.";
+        if (stage === "Paid Private") return "Monitor paid credits, refunds, and risk logs while the user uses private chat.";
+        if (stage === "Trial Lead") return "If the user is satisfied, use Grant + Unlock to add paid credits and enable private chat.";
+        return "Let the user try one public group question, then review usage before granting credits.";
+      }
+
       function renderSelectedOperationsUser() {
         const userId = document.getElementById("operations-user-id")?.value.trim() || "";
         const user = (state.operationsUsers || []).find((entry) => entry.id === userId);
@@ -2875,6 +2884,7 @@ Skills: installed capabilities</pre>
           ["private", user.privateEnabled ? "unlocked" : "locked"],
           ["paid credits", String(credits.paidCredits ?? 0)],
           ["daily free", String((credits.dailyFreeUsed ?? 0) + "/" + (credits.dailyFreeLimit ?? 0))],
+          ["next action", operationsUserNextAction(user)],
         ]);
         updateOperationsActionState(user);
       }
