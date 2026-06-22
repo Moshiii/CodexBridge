@@ -129,6 +129,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /__allowTelegramAccess/);
       assert.match(homeHtml, /Feishu Quick Settings/);
       assert.match(homeHtml, /Save Feishu Settings/);
+      assert.match(homeHtml, /feishu-verification-token-input/);
+      assert.match(homeHtml, /feishu-encrypt-key-input/);
+      assert.match(homeHtml, /feishu-receive-id-type-input/);
       assert.match(homeHtml, /Operator View/);
       assert.match(homeHtml, /operations-show-debug/);
       assert.match(homeHtml, /riskOnly=true/);
@@ -244,6 +247,8 @@ test("control plane web server exposes logs and config update endpoints", async 
               enabled: true,
               appId: "cli_a",
               appSecret: "secret-gamma",
+              verificationToken: "verify-gamma",
+              encryptKey: "encrypt-gamma",
             },
           },
         }),
@@ -251,6 +256,8 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(feishuSecretResponse.status, 200);
       const feishuSecretPayload = await feishuSecretResponse.json();
       assert.equal(feishuSecretPayload.channels.feishu.appSecret, "[redacted]");
+      assert.equal(feishuSecretPayload.channels.feishu.verificationToken, "[redacted]");
+      assert.equal(feishuSecretPayload.channels.feishu.encryptKey, "[redacted]");
 
       const feishuQuickResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
         method: "POST",
@@ -262,6 +269,7 @@ test("control plane web server exposes logs and config update endpoints", async 
             feishu: {
               enabled: true,
               appId: "cli_quick",
+              defaultReceiveIdType: "open_id",
               requireExplicitMention: false,
               botMentionNames: ["CodexBridge", "助手"],
             },
@@ -273,6 +281,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(feishuQuickPayload.channels.feishu.enabled, true);
       assert.equal(feishuQuickPayload.channels.feishu.appId, "cli_quick");
       assert.equal(feishuQuickPayload.channels.feishu.appSecret, "[redacted]");
+      assert.equal(feishuQuickPayload.channels.feishu.verificationToken, "[redacted]");
+      assert.equal(feishuQuickPayload.channels.feishu.encryptKey, "[redacted]");
+      assert.equal(feishuQuickPayload.channels.feishu.defaultReceiveIdType, "open_id");
       assert.equal(feishuQuickPayload.channels.feishu.requireExplicitMention, false);
       assert.deepEqual(feishuQuickPayload.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
 
@@ -289,6 +300,8 @@ test("control plane web server exposes logs and config update endpoints", async 
             feishu: {
               appId: "cli_a",
               appSecret: "[redacted]",
+              verificationToken: "[redacted]",
+              encryptKey: "[redacted]",
             },
           },
         }),
@@ -306,6 +319,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.equal(persisted.channels.feishu.enabled, true);
       assert.equal(persisted.channels.feishu.appId, "cli_a");
       assert.equal(persisted.channels.feishu.appSecret, "secret-gamma");
+      assert.equal(persisted.channels.feishu.verificationToken, "verify-gamma");
+      assert.equal(persisted.channels.feishu.encryptKey, "encrypt-gamma");
+      assert.equal(persisted.channels.feishu.defaultReceiveIdType, "open_id");
       assert.equal(persisted.channels.feishu.requireExplicitMention, false);
       assert.deepEqual(persisted.channels.feishu.botMentionNames, ["CodexBridge", "助手"]);
     } finally {

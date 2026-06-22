@@ -164,6 +164,8 @@ function redactConfigSecrets(config) {
       feishu: {
         ...(config.channels?.feishu || {}),
         appSecret: redactSecret(config.channels?.feishu?.appSecret),
+        verificationToken: redactSecret(config.channels?.feishu?.verificationToken),
+        encryptKey: redactSecret(config.channels?.feishu?.encryptKey),
       },
     },
   };
@@ -807,6 +809,16 @@ function applySafeConfigPatch(currentConfig, patch) {
   const currentFeishuSecret = currentConfig.channels?.feishu?.appSecret || "";
   if (isRedactedSecret(nextFeishuSecret)) {
     nextConfig.channels.feishu.appSecret = currentFeishuSecret;
+  }
+  const nextFeishuVerificationToken = nextConfig.channels?.feishu?.verificationToken;
+  const currentFeishuVerificationToken = currentConfig.channels?.feishu?.verificationToken || "";
+  if (isRedactedSecret(nextFeishuVerificationToken)) {
+    nextConfig.channels.feishu.verificationToken = currentFeishuVerificationToken;
+  }
+  const nextFeishuEncryptKey = nextConfig.channels?.feishu?.encryptKey;
+  const currentFeishuEncryptKey = currentConfig.channels?.feishu?.encryptKey || "";
+  if (isRedactedSecret(nextFeishuEncryptKey)) {
+    nextConfig.channels.feishu.encryptKey = currentFeishuEncryptKey;
   }
   return nextConfig;
 }
@@ -1809,6 +1821,16 @@ Skills: installed capabilities</pre>
                   </label>
                   <label>App ID<input id="feishu-app-id-input" placeholder="cli_xxx" /></label>
                   <label>App Secret<input id="feishu-app-secret-input" type="password" placeholder="Leave blank to keep existing secret" /></label>
+                  <label>Verification Token<input id="feishu-verification-token-input" type="password" placeholder="Leave blank to keep existing token" /></label>
+                  <label>Encrypt Key<input id="feishu-encrypt-key-input" type="password" placeholder="Leave blank to keep existing key" /></label>
+                  <label>Receive ID Type
+                    <select id="feishu-receive-id-type-input">
+                      <option value="chat_id">chat_id</option>
+                      <option value="open_id">open_id</option>
+                      <option value="union_id">union_id</option>
+                      <option value="email">email</option>
+                    </select>
+                  </label>
                   <label>Mention Required
                     <select id="feishu-mention-required-input">
                       <option value="true">true</option>
@@ -2303,6 +2325,9 @@ Skills: installed capabilities</pre>
         document.getElementById("feishu-enabled-input").value = String(config.channels?.feishu?.enabled ?? false);
         document.getElementById("feishu-app-id-input").value = config.channels?.feishu?.appId || "";
         document.getElementById("feishu-app-secret-input").value = "";
+        document.getElementById("feishu-verification-token-input").value = "";
+        document.getElementById("feishu-encrypt-key-input").value = "";
+        document.getElementById("feishu-receive-id-type-input").value = config.channels?.feishu?.defaultReceiveIdType || "chat_id";
         document.getElementById("feishu-mention-required-input").value = String(config.channels?.feishu?.requireExplicitMention ?? true);
         document.getElementById("feishu-mention-names-input").value = (config.channels?.feishu?.botMentionNames || []).join(", ");
       }
@@ -2365,9 +2390,12 @@ Skills: installed capabilities</pre>
 
       async function saveFeishuSettings(botId) {
         const secret = document.getElementById("feishu-app-secret-input").value.trim();
+        const verificationToken = document.getElementById("feishu-verification-token-input").value.trim();
+        const encryptKey = document.getElementById("feishu-encrypt-key-input").value.trim();
         const feishu = {
           enabled: document.getElementById("feishu-enabled-input").value === "true",
           appId: document.getElementById("feishu-app-id-input").value.trim(),
+          defaultReceiveIdType: document.getElementById("feishu-receive-id-type-input").value,
           requireExplicitMention: document.getElementById("feishu-mention-required-input").value === "true",
           botMentionNames: document.getElementById("feishu-mention-names-input").value
             .split(",")
@@ -2376,6 +2404,12 @@ Skills: installed capabilities</pre>
         };
         if (secret) {
           feishu.appSecret = secret;
+        }
+        if (verificationToken) {
+          feishu.verificationToken = verificationToken;
+        }
+        if (encryptKey) {
+          feishu.encryptKey = encryptKey;
         }
         await request('/api/bots/' + botId + '/config', {
           method: 'POST',
@@ -2711,6 +2745,9 @@ Skills: installed capabilities</pre>
           ["enabled", config.channels?.feishu?.enabled ? "yes" : "no"],
           ["app id", config.channels?.feishu?.appId || "none"],
           ["secret present", config.channels?.feishu?.appSecret ? "yes" : "no"],
+          ["verification token present", config.channels?.feishu?.verificationToken ? "yes" : "no"],
+          ["encrypt key present", config.channels?.feishu?.encryptKey ? "yes" : "no"],
+          ["receive id type", config.channels?.feishu?.defaultReceiveIdType || "chat_id"],
           ["mention required", String(config.channels?.feishu?.requireExplicitMention ?? true)],
           ["mention names", (config.channels?.feishu?.botMentionNames || []).join(", ") || "(none)"],
         ]);

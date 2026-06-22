@@ -182,6 +182,7 @@
    - Telegram tab 已新增 Quick Settings，可直接保存 enabled、bot username、mention required 和 token，不必进入 Raw Config。
    - Known Chats / Known Users 已新增一键允许入口，可直接加入 private chat、group chat 或 group user 访问名单。
    - Feishu tab 已新增 Quick Settings，可直接保存 enabled、appId、appSecret、mention required 和 mention names，不必进入 Raw Config。
+   - Feishu Quick Settings 已补齐 verification token、encrypt key、receive id type，并对这些敏感字段做脱敏展示和 `[redacted]` 保留。
    - Operations tab 已新增 Operator / Debug 视图切换；默认聚焦用户、充值/封禁、风险日志，Usage Ledger 和 Runs 放入 Debug。
    - Operations 风险日志已新增 Confirm Risk / False Positive / Handled 按钮，运营复盘不需要手写 review API。
    - Operations 风险日志已新增 review 状态筛选，可直接查看 all / unreviewed / confirmed risk / false positive / handled。
@@ -687,11 +688,12 @@ denied
 20. 增加 Telegram Quick Settings，把最常用配置从 Raw Config 前移到 Telegram tab
 21. 增加 Telegram Known Chats / Known Users 一键加入访问名单
 22. 增加 Feishu Quick Settings，把飞书常用配置从 Raw Config 前移到 Feishu tab
-23. 增加 Operations Operator / Debug 视图，默认隐藏低频调试信息并优先展示风险日志
-24. 增加 Operations 风险日志一键复盘按钮：confirm risk / false positive / handled
-25. 增加 Operations 风险日志 review 状态筛选
-26. 增加 Operations 风险日志 risk label 筛选
-27. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
+23. 补齐 Feishu Quick Settings 的 verification token、encrypt key、receive id type，并对敏感字段脱敏
+24. 增加 Operations Operator / Debug 视图，默认隐藏低频调试信息并优先展示风险日志
+25. 增加 Operations 风险日志一键复盘按钮：confirm risk / false positive / handled
+26. 增加 Operations 风险日志 review 状态筛选
+27. 增加 Operations 风险日志 risk label 筛选
+28. 改进 Operations 空状态文案，让无用户、无用量、无 runs、无风险日志和筛选无结果时都有可行动提示
 
 接下来再考虑：
 
