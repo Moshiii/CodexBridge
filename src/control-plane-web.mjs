@@ -64,6 +64,38 @@ const PLACEHOLDER_TOKEN_PATTERNS = [
 ];
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
 const QUICK_TEST_PROMPT = "Reply with one short sentence confirming CodexBridge is ready.";
+const WORKSPACE_DEMO_PROMPTS = [
+  {
+    id: "create-file",
+    title: "Create file",
+    description: "Ask the assistant to create a reusable markdown file in the workspace.",
+    prompt: [
+      "Create a 3-day Beijing weekend plan for two people as a markdown file.",
+      "Make it relaxed, include food, walks, cafes, and one backup indoor option per day.",
+      "Save it as beijing-weekend-plan.md in the workspace.",
+    ].join("\n"),
+  },
+  {
+    id: "edit-draft",
+    title: "Edit draft",
+    description: "Turn rough workspace notes into a clear file.",
+    prompt: [
+      "Read raw-notes.md and rewrite it into a clear product one-pager.",
+      "Save the result as product-one-pager.md.",
+      "Keep it concise and suitable for a GitHub README or investor intro.",
+    ].join("\n"),
+  },
+  {
+    id: "continue-project",
+    title: "Continue project",
+    description: "Reopen an existing workspace file and keep the project moving.",
+    prompt: [
+      "Open launch-checklist.md.",
+      "Mark the README positioning work as done.",
+      "Add the next three tasks for a public demo.",
+    ].join("\n"),
+  },
+];
 const REDACTED_SECRET = "[redacted]";
 const activeChatRuns = new Map();
 const activeGoalRuns = new Map();
@@ -1919,6 +1951,8 @@ function renderHtmlPage() {
               <div class="card">
                 <div class="section-kicker">Modes</div>
                 <h3>Work Surface</h3>
+                <p class="subtle">Start with a file workflow so the value is visible in the workspace, not only in chat.</p>
+                <div class="list" id="overview-demo-prompts"></div>
                 <pre>Sessions: manage session refs
 Chat: run prompt turns
 Goals: long-running work
@@ -2107,6 +2141,7 @@ Skills: installed capabilities</pre>
               </div>
               <div class="card">
                 <h3>Composer</h3>
+                <div class="list" id="chat-demo-prompts"></div>
                 <textarea id="chat-input">Summarize the current repo and propose next steps.</textarea>
                 <div class="toolbar">
                   <button class="primary" id="send-chat">Send</button>
@@ -2447,6 +2482,7 @@ Skills: installed capabilities</pre>
         detail: null,
         operationsUsers: [],
       };
+      const workspaceDemoPrompts = ${JSON.stringify(WORKSPACE_DEMO_PROMPTS)};
 
       async function request(path, options = {}) {
         const response = await fetch(path, {
@@ -2575,6 +2611,25 @@ Skills: installed capabilities</pre>
 
       function renderWorkspaceFileButton(entry, label = "Open") {
         return "<button onclick=\\\"window.__openWorkspaceFileFromOverview(decodeURIComponent('" + encodeURIComponent(entry.path) + "'))\\\">" + escapeHtml(label) + "</button>";
+      }
+
+      function renderWorkspaceDemoPrompts(rootId) {
+        document.getElementById(rootId).innerHTML = renderList(
+          workspaceDemoPrompts.map((item) => renderBotItem(
+            item.title,
+            item.description,
+            ["<button onclick=\\\"window.__useWorkspaceDemoPrompt('" + item.id + "')\\\">Use Prompt</button>"],
+          )),
+          "No demo prompts configured."
+        );
+      }
+
+      function useWorkspaceDemoPrompt(promptId) {
+        const item = workspaceDemoPrompts.find((candidate) => candidate.id === promptId);
+        if (!item) return;
+        document.getElementById("chat-input").value = item.prompt;
+        setSelectedTab("chat");
+        showToast("Prompt loaded: " + item.title);
       }
 
       function textMatchesFilter(value, filter) {
@@ -3369,6 +3424,8 @@ Skills: installed capabilities</pre>
         renderSetupGuide(payload.setupGuide);
         renderQuickTestDiagnostics(payload.quickTestPreflight);
         renderStorageReadiness(payload.storageReadiness);
+        renderWorkspaceDemoPrompts("overview-demo-prompts");
+        renderWorkspaceDemoPrompts("chat-demo-prompts");
         document.getElementById("metric-bot").textContent = bot.name;
         document.getElementById("metric-runtime").textContent = payload.health.healthy ? "Online" : "Offline";
         document.getElementById("metric-telegram").textContent = config.channels?.telegram?.enabled ? "Paired" : "Unpaired";
@@ -3795,6 +3852,10 @@ Skills: installed capabilities</pre>
       window.__openSetupStep = (tabName) => {
         setSelectedTab(tabName);
         showToast('Opened ' + tabName);
+      };
+
+      window.__useWorkspaceDemoPrompt = (promptId) => {
+        useWorkspaceDemoPrompt(promptId);
       };
 
       window.__startRuntimeFromSetup = async () => {

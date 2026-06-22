@@ -139,6 +139,10 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /quick-test-missing-steps/);
       assert.match(homeHtml, /overview-recent-files/);
       assert.match(homeHtml, /No files yet\. Run Quick Test or ask the assistant to create a markdown file\./);
+      assert.match(homeHtml, /overview-demo-prompts/);
+      assert.match(homeHtml, /chat-demo-prompts/);
+      assert.match(homeHtml, /Create a 3-day Beijing weekend plan/);
+      assert.match(homeHtml, /__useWorkspaceDemoPrompt/);
       assert.match(homeHtml, /Run Quick Test can verify this host/);
       assert.match(homeHtml, /__startRuntimeFromSetup/);
       assert.match(homeHtml, /__runQuickTestFromSetup/);
