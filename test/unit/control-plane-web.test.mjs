@@ -193,6 +193,9 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /operations-risk-channel-filter/);
       assert.match(homeHtml, /operations-selected-user/);
       assert.match(homeHtml, /Grant adds paid credits/);
+      assert.match(homeHtml, /operations-grant-unlock/);
+      assert.match(homeHtml, /Grant \+ Unlock/);
+      assert.match(homeHtml, /paid conversion shortcut/);
       assert.match(homeHtml, /Ban blocks both group and private chat/);
       assert.match(homeHtml, /prompt_injection_signal/);
       assert.match(homeHtml, /Use Quick Test or ask from Telegram\/Feishu/);

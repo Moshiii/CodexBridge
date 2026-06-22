@@ -2191,13 +2191,14 @@ Skills: installed capabilities</pre>
                 </div>
                 <div class="toolbar">
                   <button class="primary" id="operations-grant">Grant</button>
+                  <button class="primary" id="operations-grant-unlock">Grant + Unlock</button>
                   <button id="operations-deduct">Deduct</button>
                   <button id="operations-unlock">Unlock Private</button>
                   <button id="operations-lock">Lock Private</button>
                   <button id="operations-ban" class="danger">Ban</button>
                   <button id="operations-unban">Unban</button>
                 </div>
-                <p class="subtle" id="operations-admin-hint">Grant adds paid credits. Deduct removes paid credits. Unlock Private enables paid direct chat. Ban blocks both group and private chat.</p>
+                <p class="subtle" id="operations-admin-hint">Grant adds paid credits. Grant + Unlock adds paid credits and enables paid direct chat. Ban blocks both group and private chat.</p>
               </div>
             </div>
             <div class="two-col operations-debug" style="margin-top:14px; display:none;">
@@ -2877,6 +2878,7 @@ Skills: installed capabilities</pre>
           if (element) element.disabled = disabled;
         };
         setDisabled("operations-grant", !hasUser || !hasAmount);
+        setDisabled("operations-grant-unlock", !hasUser || !hasAmount);
         setDisabled("operations-deduct", !hasUser || !hasAmount);
         setDisabled("operations-unlock", !hasUser);
         setDisabled("operations-lock", !hasUser);
@@ -2889,7 +2891,7 @@ Skills: installed capabilities</pre>
         } else if (!hasAmount) {
           hint.textContent = "Enter a positive whole number before granting or deducting credits. Private and ban actions are ready.";
         } else {
-          hint.textContent = "Actions are ready. Grant adds paid credits; deduct removes paid credits; ban blocks group and private chat.";
+          hint.textContent = "Actions are ready. Grant + Unlock is the paid conversion shortcut; deduct removes paid credits; ban blocks group and private chat.";
         }
       }
 
@@ -3562,6 +3564,25 @@ Skills: installed capabilities</pre>
           body: JSON.stringify({ amount }),
         });
         showToast('Credits granted');
+        await loadOperations(state.selectedBotId);
+      };
+      document.getElementById('operations-grant-unlock').onclick = async () => {
+        if (!state.selectedBotId) return;
+        const userId = document.getElementById('operations-user-id').value.trim();
+        const amount = readOperationsAmount();
+        if (!userId || !amount) {
+          showToast('Select a user and enter a positive credit amount');
+          return;
+        }
+        await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/grant', {
+          method: 'POST',
+          body: JSON.stringify({ amount }),
+        });
+        await request('/api/bots/' + state.selectedBotId + '/users/' + encodeURIComponent(userId) + '/private', {
+          method: 'POST',
+          body: JSON.stringify({ privateEnabled: true }),
+        });
+        showToast('Credits granted and private unlocked');
         await loadOperations(state.selectedBotId);
       };
       document.getElementById('operations-deduct').onclick = async () => {
