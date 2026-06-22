@@ -42,10 +42,14 @@ test("validateBotConfig reports malformed channel arrays", async () => {
     const config = normalizeBotConfig(createDefaultBotConfig());
     config.channels.telegram.groups.allowedUserIds = "not-array";
     config.channels.feishu.testAudience.userIds = "not-array";
+    config.channels.feishu.documentHandling.defaultOutput = "pdf_only";
+    config.channels.feishu.documentHandling.allowAttachmentInput = "yes";
     const errors = validateBotConfig(config);
 
     assert.equal(errors.some((error) => error.path === "channels.telegram.groups.allowedUserIds"), true);
     assert.equal(errors.some((error) => error.path === "channels.feishu.testAudience.userIds"), true);
+    assert.equal(errors.some((error) => error.path === "channels.feishu.documentHandling.defaultOutput"), true);
+    assert.equal(errors.some((error) => error.path === "channels.feishu.documentHandling.allowAttachmentInput"), true);
   });
 });
 

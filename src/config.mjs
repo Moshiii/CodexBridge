@@ -264,6 +264,12 @@ export function createDefaultBotConfig() {
           visibilityConfirmed: false,
           testGroupReady: false,
         },
+        documentHandling: {
+          enabled: false,
+          defaultOutput: "both",
+          allowAttachmentInput: true,
+          allowCloudDocLinks: true,
+        },
         metadata: {
           chats: {},
           users: {},
@@ -326,6 +332,16 @@ function normalizeFeishuConfig(feishu = {}) {
       tenantInstalled: Boolean(feishu.setup?.tenantInstalled),
       visibilityConfirmed: Boolean(feishu.setup?.visibilityConfirmed),
       testGroupReady: Boolean(feishu.setup?.testGroupReady),
+    },
+    documentHandling: {
+      ...createDefaultBotConfig().channels.feishu.documentHandling,
+      ...(feishu.documentHandling && typeof feishu.documentHandling === "object" ? feishu.documentHandling : {}),
+      enabled: Boolean(feishu.documentHandling?.enabled),
+      defaultOutput: ["feishu_doc", "attachment", "both"].includes(feishu.documentHandling?.defaultOutput)
+        ? feishu.documentHandling.defaultOutput
+        : createDefaultBotConfig().channels.feishu.documentHandling.defaultOutput,
+      allowAttachmentInput: feishu.documentHandling?.allowAttachmentInput ?? createDefaultBotConfig().channels.feishu.documentHandling.allowAttachmentInput,
+      allowCloudDocLinks: feishu.documentHandling?.allowCloudDocLinks ?? createDefaultBotConfig().channels.feishu.documentHandling.allowCloudDocLinks,
     },
   };
 }

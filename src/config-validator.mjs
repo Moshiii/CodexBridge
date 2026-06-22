@@ -1,5 +1,6 @@
 const SUPPORTED_CHANNELS = new Set(["telegram", "feishu"]);
 const SUPPORTED_STORAGE_PROVIDERS = new Set(["json", "sqlite"]);
+const SUPPORTED_FEISHU_DOCUMENT_OUTPUTS = new Set(["feishu_doc", "attachment", "both"]);
 const REDACTED_SECRET = "[redacted]";
 
 function isPlainObject(value) {
@@ -59,6 +60,24 @@ function validateFeishuConfig(feishu, errors) {
       }
       if (!isStringArray(feishu.testAudience.chatIds)) {
         addError(errors, "channels.feishu.testAudience.chatIds", "Feishu testAudience chatIds must be a string array.");
+      }
+    }
+  }
+  if (feishu.documentHandling !== undefined) {
+    if (!isPlainObject(feishu.documentHandling)) {
+      addError(errors, "channels.feishu.documentHandling", "Feishu documentHandling must be an object.");
+    } else {
+      if (typeof feishu.documentHandling.enabled !== "boolean") {
+        addError(errors, "channels.feishu.documentHandling.enabled", "Feishu document handling enabled must be a boolean.");
+      }
+      if (!SUPPORTED_FEISHU_DOCUMENT_OUTPUTS.has(String(feishu.documentHandling.defaultOutput || "").trim())) {
+        addError(errors, "channels.feishu.documentHandling.defaultOutput", "Feishu document output must be feishu_doc, attachment, or both.");
+      }
+      if (typeof feishu.documentHandling.allowAttachmentInput !== "boolean") {
+        addError(errors, "channels.feishu.documentHandling.allowAttachmentInput", "Feishu attachment input must be a boolean.");
+      }
+      if (typeof feishu.documentHandling.allowCloudDocLinks !== "boolean") {
+        addError(errors, "channels.feishu.documentHandling.allowCloudDocLinks", "Feishu cloud doc links must be a boolean.");
       }
     }
   }

@@ -70,6 +70,12 @@ test("readConfig returns defaults when config is missing", async () => {
         visibilityConfirmed: false,
         testGroupReady: false,
       },
+      documentHandling: {
+        enabled: false,
+        defaultOutput: "both",
+        allowAttachmentInput: true,
+        allowCloudDocLinks: true,
+      },
       metadata: {
         chats: {},
         users: {},

@@ -95,7 +95,8 @@ test("feishu common error prompts stay actionable", async () => {
     } = await importFresh("../../plugins/feishu-codex/feishu-codex-bridge.mjs");
 
     assert.match(renderUnsupportedPayloadMessage(), /plain text messages/);
-    assert.match(renderUnsupportedPayloadMessage(), /rich media handling are not enabled/);
+    assert.match(renderUnsupportedPayloadMessage(), /Feishu doc link/);
+    assert.match(renderUnsupportedPayloadMessage(), /attachment download\/upload/);
     assert.match(renderUnsupportedCommandMessage("/foo"), /Use \/help/);
     assert.match(renderBusyMessage("main"), /use \/stop/);
     assert.match(renderRequestFailedMessage("codex missing"), /Paid credits charged/);

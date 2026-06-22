@@ -147,8 +147,9 @@ export function renderHelpMessage() {
 
 export function renderUnsupportedPayloadMessage() {
   return [
-    "I can handle plain text messages here.",
-    "Send a normal question in text. File and rich media handling are not enabled on the Feishu channel yet.",
+    "I can handle plain text messages here right now.",
+    "For document work, send a text request or a Feishu doc link first.",
+    "File attachment download/upload and generated Feishu document delivery must be enabled by the operator before attachments can be processed directly.",
   ].join("\n");
 }
 

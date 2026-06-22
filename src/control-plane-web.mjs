@@ -2139,6 +2139,31 @@ Skills: installed capabilities</pre>
                       <option value="true">test group ready</option>
                     </select>
                   </label>
+                  <label>Document Handling
+                    <select id="feishu-doc-handling-enabled-input">
+                      <option value="false">not enabled</option>
+                      <option value="true">enabled</option>
+                    </select>
+                  </label>
+                  <label>Default Output
+                    <select id="feishu-doc-output-input">
+                      <option value="both">Feishu doc + attachment</option>
+                      <option value="feishu_doc">Feishu doc only</option>
+                      <option value="attachment">attachment only</option>
+                    </select>
+                  </label>
+                  <label>Attachment Input
+                    <select id="feishu-attachment-input-enabled">
+                      <option value="true">allowed</option>
+                      <option value="false">not allowed</option>
+                    </select>
+                  </label>
+                  <label>Cloud Doc Links
+                    <select id="feishu-cloud-doc-links-enabled">
+                      <option value="true">allowed</option>
+                      <option value="false">not allowed</option>
+                    </select>
+                  </label>
                 </div>
                 <label>Bot Mention Names<input id="feishu-mention-names-input" placeholder="CodexBridge, 助手" /></label>
                 <label>Test User Open IDs<input id="feishu-test-users-input" placeholder="ou_xxx, ou_yyy" /></label>
@@ -2757,6 +2782,10 @@ Skills: installed capabilities</pre>
         document.getElementById("feishu-setup-tenant-installed-input").value = String(config.channels?.feishu?.setup?.tenantInstalled ?? false);
         document.getElementById("feishu-setup-visibility-input").value = String(config.channels?.feishu?.setup?.visibilityConfirmed ?? false);
         document.getElementById("feishu-setup-test-group-input").value = String(config.channels?.feishu?.setup?.testGroupReady ?? false);
+        document.getElementById("feishu-doc-handling-enabled-input").value = String(config.channels?.feishu?.documentHandling?.enabled ?? false);
+        document.getElementById("feishu-doc-output-input").value = config.channels?.feishu?.documentHandling?.defaultOutput || "both";
+        document.getElementById("feishu-attachment-input-enabled").value = String(config.channels?.feishu?.documentHandling?.allowAttachmentInput ?? true);
+        document.getElementById("feishu-cloud-doc-links-enabled").value = String(config.channels?.feishu?.documentHandling?.allowCloudDocLinks ?? true);
       }
 
       async function saveConfig(botId) {
@@ -2844,6 +2873,12 @@ Skills: installed capabilities</pre>
             tenantInstalled: document.getElementById("feishu-setup-tenant-installed-input").value === "true",
             visibilityConfirmed: document.getElementById("feishu-setup-visibility-input").value === "true",
             testGroupReady: document.getElementById("feishu-setup-test-group-input").value === "true",
+          },
+          documentHandling: {
+            enabled: document.getElementById("feishu-doc-handling-enabled-input").value === "true",
+            defaultOutput: document.getElementById("feishu-doc-output-input").value,
+            allowAttachmentInput: document.getElementById("feishu-attachment-input-enabled").value === "true",
+            allowCloudDocLinks: document.getElementById("feishu-cloud-doc-links-enabled").value === "true",
           },
         };
         if (secret) {
@@ -3538,6 +3573,10 @@ Skills: installed capabilities</pre>
           ["tenant installed", config.channels?.feishu?.setup?.tenantInstalled ? "checked" : "not checked"],
           ["user visibility", config.channels?.feishu?.setup?.visibilityConfirmed ? "checked" : "not checked"],
           ["test group", config.channels?.feishu?.setup?.testGroupReady ? "checked" : "not checked"],
+          ["document handling", config.channels?.feishu?.documentHandling?.enabled ? "enabled" : "not enabled"],
+          ["default output", config.channels?.feishu?.documentHandling?.defaultOutput || "both"],
+          ["attachment input", config.channels?.feishu?.documentHandling?.allowAttachmentInput ? "allowed" : "not allowed"],
+          ["cloud doc links", config.channels?.feishu?.documentHandling?.allowCloudDocLinks ? "allowed" : "not allowed"],
         ]);
         renderFeishuSetupSummary(config);
         document.getElementById("telegram-private-access").textContent = JSON.stringify(payload.access.privateChats || [], null, 2);

@@ -169,6 +169,10 @@ test("control plane web server exposes logs and config update endpoints", async 
       assert.match(homeHtml, /feishu-setup-tenant-installed-input/);
       assert.match(homeHtml, /feishu-setup-visibility-input/);
       assert.match(homeHtml, /feishu-setup-test-group-input/);
+      assert.match(homeHtml, /feishu-doc-handling-enabled-input/);
+      assert.match(homeHtml, /feishu-doc-output-input/);
+      assert.match(homeHtml, /feishu-attachment-input-enabled/);
+      assert.match(homeHtml, /feishu-cloud-doc-links-enabled/);
       assert.match(homeHtml, /feishu-test-users-input/);
       assert.match(homeHtml, /feishu-test-chats-input/);
       assert.match(homeHtml, /feishu-setup-summary/);
@@ -389,6 +393,12 @@ test("control plane web server exposes logs and config update endpoints", async 
                 visibilityConfirmed: true,
                 testGroupReady: true,
               },
+              documentHandling: {
+                enabled: true,
+                defaultOutput: "both",
+                allowAttachmentInput: true,
+                allowCloudDocLinks: true,
+              },
             },
           },
         }),
@@ -413,6 +423,12 @@ test("control plane web server exposes logs and config update endpoints", async 
         tenantInstalled: true,
         visibilityConfirmed: true,
         testGroupReady: true,
+      });
+      assert.deepEqual(feishuQuickPayload.channels.feishu.documentHandling, {
+        enabled: true,
+        defaultOutput: "both",
+        allowAttachmentInput: true,
+        allowCloudDocLinks: true,
       });
 
       const redactedSaveResponse = await fetch(`http://${runtime.host}:${runtime.port}/api/bots/gamma/config`, {
@@ -462,6 +478,12 @@ test("control plane web server exposes logs and config update endpoints", async 
         tenantInstalled: true,
         visibilityConfirmed: true,
         testGroupReady: true,
+      });
+      assert.deepEqual(persisted.channels.feishu.documentHandling, {
+        enabled: true,
+        defaultOutput: "both",
+        allowAttachmentInput: true,
+        allowCloudDocLinks: true,
       });
     } finally {
       await runtime.close();
