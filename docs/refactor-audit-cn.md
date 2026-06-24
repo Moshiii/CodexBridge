@@ -212,6 +212,18 @@
 - 页面模板可以单独测试关键锚点、demo prompt 注入和前端函数存在性。
 - 后续继续拆 API route handler、或把页面改成静态资源/前端包时，边界更清楚。
 
+### 13. CLI formatter 抽离
+
+已把 `src/cli.mjs` 里的纯展示/格式化逻辑抽到 `src/cli-formatters.mjs`：
+
+- bot prompt、Telegram 实体展示、状态卡片、session 列表、Codex run 结果渲染、session label slugify。
+
+收益：
+
+- CLI 主文件减少交互流程之外的展示噪音，后续拆 channel setup、bot picker 和 slash command 更容易。
+- CLI formatter 可以独立测试，不需要启动 readline 或真实运行 Codex。
+- 保持现有 session label 规则不变，包括允许 `:` 和空值返回 `null`。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
