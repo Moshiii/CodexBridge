@@ -238,6 +238,25 @@
 - 降低本地控制台展示外部/配置数据时的 XSS 风险。
 - 新增页面模板测试，避免后续改回未转义拼接。
 
+### 15. Control Plane HTTP 基础层抽离
+
+已把 `src/control-plane-web.mjs` 里的 HTTP 基础能力抽到 `src/control-plane-http.mjs`：
+
+- `json(response, statusCode, payload)`
+- `text(response, statusCode, payload)`
+- `html(response, statusCode, payload)`
+- `unauthorized(response)`
+- `readJsonBody(request)`
+- `isWebRequestAuthorized(request, operatorToken)`
+- `parseBasicAuthPassword(header)`
+- `timingSafeEqualString(left, right)`
+
+收益：
+
+- Web 路由文件不再混合响应封装、JSON 解析和鉴权细节。
+- operator token 的 header、Bearer、Basic 三种鉴权路径可以独立测试。
+- invalid JSON 的用户错误分类从集成测试下沉到单元测试，后续拆 route handler 时风险更低。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
