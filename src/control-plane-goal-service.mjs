@@ -1,25 +1,12 @@
+import { withBotHomeEnv } from "./bot-home-env.mjs";
 import { buildCommandConfig } from "./codex-runner.mjs";
 import { readCliState, readConfig, getWorkspacePath } from "./config.mjs";
 import { UserInputError } from "./errors.mjs";
 import { launchGoal } from "./goal-controller.mjs";
 import { createGoalRecord, listGoals, writeGoal } from "./goals-state.mjs";
 
-async function withBotHome(botHome, work) {
-  const previousBotHome = process.env.BOT_HOME;
-  process.env.BOT_HOME = botHome;
-  try {
-    return await work();
-  } finally {
-    if (previousBotHome == null) {
-      delete process.env.BOT_HOME;
-    } else {
-      process.env.BOT_HOME = previousBotHome;
-    }
-  }
-}
-
 export async function listControlPlaneGoals(botHome, options = {}) {
-  return await withBotHome(botHome, async () => await listGoals({ limit: options.limit || 40 }));
+  return await withBotHomeEnv(botHome, async () => await listGoals({ limit: options.limit || 40 }));
 }
 
 export async function startControlPlaneGoal(
@@ -41,7 +28,7 @@ export async function startControlPlaneGoal(
     channel: "web",
   });
   goal.conversationSessionRef = sessions.sessions?.[label]?.cliSessionRef || null;
-  await withBotHome(botHome, async () => await writeGoal(goal));
+  await withBotHomeEnv(botHome, async () => await writeGoal(goal));
 
   const config = await readConfig(botHome);
   const commandConfig = {
@@ -55,16 +42,16 @@ export async function startControlPlaneGoal(
       chatId: botId,
       sessionLabel: goal.sessionLabel,
     },
-    persistGoal: async (nextGoal) => await withBotHome(botHome, async () => await writeGoal(nextGoal)),
+    persistGoal: async (nextGoal) => await withBotHomeEnv(botHome, async () => await writeGoal(nextGoal)),
     notify: async () => {},
     onGoalStarted: (_startedGoal, entry) => {
       activeGoalRuns.set(goal.id, { ...entry, botId, sessionLabel: goal.sessionLabel });
     },
     onGoalFinished: async ({ goal: finalGoal }) => {
-      await withBotHome(botHome, async () => await writeGoal(finalGoal));
+      await withBotHomeEnv(botHome, async () => await writeGoal(finalGoal));
     },
     onGoalFailed: async ({ goal: failedGoal, error }) => {
-      await withBotHome(botHome, async () => {
+      await withBotHomeEnv(botHome, async () => {
         const nextGoal = {
           ...failedGoal,
           status: "failed",

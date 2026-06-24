@@ -258,6 +258,24 @@
 - invalid JSON 的用户错误分类从集成测试下沉到单元测试，后续拆 route handler 时风险更低。
 - 保留 `control-plane-web.mjs` 对 `isWebRequestAuthorized` 的 re-export，避免抽离后破坏既有导入方。
 
+### 16. BOT_HOME 环境变量作用域抽离
+
+已把多个 Control Plane 服务里重复的 `process.env.BOT_HOME` 保存/设置/恢复逻辑抽到 `src/bot-home-env.mjs`：
+
+- `withBotHomeEnv(botHome, work)`
+
+已替换：
+
+- `src/control-plane-goal-service.mjs`
+- `src/control-plane-skills-service.mjs`
+- `src/control-plane-workflow-service.mjs`
+
+收益：
+
+- 避免每个服务手写临时环境变量切换，减少异常路径下忘记恢复 `BOT_HOME` 的风险。
+- 旧的全局环境依赖被收束到一个小模块，后续逐步改成显式 botHome 参数时更容易定位。
+- 新增单测覆盖正常返回、原值恢复、原本未设置时删除、callback 抛错后恢复。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

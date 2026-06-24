@@ -1,23 +1,10 @@
+import { withBotHomeEnv } from "./bot-home-env.mjs";
 import { readCliState, writeCliState } from "./config.mjs";
 import { NotFoundError, UserInputError } from "./errors.mjs";
 import { createScheduleRecord, getScheduleById, listSchedules, upsertSchedule } from "./schedules-state.mjs";
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-async function withBotHome(botHome, work) {
-  const previousBotHome = process.env.BOT_HOME;
-  process.env.BOT_HOME = botHome;
-  try {
-    return await work();
-  } finally {
-    if (previousBotHome == null) {
-      delete process.env.BOT_HOME;
-    } else {
-      process.env.BOT_HOME = previousBotHome;
-    }
-  }
 }
 
 function normalizeSessionLabel(label) {
@@ -68,7 +55,7 @@ export async function activateSession(botHome, label) {
 }
 
 export async function listBotSchedules(botHome) {
-  return await withBotHome(botHome, async () => await listSchedules());
+  return await withBotHomeEnv(botHome, async () => await listSchedules());
 }
 
 export async function createBotSchedule(botHome, botId, { objective, cron, timezone } = {}) {
@@ -80,7 +67,7 @@ export async function createBotSchedule(botHome, botId, { objective, cron, timez
       code: "schedule_objective_and_cron_required",
     });
   }
-  return await withBotHome(botHome, async () => {
+  return await withBotHomeEnv(botHome, async () => {
     const schedule = createScheduleRecord({
       chatId: botId,
       objective: nextObjective,
@@ -92,7 +79,7 @@ export async function createBotSchedule(botHome, botId, { objective, cron, timez
 }
 
 export async function toggleBotSchedule(botHome, scheduleId, enabled) {
-  return await withBotHome(botHome, async () => {
+  return await withBotHomeEnv(botHome, async () => {
     const schedule = await getScheduleById(scheduleId);
     if (!schedule) {
       throw new NotFoundError(`Unknown schedule: ${scheduleId}`, { code: "schedule_not_found" });

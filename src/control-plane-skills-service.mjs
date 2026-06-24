@@ -1,22 +1,9 @@
 import path from "node:path";
 import { readdir, readFile } from "node:fs/promises";
 
+import { withBotHomeEnv } from "./bot-home-env.mjs";
 import { getSkillsPath } from "./config.mjs";
 import { installSkillFromPath } from "./skills.mjs";
-
-async function withBotHome(botHome, work) {
-  const previousBotHome = process.env.BOT_HOME;
-  process.env.BOT_HOME = botHome;
-  try {
-    return await work();
-  } finally {
-    if (previousBotHome == null) {
-      delete process.env.BOT_HOME;
-    } else {
-      process.env.BOT_HOME = previousBotHome;
-    }
-  }
-}
 
 function readFrontmatterValue(raw, field) {
   const pattern = new RegExp(`^${field}:\\s*(.+)$`, "m");
@@ -51,5 +38,5 @@ export async function listControlPlaneSkills(botHome) {
 }
 
 export async function installControlPlaneSkill(botHome, sourcePath) {
-  return await withBotHome(botHome, async () => await installSkillFromPath(sourcePath, { force: true }));
+  return await withBotHomeEnv(botHome, async () => await installSkillFromPath(sourcePath, { force: true }));
 }
