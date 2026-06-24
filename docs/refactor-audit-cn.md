@@ -97,6 +97,20 @@
 - 运营能力可以被未来 CLI、微信入口或飞书后台复用，不需要绕过 Web 控制台。
 - 新增独立单测覆盖额度变更、用户状态、私聊权限、conversation log review 和 cleanup 校验。
 
+### 5. Control Plane readiness 诊断抽离
+
+已把 Web 控制台里的 storage readiness、setup guide 和 quick test preflight 逻辑抽到 `src/control-plane-readiness-service.mjs`：
+
+- `buildStorageReadiness(config, migrationStatus)`
+- `buildSetupGuide(detail, health, access)`
+- `buildQuickTestPreflight(setupGuide)`
+
+收益：
+
+- 邀请用户前的可用性判断从 HTML/HTTP 大文件里移出，便于单测和复用。
+- Telegram 与 Feishu 的配置缺口提示有独立测试，不再只靠 Web 页面集成测试间接覆盖。
+- `control-plane-web.mjs` 更接近“组装详情 + 返回页面/API”，减少后续修改 setup checklist 时的回归面。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
