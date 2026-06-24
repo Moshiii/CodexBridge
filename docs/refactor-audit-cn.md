@@ -111,6 +111,22 @@
 - Telegram 与 Feishu 的配置缺口提示有独立测试，不再只靠 Web 页面集成测试间接覆盖。
 - `control-plane-web.mjs` 更接近“组装详情 + 返回页面/API”，减少后续修改 setup checklist 时的回归面。
 
+### 6. Control Plane Quick Test 服务抽离
+
+已把 Quick Test 和 workspace file demo 的提示词、模式归一化和 main session 启动编排抽到 `src/control-plane-quick-test-service.mjs`：
+
+- `QUICK_TEST_PROMPT`
+- `WORKSPACE_DEMO_PROMPTS`
+- `normalizeQuickTestMode(mode)`
+- `resolveQuickTestPrompt(mode)`
+- `startQuickTest({ botId, mode, getDetail, startChat })`
+
+收益：
+
+- Quick Test 的业务含义从 Web route handler 中移出，后续 CLI 或其它本地控制入口可以复用同一套 smoke/file demo。
+- workspace demo prompt 有独立测试，避免被 HTML 字符串和前端脚本间接耦合。
+- Web 层只负责把 bot detail 和 chat starter 注入 service，减少跨模块依赖方向混乱。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

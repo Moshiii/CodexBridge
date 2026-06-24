@@ -71,42 +71,13 @@ import {
   buildSetupGuide,
   buildStorageReadiness,
 } from "./control-plane-readiness-service.mjs";
+import {
+  QUICK_TEST_PROMPT,
+  WORKSPACE_DEMO_PROMPTS,
+  startQuickTest,
+} from "./control-plane-quick-test-service.mjs";
 
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
-const QUICK_TEST_PROMPT = "Reply with one short sentence confirming CodexBridge is ready.";
-const WORKSPACE_DEMO_PROMPTS = [
-  {
-    id: "create-file",
-    title: "Create file",
-    description: "Ask the assistant to create a reusable markdown file in the workspace.",
-    prompt: [
-      "Create a 3-day Beijing weekend plan for two people as a markdown file.",
-      "Make it relaxed, include food, walks, cafes, and one backup indoor option per day.",
-      "Save it as beijing-weekend-plan.md in the workspace.",
-    ].join("\n"),
-  },
-  {
-    id: "edit-draft",
-    title: "Edit draft",
-    description: "Turn rough workspace notes into a clear file.",
-    prompt: [
-      "Read raw-notes.md and rewrite it into a clear product one-pager.",
-      "Save the result as product-one-pager.md.",
-      "Keep it concise and suitable for a GitHub README or investor intro.",
-    ].join("\n"),
-  },
-  {
-    id: "continue-project",
-    title: "Continue project",
-    description: "Reopen an existing workspace file and keep the project moving.",
-    prompt: [
-      "Open launch-checklist.md.",
-      "Mark the README positioning work as done.",
-      "Add the next three tasks for a public demo.",
-    ].join("\n"),
-  },
-];
-const WORKSPACE_FILE_DEMO_PROMPT = WORKSPACE_DEMO_PROMPTS.find((item) => item.id === "create-file")?.prompt || QUICK_TEST_PROMPT;
 const activeGoalRuns = new Map();
 const webChatService = createWebChatService({ resolveBotHome: getBotHome });
 
@@ -291,26 +262,13 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   return await webChatService.startBotChat(botId, { prompt, sessionLabel });
 }
 
-function resolveQuickTestPrompt(mode) {
-  if (mode === "workspace_file_demo") {
-    return WORKSPACE_FILE_DEMO_PROMPT;
-  }
-  return QUICK_TEST_PROMPT;
-}
-
 async function startQuickTestForBot(botId, options = {}) {
-  const detail = await getBotControlPlaneDetail(botId);
-  const mode = options.mode === "workspace_file_demo" ? "workspace_file_demo" : "smoke";
-  const prompt = resolveQuickTestPrompt(mode);
-  const run = await startBotChat(botId, {
-    prompt,
-    sessionLabel: "main",
+  return await startQuickTest({
+    botId,
+    mode: options.mode,
+    getDetail: getBotControlPlaneDetail,
+    startChat: startBotChat,
   });
-  return {
-    ...run,
-    mode,
-    preflight: buildQuickTestPreflight(detail.setupGuide),
-  };
 }
 
 async function stopBotChat(botId, sessionLabel = null) {
