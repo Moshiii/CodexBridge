@@ -27,6 +27,13 @@ test("pickRequestSearchParams returns selected query params", async () => {
   );
 });
 
+test("parseRequestUrl parses request URLs with a stable fallback base", async () => {
+  const { parseRequestUrl } = await importFresh("../../src/control-plane-api-utils.mjs");
+
+  assert.equal(parseRequestUrl({ url: "/api/bots?limit=10" }).pathname, "/api/bots");
+  assert.equal(parseRequestUrl({}, "http://127.0.0.1:8787").origin, "http://127.0.0.1:8787");
+});
+
 test("pickRequestSearchParams handles empty request urls", async () => {
   const { pickRequestSearchParams } = await importFresh("../../src/control-plane-api-utils.mjs");
 

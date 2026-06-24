@@ -383,6 +383,23 @@
 - 404 和错误响应仍使用 `json(response, statusCode, payload)`，状态码差异更明显。
 - 新增单测覆盖 `okJson()` 的 200 状态码和 JSON content-type。
 
+### 23. Control Plane request URL 解析收口
+
+已把 Control Plane 的 request URL 解析收口到 `src/control-plane-api-utils.mjs`：
+
+- `parseRequestUrl(request, baseUrl = "http://localhost")`
+
+已替换：
+
+- query 参数读取里的默认 URL 解析。
+- web server 入口解析 pathname 的 URL 解析。
+
+收益：
+
+- `new URL(request.url || "/", base)` 只保留一个实现入口。
+- `pickRequestSearchParams()` 与 server pathname 解析共享同一 fallback 语义。
+- 后续如果需要处理异常 URL、代理 host 或测试注入，可以从一个 helper 扩展。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

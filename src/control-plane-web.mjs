@@ -85,6 +85,7 @@ import {
 } from "./control-plane-http.mjs";
 import {
   decodeRouteParam,
+  parseRequestUrl,
   pickRequestSearchParams,
 } from "./control-plane-api-utils.mjs";
 
@@ -650,7 +651,7 @@ export async function startControlPlaneWebServer({ port = 8787, host = "127.0.0.
         unauthorized(response);
         return;
       }
-      const url = new URL(request.url || "/", `http://${request.headers.host || `${host}:${port}`}`);
+      const url = parseRequestUrl(request, `http://${request.headers.host || `${host}:${port}`}`);
       if (url.pathname === "/") {
         html(response, 200, renderHtmlPage());
         return;
