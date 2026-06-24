@@ -17,6 +17,7 @@ import {
   clearPidFile,
   isPidRunning,
   readPidFile,
+  terminatePid,
   writeCurrentPidFile,
 } from "./pid-files.mjs";
 
@@ -181,33 +182,14 @@ export async function stopWebRuntime() {
     };
   }
 
-  try {
-    process.kill(status.pid, "SIGTERM");
-  } catch {
+  const terminated = await terminatePid(status.pid, { timeoutMs: 5000 });
+  if (!terminated) {
     await clearWebRuntimePid();
     await clearStoppedState(status);
     return {
       ...(await getWebRuntimeStatus()),
       stopped: true,
     };
-  }
-
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    const next = await getWebRuntimeStatus();
-    if (!next.running) {
-      return {
-        ...next,
-        stopped: true,
-      };
-    }
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-
-  try {
-    process.kill(status.pid, "SIGKILL");
-  } catch {
-    // ignore hard-kill failures
   }
 
   await clearWebRuntimePid();

@@ -31,6 +31,7 @@ import {
   clearPidFile,
   isPidRunning,
   readPidFile,
+  terminatePid,
   writeCurrentPidFile,
 } from "./pid-files.mjs";
 
@@ -70,29 +71,6 @@ async function listProcesses() {
       };
     })
     .filter(Boolean);
-}
-
-async function terminatePid(pid, timeoutMs = 4000) {
-  if (!isPidRunning(pid)) {
-    return;
-  }
-  try {
-    process.kill(pid, "SIGTERM");
-  } catch {
-    return;
-  }
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!isPidRunning(pid)) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 150));
-  }
-  try {
-    process.kill(pid, "SIGKILL");
-  } catch {
-    // ignore hard-kill failures
-  }
 }
 
 async function terminateChildProcess(child, signal = "SIGTERM", timeoutMs = 4000) {

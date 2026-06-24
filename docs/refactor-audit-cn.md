@@ -299,11 +299,13 @@
 - `readPidFile(filePath)`
 - `clearPidFile(filePath)`
 - `writeCurrentPidFile(filePath, options)`
+- `terminatePid(pid, options)`
 
 收益：
 
 - `src/web-runtime.mjs` 不再为了读取 pid 文件反向依赖 `src/bots.mjs`。
 - Bot runtime 与 Web runtime 共享同一套 pid 文件格式兼容逻辑。
+- Bot runtime 与 Web runtime 共享 SIGTERM/SIGKILL 终止流程。
 - 新增单测覆盖 legacy pid、JSON pid、无效 pid、stale pid 覆盖和 running pid 冲突。
 
 ## 下一步重构顺序

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 
@@ -52,4 +53,22 @@ test("pid files reject a running existing pid", async () => {
     }),
     new RegExp(`already running: ${process.pid}`),
   );
+});
+
+test("pid files terminate running pids with SIGTERM fallback flow", async () => {
+  const { isPidRunning, terminatePid } = await importFresh("../../src/pid-files.mjs");
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: "ignore",
+  });
+
+  try {
+    assert.equal(isPidRunning(child.pid), true);
+    assert.equal(await terminatePid(child.pid, { timeoutMs: 1000, pollMs: 20 }), true);
+    assert.equal(isPidRunning(child.pid), false);
+    assert.equal(await terminatePid(0), false);
+  } finally {
+    if (isPidRunning(child.pid)) {
+      child.kill("SIGKILL");
+    }
+  }
 });

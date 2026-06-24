@@ -62,3 +62,27 @@ export async function writeCurrentPidFile(filePath, { conflictMessage = null } =
     }
   }
 }
+
+export async function terminatePid(pid, { timeoutMs = 4000, pollMs = 150 } = {}) {
+  if (!isPidRunning(pid)) {
+    return false;
+  }
+  try {
+    process.kill(pid, "SIGTERM");
+  } catch {
+    return false;
+  }
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isPidRunning(pid)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // ignore hard-kill failures
+  }
+  return true;
+}
