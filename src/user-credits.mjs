@@ -1,6 +1,7 @@
 import { mkdir, open, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { sleep } from "./async-utils.mjs";
 import { getUserCreditsStatePath, resolveBotHome } from "./config.mjs";
 import { appendUsageEvent } from "./usage-ledger.mjs";
 
@@ -16,10 +17,6 @@ function nowIso() {
 
 function normalizeUserId(userId) {
   return String(userId || "").trim();
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createDefaultCreditsState() {

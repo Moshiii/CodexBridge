@@ -9,6 +9,7 @@ import {
   writeConfig,
   writeJson,
 } from "./config.mjs";
+import { sleep } from "./async-utils.mjs";
 import { readUsersState, writeUsersState } from "./users-state.mjs";
 import { readUserCreditsState, writeUserCreditsState } from "./user-credits.mjs";
 
@@ -19,10 +20,6 @@ const LOCK_TIMEOUT_MS = 5000;
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function createDefaultMigrationState() {

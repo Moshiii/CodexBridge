@@ -1,11 +1,9 @@
+import { sleep } from "./async-utils.mjs";
+
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const DEFAULT_PAIRING_ATTEMPTS = 10;
 const DEFAULT_POLL_TIMEOUT_SECONDS = 3;
 const DEFAULT_RETRY_DELAY_MS = 500;
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function telegramRequest(token, method, body) {
   const response = await fetch(`${TELEGRAM_API_BASE}/bot${token}/${method}`, {

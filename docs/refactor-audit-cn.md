@@ -312,6 +312,24 @@
 - child process 的 SIGKILL 兜底失败现在会被吞掉，避免清理流程被二次错误打断。
 - 新增单测覆盖 legacy pid、JSON pid、无效 pid、stale pid 覆盖和 running pid 冲突。
 
+### 19. Async sleep 工具抽离
+
+已把服务模块里重复的 `sleep(ms)` 抽到 `src/async-utils.mjs`：
+
+- `sleep(ms)`
+
+已替换：
+
+- `src/state-migrations.mjs`
+- `src/user-credits.mjs`
+- `src/telegram-pairing.mjs`
+
+收益：
+
+- 锁重试、Telegram pairing 轮询等服务逻辑共享同一异步等待 helper。
+- 后续如果需要统一处理测试环境延迟、取消或计时策略，可以从一个入口扩展。
+- 暂未替换 `src/ui/banner.mjs` 的动画 sleep，避免把 UI 动画节奏和服务端等待策略混在同一轮改动里。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
