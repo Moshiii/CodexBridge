@@ -309,6 +309,7 @@
 - Bot runtime 与 Web runtime 共享同一套 pid 文件格式兼容逻辑。
 - Bot runtime 与 Web runtime 共享 SIGTERM/SIGKILL 终止流程。
 - CLI、Goal Controller 和 Bot runtime 共享 child process 停止流程，减少 stop/kill 语义分叉。
+- child process 的 SIGKILL 兜底失败现在会被吞掉，避免清理流程被二次错误打断。
 - 新增单测覆盖 legacy pid、JSON pid、无效 pid、stale pid 覆盖和 running pid 冲突。
 
 ## 下一步重构顺序

@@ -91,3 +91,23 @@ test("pid files request child stop and schedule a hard kill", async () => {
   assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
   assert.equal(requestChildStop({ ...child, killed: true }), false);
 });
+
+test("pid files tolerate SIGKILL failures while terminating child processes", async () => {
+  const { terminateChildProcess } = await importFresh("../../src/pid-files.mjs");
+  const signals = [];
+  const child = {
+    exitCode: null,
+    killed: false,
+    once() {},
+    kill(signal) {
+      signals.push(signal);
+      if (signal === "SIGKILL") {
+        throw new Error("already gone");
+      }
+      return true;
+    },
+  };
+
+  assert.equal(await terminateChildProcess(child, { timeoutMs: 1 }), true);
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+});

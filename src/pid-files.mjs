@@ -129,7 +129,11 @@ export async function terminateChildProcess(child, { signal = "SIGTERM", timeout
   ]);
 
   if (child.exitCode == null) {
-    child.kill("SIGKILL");
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      return true;
+    }
     await waitForExit;
   }
   return true;
