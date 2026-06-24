@@ -1,7 +1,7 @@
 import http from "node:http";
 import path from "node:path";
 import crypto from "node:crypto";
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { URL } from "node:url";
 
 import {
@@ -52,6 +52,12 @@ import {
   listConversationReviewEvents,
 } from "./conversation-review.mjs";
 import { getStateMigrationStatus, runStateMigrations } from "./state-migrations.mjs";
+import {
+  listWorkspaceFiles,
+  readWorkspaceFile,
+  summarizeWorkspaceChanges,
+  writeWorkspaceFile,
+} from "./workspace-files.mjs";
 
 const PLACEHOLDER_TOKEN_PATTERNS = [
   /^token-\d+$/i,
@@ -551,33 +557,6 @@ async function readChatStatus(botId, sessionLabel = null) {
   };
 }
 
-function summarizeWorkspaceChanges(beforeEntries, afterEntries) {
-  const beforeByPath = new Map(
-    beforeEntries
-      .filter((entry) => entry.type === "file")
-      .map((entry) => [entry.path, entry]),
-  );
-  return afterEntries
-    .filter((entry) => entry.type === "file")
-    .map((entry) => {
-      const before = beforeByPath.get(entry.path);
-      if (!before) {
-        return { ...entry, changeType: "new" };
-      }
-      if (before.size !== entry.size || before.updatedAt !== entry.updatedAt) {
-        return { ...entry, changeType: "updated" };
-      }
-      return null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => {
-      if (a.changeType !== b.changeType) {
-        return a.changeType === "new" ? -1 : 1;
-      }
-      return String(b.updatedAt || "").localeCompare(String(a.updatedAt || ""));
-    });
-}
-
 async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   const nextPrompt = String(prompt || "").trim();
   if (!nextPrompt) {
@@ -609,7 +588,7 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
   }
 
   const session = cliState.sessions[label];
-  const workspaceBefore = await listWorkspaceFiles(botId).catch(() => []);
+  const workspaceBefore = await listWorkspaceFiles(botHome).catch(() => []);
   const commandConfig = {
     ...buildCommandConfig(config),
     cwd: getWorkspacePath(botHome),
@@ -655,7 +634,7 @@ async function startBotChat(botId, { prompt, sessionLabel = null } = {}) {
     await writeCliState(latestState, botHome);
     run.finishedAt = nowIso();
     run.child = null;
-    const workspaceAfter = await listWorkspaceFiles(botId).catch(() => []);
+    const workspaceAfter = await listWorkspaceFiles(botHome).catch(() => []);
     run.workspaceChanges = summarizeWorkspaceChanges(workspaceBefore, workspaceAfter);
     if (result.ok) {
       run.status = "completed";
@@ -753,61 +732,14 @@ async function stopBotChat(botId, sessionLabel = null) {
   return await readChatStatus(botId, status.sessionLabel);
 }
 
-async function listWorkspaceFilesFrom(entries, workspacePath, prefix = "") {
-  const files = await Promise.all(entries.map(async (entry) => {
-    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
-    const absolute = path.join(workspacePath, relative);
-    const metadata = await stat(absolute).catch(() => null);
-    if (entry.isDirectory()) {
-      return { path: relative, type: "dir", updatedAt: metadata?.mtime?.toISOString?.() || null };
-    }
-    return {
-      path: relative,
-      type: "file",
-      size: metadata?.size ?? null,
-      updatedAt: metadata?.mtime?.toISOString?.() || null,
-    };
-  }));
-  return files;
-}
-
-async function listWorkspaceFiles(botId) {
-  const botHome = await getBotHome(botId);
-  const workspacePath = getWorkspacePath(botHome);
-  const entries = await readdir(workspacePath, { withFileTypes: true }).catch(() => []);
-  return (await listWorkspaceFilesFrom(entries, workspacePath))
-    .filter((entry) => entry.path !== "memory")
-    .sort((a, b) => a.path.localeCompare(b.path));
-}
-
 async function readWorkspaceFileForBot(botId, relativePath) {
   const botHome = await getBotHome(botId);
-  const workspacePath = getWorkspacePath(botHome);
-  const sanitized = path.normalize(String(relativePath || "")).replace(/^(\.\.(\/|\\|$))+/, "");
-  if (!sanitized || sanitized.startsWith("..")) {
-    throw new UserInputError("Workspace file path is required.", { code: "workspace_path_required" });
-  }
-  const filePath = path.join(workspacePath, sanitized);
-  const content = await readFile(filePath, "utf8");
-  return {
-    path: sanitized,
-    content,
-  };
+  return await readWorkspaceFile(botHome, relativePath);
 }
 
 async function writeWorkspaceFileForBot(botId, relativePath, content) {
   const botHome = await getBotHome(botId);
-  const workspacePath = getWorkspacePath(botHome);
-  const sanitized = path.normalize(String(relativePath || "")).replace(/^(\.\.(\/|\\|$))+/, "");
-  if (!sanitized || sanitized.startsWith("..")) {
-    throw new UserInputError("Workspace file path is required.", { code: "workspace_path_required" });
-  }
-  const filePath = path.join(workspacePath, sanitized);
-  await writeFile(filePath, String(content ?? ""), "utf8");
-  return {
-    path: sanitized,
-    content: await readFile(filePath, "utf8"),
-  };
+  return await writeWorkspaceFile(botHome, relativePath, content);
 }
 
 async function listBotSkills(botId) {
@@ -4414,7 +4346,7 @@ async function handleApi(request, response, pathname) {
 
   const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);
   if (request.method === "GET" && botWorkspaceMatch) {
-    return json(response, 200, await listWorkspaceFiles(decodeURIComponent(botWorkspaceMatch[1])));
+    return json(response, 200, await listWorkspaceFiles(await getBotHome(decodeURIComponent(botWorkspaceMatch[1]))));
   }
 
   const botWorkspaceFileMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace\/file$/);
