@@ -65,3 +65,27 @@ test("withBotHomeEnv restores BOT_HOME when the callback throws", async () => {
     }
   }
 });
+
+test("withBotHomeEnv rejects an empty bot home without changing BOT_HOME", async () => {
+  const { withBotHomeEnv } = await importFresh("../../src/bot-home-env.mjs");
+  const previousBotHome = process.env.BOT_HOME;
+  process.env.BOT_HOME = "/before";
+  try {
+    await assert.rejects(
+      () => withBotHomeEnv("  ", async () => "never"),
+      (error) => {
+        assert.equal(error.code, "bot_home_required");
+        assert.equal(error.name, "SystemError");
+        return true;
+      },
+    );
+
+    assert.equal(process.env.BOT_HOME, "/before");
+  } finally {
+    if (previousBotHome == null) {
+      delete process.env.BOT_HOME;
+    } else {
+      process.env.BOT_HOME = previousBotHome;
+    }
+  }
+});
