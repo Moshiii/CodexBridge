@@ -256,6 +256,7 @@
 - Web 路由文件不再混合响应封装、JSON 解析和鉴权细节。
 - operator token 的 header、Bearer、Basic 三种鉴权路径可以独立测试。
 - invalid JSON 的用户错误分类从集成测试下沉到单元测试，后续拆 route handler 时风险更低。
+- 保留 `control-plane-web.mjs` 对 `isWebRequestAuthorized` 的 re-export，避免抽离后破坏既有导入方。
 
 ## 下一步重构顺序
 

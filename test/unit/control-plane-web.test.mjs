@@ -4,6 +4,14 @@ import path from "node:path";
 
 import { importFresh, withTempHome } from "../helpers/module.js";
 
+test("control plane web keeps the request authorization helper exported", async () => {
+  const { isWebRequestAuthorized } = await importFresh("../../src/control-plane-web.mjs");
+
+  assert.equal(typeof isWebRequestAuthorized, "function");
+  assert.equal(isWebRequestAuthorized({ headers: { authorization: "Bearer secret" } }, "secret"), true);
+  assert.equal(isWebRequestAuthorized({ headers: { authorization: "Bearer wrong" } }, "secret"), false);
+});
+
 test("getControlPlaneSnapshot returns bot list plus health data", async () => {
   await withTempHome(async (tempHome) => {
     const { createBot } = await importFresh("../../src/bots.mjs");

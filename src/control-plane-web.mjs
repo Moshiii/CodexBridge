@@ -83,6 +83,8 @@ import {
   unauthorized,
 } from "./control-plane-http.mjs";
 
+export { isWebRequestAuthorized } from "./control-plane-http.mjs";
+
 const activeGoalRuns = new Map();
 const webChatService = createWebChatService({ resolveBotHome: getBotHome });
 
