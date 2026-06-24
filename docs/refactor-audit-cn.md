@@ -127,6 +127,23 @@
 - workspace demo prompt 有独立测试，避免被 HTML 字符串和前端脚本间接耦合。
 - Web 层只负责把 bot detail 和 chat starter 注入 service，减少跨模块依赖方向混乱。
 
+### 7. Control Plane workflow 状态服务抽离
+
+已把 Web 控制台里的 session 和 schedule 状态操作抽到 `src/control-plane-workflow-service.mjs`：
+
+- `readSessions(botHome)`
+- `createSession(botHome, label)`
+- `activateSession(botHome, label)`
+- `listBotSchedules(botHome)`
+- `createBotSchedule(botHome, botId, payload)`
+- `toggleBotSchedule(botHome, scheduleId, enabled)`
+
+收益：
+
+- session label 校验、active session 更新、schedule 校验和开关逻辑不再散落在 Web handler 里。
+- 未来 CLI、微信 concierge 面板或其它本地控制入口可以复用同一套 session/schedule 能力。
+- goal runner 仍保留在 Web 层，后续需要单独拆，因为它涉及 active child process、持久化回调和停止逻辑。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

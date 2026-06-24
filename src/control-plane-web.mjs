@@ -28,16 +28,14 @@ import {
   readActiveBotId,
   readCliState,
   readConfig,
-  writeCliState,
 } from "./config.mjs";
 import { buildCommandConfig } from "./codex-runner.mjs";
 import { launchGoal } from "./goal-controller.mjs";
 import { createGoalRecord, listGoals, readGoal, writeGoal } from "./goals-state.mjs";
-import { createScheduleRecord, getScheduleById, listSchedules, upsertSchedule } from "./schedules-state.mjs";
 import { installSkillFromPath } from "./skills.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
-import { NotFoundError, UserInputError, toPublicError } from "./errors.mjs";
+import { UserInputError, toPublicError } from "./errors.mjs";
 import {
   adjustCredits,
   cleanupConversationLogs,
@@ -76,6 +74,14 @@ import {
   WORKSPACE_DEMO_PROMPTS,
   startQuickTest,
 } from "./control-plane-quick-test-service.mjs";
+import {
+  activateSession,
+  createBotSchedule,
+  createSession,
+  listBotSchedules as listSchedulesForBotHome,
+  readSessions,
+  toggleBotSchedule,
+} from "./control-plane-workflow-service.mjs";
 
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
 const activeGoalRuns = new Map();
@@ -208,50 +214,17 @@ async function readBridgeLogs(botId, lines = 200) {
 
 async function readBotSessions(botId) {
   const botHome = await getBotHome(botId);
-  const cliState = await readCliState(botHome);
-  const sessions = Object.values(cliState.sessions ?? {}).sort((a, b) => a.label.localeCompare(b.label));
-  return {
-    activeSessionLabel: cliState.activeSessionLabel,
-    sessions,
-  };
+  return await readSessions(botHome);
 }
 
 async function createBotSession(botId, label) {
-  const nextLabel = String(label || "").trim();
-  if (!nextLabel) {
-    throw new UserInputError("Session label is required.", { code: "session_label_required" });
-  }
   const botHome = await getBotHome(botId);
-  const cliState = await readCliState(botHome);
-  if (!cliState.sessions[nextLabel]) {
-    const timestamp = nowIso();
-    cliState.sessions[nextLabel] = {
-      label: nextLabel,
-      cliSessionRef: null,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    };
-  }
-  cliState.activeSessionLabel = nextLabel;
-  cliState.sessions[nextLabel].updatedAt = nowIso();
-  await writeCliState(cliState, botHome);
-  return await readBotSessions(botId);
+  return await createSession(botHome, label);
 }
 
 async function activateBotSession(botId, label) {
-  const nextLabel = String(label || "").trim();
-  if (!nextLabel) {
-    throw new UserInputError("Session label is required.", { code: "session_label_required" });
-  }
   const botHome = await getBotHome(botId);
-  const cliState = await readCliState(botHome);
-  if (!cliState.sessions[nextLabel]) {
-    throw new NotFoundError(`Unknown session: ${nextLabel}`, { code: "session_not_found" });
-  }
-  cliState.activeSessionLabel = nextLabel;
-  cliState.sessions[nextLabel].updatedAt = nowIso();
-  await writeCliState(cliState, botHome);
-  return await readBotSessions(botId);
+  return await activateSession(botHome, label);
 }
 
 async function readChatStatus(botId, sessionLabel = null) {
@@ -487,41 +460,17 @@ async function startGoalForBot(botId, { objective, sessionLabel = null } = {}) {
 
 async function listBotSchedules(botId) {
   const botHome = await getBotHome(botId);
-  return await withBotHome(botHome, async () => await listSchedules());
+  return await listSchedulesForBotHome(botHome);
 }
 
 async function createScheduleForBot(botId, { objective, cron, timezone } = {}) {
-  const nextObjective = String(objective || "").trim();
-  const nextCron = String(cron || "").trim();
-  const nextTimezone = String(timezone || "").trim() || "Asia/Shanghai";
-  if (!nextObjective || !nextCron) {
-    throw new UserInputError("Schedule objective and cron are required.", {
-      code: "schedule_objective_and_cron_required",
-    });
-  }
   const botHome = await getBotHome(botId);
-  return await withBotHome(botHome, async () => {
-    const schedule = createScheduleRecord({
-      chatId: botId,
-      objective: nextObjective,
-      cron: nextCron,
-      timezone: nextTimezone,
-    });
-    return await upsertSchedule(schedule);
-  });
+  return await createBotSchedule(botHome, botId, { objective, cron, timezone });
 }
 
 async function toggleScheduleForBot(botId, scheduleId, enabled) {
   const botHome = await getBotHome(botId);
-  return await withBotHome(botHome, async () => {
-    const schedule = await getScheduleById(scheduleId);
-    if (!schedule) {
-      throw new NotFoundError(`Unknown schedule: ${scheduleId}`, { code: "schedule_not_found" });
-    }
-    schedule.enabled = enabled;
-    schedule.updatedAt = nowIso();
-    return await upsertSchedule(schedule);
-  });
+  return await toggleBotSchedule(botHome, scheduleId, enabled);
 }
 
 async function listBotUsers(botId) {
