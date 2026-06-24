@@ -200,6 +200,18 @@
 - Telegram access 展示规则有独立测试，不再埋在 Web 页面集成测试里。
 - detail 组合逻辑可供未来 CLI 或其它本地控制入口复用。
 
+### 12. Control Plane 页面模板抽离
+
+已把 Web 控制台的 HTML/CSS/前端脚本模板从 `src/control-plane-web.mjs` 抽到 `src/control-plane-page.mjs`：
+
+- `renderHtmlPage()`
+
+收益：
+
+- `control-plane-web.mjs` 从数千行页面字符串中解放出来，更接近纯 HTTP 路由层。
+- 页面模板可以单独测试关键锚点、demo prompt 注入和前端函数存在性。
+- 后续继续拆 API route handler、或把页面改成静态资源/前端包时，边界更清楚。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
