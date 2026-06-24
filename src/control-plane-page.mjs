@@ -1367,10 +1367,10 @@ Skills: installed capabilities</pre>
           const row = document.createElement("div");
           row.className = "bot-row" + (state.selectedBotId === bot.id ? " current" : "");
           row.innerHTML = [
-            '<div><strong>' + bot.name + '</strong></div>',
-            '<div class="subtle">' + bot.id + '</div>',
+            '<div><strong>' + escapeHtml(bot.name) + '</strong></div>',
+            '<div class="subtle">' + escapeHtml(bot.id) + '</div>',
             '<div class="badge-row" style="margin-top:8px;">' +
-              '<span class="pill ' + (bot.status === 'running' ? 'accent' : '') + '">' + bot.status + '</span>' +
+              '<span class="pill ' + (bot.status === 'running' ? 'accent' : '') + '">' + escapeHtml(bot.status) + '</span>' +
               '<span class="pill ' + (bot.enabled ? '' : 'danger') + '">' + (bot.enabled ? 'enabled' : 'disabled') + '</span>' +
               '<span class="pill ' + (state.currentBotId === bot.id ? 'accent' : '') + '">' + (state.currentBotId === bot.id ? 'current' : 'bot') + '</span>' +
             '</div>'
@@ -2707,4 +2707,3 @@ Skills: installed capabilities</pre>
   </body>
 </html>`;
 }
-

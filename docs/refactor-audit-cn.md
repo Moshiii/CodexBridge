@@ -224,6 +224,20 @@
 - CLI formatter 可以独立测试，不需要启动 readline 或真实运行 Codex。
 - 保持现有 session label 规则不变，包括允许 `:` 和空值返回 `null`。
 
+### 14. Web 控制台动态 bot rail 渲染加固
+
+已修复 `src/control-plane-page.mjs` 里 bot rail 使用 `innerHTML` 拼接 API 数据时未转义的字段：
+
+- `bot.name`
+- `bot.id`
+- `bot.status`
+
+收益：
+
+- bot 名称、ID 或状态包含 HTML 特殊字符时不会破坏页面结构。
+- 降低本地控制台展示外部/配置数据时的 XSS 风险。
+- 新增页面模板测试，避免后续改回未转义拼接。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
