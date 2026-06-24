@@ -82,6 +82,7 @@ import {
   readJsonBody,
   unauthorized,
 } from "./control-plane-http.mjs";
+import { pickRequestSearchParams } from "./control-plane-api-utils.mjs";
 
 export { isWebRequestAuthorized } from "./control-plane-http.mjs";
 
@@ -377,8 +378,8 @@ async function handleApi(request, response, pathname) {
   const botChatMatch = pathname.match(/^\/api\/bots\/([^/]+)\/chat$/);
   if (request.method === "GET" && botChatMatch) {
     const botId = decodeURIComponent(botChatMatch[1]);
-    const url = new URL(request.url || "/", "http://localhost");
-    return json(response, 200, await readChatStatus(botId, url.searchParams.get("sessionLabel")));
+    const query = pickRequestSearchParams(request, ["sessionLabel"]);
+    return json(response, 200, await readChatStatus(botId, query.sessionLabel));
   }
   if (request.method === "POST" && botChatMatch) {
     const botId = decodeURIComponent(botChatMatch[1]);
@@ -523,28 +524,22 @@ async function handleApi(request, response, pathname) {
 
   const botUsageMatch = pathname.match(/^\/api\/bots\/([^/]+)\/usage$/);
   if (request.method === "GET" && botUsageMatch) {
-    const url = new URL(request.url || "/", "http://localhost");
     return json(response, 200, await listUsageForBot(decodeURIComponent(botUsageMatch[1]), {
-      userId: url.searchParams.get("userId"),
-      limit: url.searchParams.get("limit"),
+      ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botRunsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/runs$/);
   if (request.method === "GET" && botRunsMatch) {
-    const url = new URL(request.url || "/", "http://localhost");
     return json(response, 200, await listRunsForBot(decodeURIComponent(botRunsMatch[1]), {
-      userId: url.searchParams.get("userId"),
-      limit: url.searchParams.get("limit"),
+      ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botAdminAuditMatch = pathname.match(/^\/api\/bots\/([^/]+)\/admin-audit$/);
   if (request.method === "GET" && botAdminAuditMatch) {
-    const url = new URL(request.url || "/", "http://localhost");
     return json(response, 200, await listAdminAuditForBot(decodeURIComponent(botAdminAuditMatch[1]), {
-      userId: url.searchParams.get("userId"),
-      limit: url.searchParams.get("limit"),
+      ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
@@ -560,17 +555,18 @@ async function handleApi(request, response, pathname) {
 
   const botConversationLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs$/);
   if (request.method === "GET" && botConversationLogsMatch) {
-    const url = new URL(request.url || "/", "http://localhost");
     return json(response, 200, await listConversationLogsForBot(decodeURIComponent(botConversationLogsMatch[1]), {
-      userId: url.searchParams.get("userId"),
-      runId: url.searchParams.get("runId"),
-      direction: url.searchParams.get("direction"),
-      riskLabel: url.searchParams.get("riskLabel"),
-      riskOnly: url.searchParams.get("riskOnly"),
-      reviewStatus: url.searchParams.get("reviewStatus"),
-      createdAfter: url.searchParams.get("createdAfter"),
-      createdBefore: url.searchParams.get("createdBefore"),
-      limit: url.searchParams.get("limit"),
+      ...pickRequestSearchParams(request, [
+        "userId",
+        "runId",
+        "direction",
+        "riskLabel",
+        "riskOnly",
+        "reviewStatus",
+        "createdAfter",
+        "createdBefore",
+        "limit",
+      ]),
     }));
   }
 
@@ -585,11 +581,8 @@ async function handleApi(request, response, pathname) {
 
   const botConversationReviewsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-reviews$/);
   if (request.method === "GET" && botConversationReviewsMatch) {
-    const url = new URL(request.url || "/", "http://localhost");
     return json(response, 200, await listConversationReviewsForBot(decodeURIComponent(botConversationReviewsMatch[1]), {
-      eventId: url.searchParams.get("eventId"),
-      status: url.searchParams.get("status"),
-      limit: url.searchParams.get("limit"),
+      ...pickRequestSearchParams(request, ["eventId", "status", "limit"]),
     }));
   }
 
@@ -610,11 +603,13 @@ async function handleApi(request, response, pathname) {
 
   const botWorkspaceFileMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace\/file$/);
   if (request.method === "GET" && botWorkspaceFileMatch) {
-    const url = new URL(request.url || "/", "http://localhost");
     return json(
       response,
       200,
-      await readWorkspaceFileForBot(decodeURIComponent(botWorkspaceFileMatch[1]), url.searchParams.get("path")),
+      await readWorkspaceFileForBot(
+        decodeURIComponent(botWorkspaceFileMatch[1]),
+        pickRequestSearchParams(request, ["path"]).path,
+      ),
     );
   }
   if (request.method === "POST" && botWorkspaceFileMatch) {

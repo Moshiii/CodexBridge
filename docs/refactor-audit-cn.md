@@ -330,6 +330,25 @@
 - 后续如果需要统一处理测试环境延迟、取消或计时策略，可以从一个入口扩展。
 - 暂未替换 `src/ui/banner.mjs` 的动画 sleep，避免把 UI 动画节奏和服务端等待策略混在同一轮改动里。
 
+### 20. Control Plane API query 参数读取抽离
+
+已把 `src/control-plane-web.mjs` 里重复的 URL query 参数读取抽到 `src/control-plane-api-utils.mjs`：
+
+- `pickRequestSearchParams(request, names)`
+
+已替换：
+
+- chat 状态的 `sessionLabel`
+- usage / runs / admin audit 的 `userId`、`limit`
+- conversation logs / reviews 的筛选参数
+- workspace file 的 `path`
+
+收益：
+
+- route handler 不再反复创建 `new URL(request.url || "/", "http://localhost")`。
+- 查询参数缺失时统一返回 `null`，继续保持原本 `URLSearchParams.get()` 语义。
+- 新增单测覆盖参数选择、URL 解码和空 URL fallback。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
