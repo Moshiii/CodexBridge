@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
-import { open, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -14,7 +13,12 @@ import {
   readJson,
   writeJson,
 } from "./config.mjs";
-import { readPidFile } from "./bots.mjs";
+import {
+  clearPidFile,
+  isPidRunning,
+  readPidFile,
+  writeCurrentPidFile,
+} from "./pid-files.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,18 +26,6 @@ const BIN_PATH = path.join(PROJECT_ROOT, "bin", "codexbridge.mjs");
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function isPidRunning(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function createDefaultWebRuntimeState() {
@@ -50,7 +42,7 @@ function createDefaultWebRuntimeState() {
 }
 
 async function clearWebRuntimePid() {
-  await rm(getWebRuntimePidPath(), { force: true });
+  await clearPidFile(getWebRuntimePidPath());
 }
 
 async function clearStoppedState(previous = {}) {
@@ -67,32 +59,9 @@ async function clearStoppedState(previous = {}) {
 }
 
 async function writeWebRuntimePid() {
-  await open(getWebRuntimePidPath(), "wx")
-    .then(async (handle) => {
-      await handle.writeFile(
-        `${JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2)}\n`,
-        "utf8",
-      );
-      await handle.close();
-    })
-    .catch(async (error) => {
-      if (error?.code !== "EEXIST") {
-        throw error;
-      }
-
-      const existingPid = await readPidFile(getWebRuntimePidPath());
-      if (existingPid && isPidRunning(existingPid)) {
-        throw new Error(`Web console already running with pid ${existingPid}`);
-      }
-
-      await clearWebRuntimePid();
-      const retryHandle = await open(getWebRuntimePidPath(), "wx");
-      await retryHandle.writeFile(
-        `${JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2)}\n`,
-        "utf8",
-      );
-      await retryHandle.close();
-    });
+  await writeCurrentPidFile(getWebRuntimePidPath(), {
+    conflictMessage: (pid) => `Web console already running with pid ${pid}`,
+  });
 }
 
 export async function readWebRuntimeState() {

@@ -291,6 +291,21 @@
 - 页面模板不再携带开发者本机路径假设。
 - 新增单测防止本机路径硬编码回归。
 
+### 18. PID 文件工具抽离
+
+已把 runtime pid 文件读写、运行检测和 stale pid 覆盖逻辑抽到 `src/pid-files.mjs`：
+
+- `isPidRunning(pid)`
+- `readPidFile(filePath)`
+- `clearPidFile(filePath)`
+- `writeCurrentPidFile(filePath, options)`
+
+收益：
+
+- `src/web-runtime.mjs` 不再为了读取 pid 文件反向依赖 `src/bots.mjs`。
+- Bot runtime 与 Web runtime 共享同一套 pid 文件格式兼容逻辑。
+- 新增单测覆盖 legacy pid、JSON pid、无效 pid、stale pid 覆盖和 running pid 冲突。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

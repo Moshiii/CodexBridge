@@ -27,6 +27,12 @@ import {
   writeRegistry,
 } from "./config.mjs";
 import { getChannelAdapter } from "./channel-adapters.mjs";
+import {
+  clearPidFile,
+  isPidRunning,
+  readPidFile,
+  writeCurrentPidFile,
+} from "./pid-files.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -34,18 +40,6 @@ const BIN_PATH = path.join(PROJECT_ROOT, "bin", "codexbridge.mjs");
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function isPidRunning(pid) {
-  if (!Number.isInteger(pid) || pid <= 0) {
-    return false;
-  }
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 async function listProcesses() {
@@ -140,42 +134,12 @@ function summarizeBot(bot, runtimePid = null) {
   };
 }
 
-export async function readPidFile(filePath) {
-  try {
-    const raw = (await readFile(filePath, "utf8")).trim();
-    const parsed = raw.startsWith("{") ? JSON.parse(raw) : raw;
-    const pid = Number.parseInt(typeof parsed === "string" ? parsed : parsed?.pid, 10);
-    return Number.isInteger(pid) && pid > 0 ? pid : null;
-  } catch {
-    return null;
-  }
-}
+export { readPidFile } from "./pid-files.mjs";
 
 async function writePidFile(filePath) {
-  await open(filePath, "wx")
-    .then(async (handle) => {
-      await handle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2)}\n`);
-      await handle.close();
-    })
-    .catch(async (error) => {
-      if (error?.code !== "EEXIST") {
-        throw error;
-      }
-
-      const existingPid = await readPidFile(filePath);
-      if (existingPid && isPidRunning(existingPid)) {
-        throw new Error(`Bot runtime already running with pid ${existingPid}`);
-      }
-
-      await clearPidFile(filePath);
-      const retryHandle = await open(filePath, "wx");
-      await retryHandle.writeFile(`${JSON.stringify({ pid: process.pid, startedAt: nowIso() }, null, 2)}\n`);
-      await retryHandle.close();
-    });
-}
-
-async function clearPidFile(filePath) {
-  await rm(filePath, { force: true });
+  await writeCurrentPidFile(filePath, {
+    conflictMessage: (pid) => `Bot runtime already running with pid ${pid}`,
+  });
 }
 
 async function readRuntimePid(bot) {
