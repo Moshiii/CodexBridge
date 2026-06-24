@@ -371,6 +371,18 @@
 - 多 capture group route 仍显式传 `index`，可读性不受影响。
 - 新增单测覆盖默认 capture group 和指定 capture group 的 URL 解码。
 
+### 22. Control Plane 200 JSON 响应收口
+
+已把 `src/control-plane-web.mjs` 里成功响应的 `json(response, 200, payload)` 收口到 `src/control-plane-http.mjs`：
+
+- `okJson(response, payload)`
+
+收益：
+
+- route handler 的成功返回更短，只保留 payload 语义。
+- 404 和错误响应仍使用 `json(response, statusCode, payload)`，状态码差异更明显。
+- 新增单测覆盖 `okJson()` 的 200 状态码和 JSON content-type。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

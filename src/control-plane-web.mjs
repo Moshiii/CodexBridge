@@ -79,6 +79,7 @@ import {
   html,
   isWebRequestAuthorized,
   json,
+  okJson,
   readJsonBody,
   unauthorized,
 } from "./control-plane-http.mjs";
@@ -280,18 +281,17 @@ export async function getBotControlPlaneDetail(botId) {
 
 async function handleApi(request, response, pathname) {
   if (request.method === "GET" && pathname === "/api/current-bot") {
-    return json(response, 200, { currentBotId: await readActiveBotId() });
+    return okJson(response, { currentBotId: await readActiveBotId() });
   }
 
   if (request.method === "GET" && pathname === "/api/bots") {
-    return json(response, 200, await getControlPlaneSnapshot());
+    return okJson(response, await getControlPlaneSnapshot());
   }
 
   if (request.method === "POST" && pathname === "/api/bots") {
     const body = await readJsonBody(request);
-    return json(
+    return okJson(
       response,
-      200,
       await createBot({
         id: body.id,
         name: body.name,
@@ -302,38 +302,38 @@ async function handleApi(request, response, pathname) {
 
   const botMatch = pathname.match(/^\/api\/bots\/([^/]+)$/);
   if (request.method === "GET" && botMatch) {
-    return json(response, 200, redactControlPlaneDetail(await getBotControlPlaneDetail(decodeRouteParam(botMatch))));
+    return okJson(response, redactControlPlaneDetail(await getBotControlPlaneDetail(decodeRouteParam(botMatch))));
   }
 
   const botDeleteMatch = pathname.match(/^\/api\/bots\/([^/]+)$/);
   if (request.method === "DELETE" && botDeleteMatch) {
     const botId = decodeRouteParam(botDeleteMatch);
     await deleteBot(botId);
-    return json(response, 200, { botId, deleted: true });
+    return okJson(response, { botId, deleted: true });
   }
 
   const botUseMatch = pathname.match(/^\/api\/bots\/([^/]+)\/use$/);
   if (request.method === "POST" && botUseMatch) {
     const botId = decodeRouteParam(botUseMatch);
     await setActiveBot(botId);
-    return json(response, 200, { currentBotId: botId });
+    return okJson(response, { currentBotId: botId });
   }
 
   const botToggleMatch = pathname.match(/^\/api\/bots\/([^/]+)\/(enable|disable)$/);
   if (request.method === "POST" && botToggleMatch) {
     const botId = decodeRouteParam(botToggleMatch);
     const enabled = botToggleMatch[2] === "enable";
-    return json(response, 200, await setBotEnabled(botId, enabled));
+    return okJson(response, await setBotEnabled(botId, enabled));
   }
 
   const botLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/logs$/);
   if (request.method === "GET" && botLogsMatch) {
-    return json(response, 200, await readBotLogs(decodeRouteParam(botLogsMatch), 200));
+    return okJson(response, await readBotLogs(decodeRouteParam(botLogsMatch), 200));
   }
 
   const botBridgeLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/bridge-logs$/);
   if (request.method === "GET" && botBridgeLogsMatch) {
-    return json(response, 200, await readBridgeLogs(decodeRouteParam(botBridgeLogsMatch), 200));
+    return okJson(response, await readBridgeLogs(decodeRouteParam(botBridgeLogsMatch), 200));
   }
 
   const botActionMatch = pathname.match(/^\/api\/bots\/([^/]+)\/(start|stop|restart)$/);
@@ -341,12 +341,12 @@ async function handleApi(request, response, pathname) {
     const botId = decodeRouteParam(botActionMatch);
     const action = botActionMatch[2];
     if (action === "start") {
-      return json(response, 200, { botId, pid: await startBot(botId) });
+      return okJson(response, { botId, pid: await startBot(botId) });
     }
     if (action === "stop") {
-      return json(response, 200, { botId, stopped: await stopBot(botId) });
+      return okJson(response, { botId, stopped: await stopBot(botId) });
     }
-    return json(response, 200, { botId, pid: await restartBot(botId) });
+    return okJson(response, { botId, pid: await restartBot(botId) });
   }
 
   const botConfigMatch = pathname.match(/^\/api\/bots\/([^/]+)\/config$/);
@@ -356,24 +356,23 @@ async function handleApi(request, response, pathname) {
     const currentConfig = (await inspectBot(botId)).config;
     await updateBotConfig(botId, () => applySafeConfigPatch(currentConfig, body));
     const persistedConfig = (await inspectBot(botId)).config;
-    return json(response, 200, redactConfigSecrets(persistedConfig));
+    return okJson(response, redactConfigSecrets(persistedConfig));
   }
 
   const botSessionsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/sessions$/);
   if (request.method === "GET" && botSessionsMatch) {
-    return json(response, 200, await readBotSessions(decodeRouteParam(botSessionsMatch)));
+    return okJson(response, await readBotSessions(decodeRouteParam(botSessionsMatch)));
   }
   if (request.method === "POST" && botSessionsMatch) {
     const botId = decodeRouteParam(botSessionsMatch);
     const body = await readJsonBody(request);
-    return json(response, 200, await createBotSession(botId, body.label));
+    return okJson(response, await createBotSession(botId, body.label));
   }
 
   const botSessionUseMatch = pathname.match(/^\/api\/bots\/([^/]+)\/sessions\/([^/]+)\/use$/);
   if (request.method === "POST" && botSessionUseMatch) {
-    return json(
+    return okJson(
       response,
-      200,
       await activateBotSession(decodeRouteParam(botSessionUseMatch), decodeRouteParam(botSessionUseMatch, 2)),
     );
   }
@@ -382,32 +381,32 @@ async function handleApi(request, response, pathname) {
   if (request.method === "GET" && botChatMatch) {
     const botId = decodeRouteParam(botChatMatch);
     const query = pickRequestSearchParams(request, ["sessionLabel"]);
-    return json(response, 200, await readChatStatus(botId, query.sessionLabel));
+    return okJson(response, await readChatStatus(botId, query.sessionLabel));
   }
   if (request.method === "POST" && botChatMatch) {
     const botId = decodeRouteParam(botChatMatch);
     const body = await readJsonBody(request);
-    return json(response, 200, await startBotChat(botId, body));
+    return okJson(response, await startBotChat(botId, body));
   }
 
   const botChatStopMatch = pathname.match(/^\/api\/bots\/([^/]+)\/chat\/stop$/);
   if (request.method === "POST" && botChatStopMatch) {
     const botId = decodeRouteParam(botChatStopMatch);
     const body = await readJsonBody(request);
-    return json(response, 200, await stopBotChat(botId, body.sessionLabel));
+    return okJson(response, await stopBotChat(botId, body.sessionLabel));
   }
 
   const botQuickTestMatch = pathname.match(/^\/api\/bots\/([^/]+)\/quick-test$/);
   if (request.method === "POST" && botQuickTestMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await startQuickTestForBot(decodeRouteParam(botQuickTestMatch), { mode: body.mode }));
+    return okJson(response, await startQuickTestForBot(decodeRouteParam(botQuickTestMatch), { mode: body.mode }));
   }
 
   const botTelegramPairMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/pair$/);
   if (request.method === "POST" && botTelegramPairMatch) {
     const body = await readJsonBody(request);
     const payload = await pairTelegramForBot(decodeRouteParam(botTelegramPairMatch), body.token);
-    return json(response, 200, {
+    return okJson(response, {
       ...payload,
       detail: redactControlPlaneDetail(payload.detail),
     });
@@ -416,7 +415,7 @@ async function handleApi(request, response, pathname) {
   const botTelegramAccessMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/access$/);
   if (request.method === "POST" && botTelegramAccessMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, redactControlPlaneDetail(await allowTelegramAccessForBot(
+    return okJson(response, redactControlPlaneDetail(await allowTelegramAccessForBot(
       decodeRouteParam(botTelegramAccessMatch),
       body,
     )));
@@ -427,34 +426,33 @@ async function handleApi(request, response, pathname) {
     const botId = decodeRouteParam(botTelegramRefreshMatch);
     const detail = await inspectBot(botId);
     await hydrateTelegramMetadata(detail.bot.homePath);
-    return json(response, 200, redactControlPlaneDetail(await getBotControlPlaneDetail(botId)));
+    return okJson(response, redactControlPlaneDetail(await getBotControlPlaneDetail(botId)));
   }
 
   const botGoalsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/goals$/);
   if (request.method === "GET" && botGoalsMatch) {
-    return json(response, 200, await listBotGoals(decodeRouteParam(botGoalsMatch)));
+    return okJson(response, await listBotGoals(decodeRouteParam(botGoalsMatch)));
   }
   if (request.method === "POST" && botGoalsMatch) {
     const botId = decodeRouteParam(botGoalsMatch);
     const body = await readJsonBody(request);
-    return json(response, 200, await startGoalForBot(botId, body));
+    return okJson(response, await startGoalForBot(botId, body));
   }
 
   const botSchedulesMatch = pathname.match(/^\/api\/bots\/([^/]+)\/schedules$/);
   if (request.method === "GET" && botSchedulesMatch) {
-    return json(response, 200, await listBotSchedules(decodeRouteParam(botSchedulesMatch)));
+    return okJson(response, await listBotSchedules(decodeRouteParam(botSchedulesMatch)));
   }
   if (request.method === "POST" && botSchedulesMatch) {
     const botId = decodeRouteParam(botSchedulesMatch);
     const body = await readJsonBody(request);
-    return json(response, 200, await createScheduleForBot(botId, body));
+    return okJson(response, await createScheduleForBot(botId, body));
   }
 
   const botScheduleToggleMatch = pathname.match(/^\/api\/bots\/([^/]+)\/schedules\/([^/]+)\/(enable|disable)$/);
   if (request.method === "POST" && botScheduleToggleMatch) {
-    return json(
+    return okJson(
       response,
-      200,
       await toggleScheduleForBot(
         decodeRouteParam(botScheduleToggleMatch),
         decodeRouteParam(botScheduleToggleMatch, 2),
@@ -465,15 +463,14 @@ async function handleApi(request, response, pathname) {
 
   const botUsersMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users$/);
   if (request.method === "GET" && botUsersMatch) {
-    return json(response, 200, await listBotUsers(decodeRouteParam(botUsersMatch)));
+    return okJson(response, await listBotUsers(decodeRouteParam(botUsersMatch)));
   }
 
   const botUserGrantMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/grant$/);
   if (request.method === "POST" && botUserGrantMatch) {
     const body = await readJsonBody(request);
-    return json(
+    return okJson(
       response,
-      200,
       await grantCreditsForBot(
         decodeRouteParam(botUserGrantMatch),
         decodeRouteParam(botUserGrantMatch, 2),
@@ -485,9 +482,8 @@ async function handleApi(request, response, pathname) {
   const botUserAdjustMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/adjust$/);
   if (request.method === "POST" && botUserAdjustMatch) {
     const body = await readJsonBody(request);
-    return json(
+    return okJson(
       response,
-      200,
       await adjustCreditsForBot(
         decodeRouteParam(botUserAdjustMatch),
         decodeRouteParam(botUserAdjustMatch, 2),
@@ -500,9 +496,8 @@ async function handleApi(request, response, pathname) {
   const botUserStatusMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/status$/);
   if (request.method === "POST" && botUserStatusMatch) {
     const body = await readJsonBody(request);
-    return json(
+    return okJson(
       response,
-      200,
       await updateUserStatusForBot(
         decodeRouteParam(botUserStatusMatch),
         decodeRouteParam(botUserStatusMatch, 2),
@@ -514,9 +509,8 @@ async function handleApi(request, response, pathname) {
   const botUserPrivateMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/private$/);
   if (request.method === "POST" && botUserPrivateMatch) {
     const body = await readJsonBody(request);
-    return json(
+    return okJson(
       response,
-      200,
       await updatePrivateEnabledForBot(
         decodeRouteParam(botUserPrivateMatch),
         decodeRouteParam(botUserPrivateMatch, 2),
@@ -527,38 +521,38 @@ async function handleApi(request, response, pathname) {
 
   const botUsageMatch = pathname.match(/^\/api\/bots\/([^/]+)\/usage$/);
   if (request.method === "GET" && botUsageMatch) {
-    return json(response, 200, await listUsageForBot(decodeRouteParam(botUsageMatch), {
+    return okJson(response, await listUsageForBot(decodeRouteParam(botUsageMatch), {
       ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botRunsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/runs$/);
   if (request.method === "GET" && botRunsMatch) {
-    return json(response, 200, await listRunsForBot(decodeRouteParam(botRunsMatch), {
+    return okJson(response, await listRunsForBot(decodeRouteParam(botRunsMatch), {
       ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botAdminAuditMatch = pathname.match(/^\/api\/bots\/([^/]+)\/admin-audit$/);
   if (request.method === "GET" && botAdminAuditMatch) {
-    return json(response, 200, await listAdminAuditForBot(decodeRouteParam(botAdminAuditMatch), {
+    return okJson(response, await listAdminAuditForBot(decodeRouteParam(botAdminAuditMatch), {
       ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botMetricsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/metrics$/);
   if (request.method === "GET" && botMetricsMatch) {
-    return json(response, 200, await getMetricsForBot(decodeRouteParam(botMetricsMatch)));
+    return okJson(response, await getMetricsForBot(decodeRouteParam(botMetricsMatch)));
   }
 
   const botMigrationsRunMatch = pathname.match(/^\/api\/bots\/([^/]+)\/migrations\/run$/);
   if (request.method === "POST" && botMigrationsRunMatch) {
-    return json(response, 200, await runMigrationsForBot(decodeRouteParam(botMigrationsRunMatch)));
+    return okJson(response, await runMigrationsForBot(decodeRouteParam(botMigrationsRunMatch)));
   }
 
   const botConversationLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs$/);
   if (request.method === "GET" && botConversationLogsMatch) {
-    return json(response, 200, await listConversationLogsForBot(decodeRouteParam(botConversationLogsMatch), {
+    return okJson(response, await listConversationLogsForBot(decodeRouteParam(botConversationLogsMatch), {
       ...pickRequestSearchParams(request, [
         "userId",
         "runId",
@@ -576,7 +570,7 @@ async function handleApi(request, response, pathname) {
   const botConversationLogsCleanupMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs\/cleanup$/);
   if (request.method === "POST" && botConversationLogsCleanupMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await cleanupConversationLogsForBot(
+    return okJson(response, await cleanupConversationLogsForBot(
       decodeRouteParam(botConversationLogsCleanupMatch),
       body,
     ));
@@ -584,7 +578,7 @@ async function handleApi(request, response, pathname) {
 
   const botConversationReviewsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-reviews$/);
   if (request.method === "GET" && botConversationReviewsMatch) {
-    return json(response, 200, await listConversationReviewsForBot(decodeRouteParam(botConversationReviewsMatch), {
+    return okJson(response, await listConversationReviewsForBot(decodeRouteParam(botConversationReviewsMatch), {
       ...pickRequestSearchParams(request, ["eventId", "status", "limit"]),
     }));
   }
@@ -592,7 +586,7 @@ async function handleApi(request, response, pathname) {
   const botConversationReviewMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs\/([^/]+)\/review$/);
   if (request.method === "POST" && botConversationReviewMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await reviewConversationLogForBot(
+    return okJson(response, await reviewConversationLogForBot(
       decodeRouteParam(botConversationReviewMatch),
       decodeRouteParam(botConversationReviewMatch, 2),
       body,
@@ -601,14 +595,13 @@ async function handleApi(request, response, pathname) {
 
   const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);
   if (request.method === "GET" && botWorkspaceMatch) {
-    return json(response, 200, await listWorkspaceFiles(await getBotHome(decodeRouteParam(botWorkspaceMatch))));
+    return okJson(response, await listWorkspaceFiles(await getBotHome(decodeRouteParam(botWorkspaceMatch))));
   }
 
   const botWorkspaceFileMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace\/file$/);
   if (request.method === "GET" && botWorkspaceFileMatch) {
-    return json(
+    return okJson(
       response,
-      200,
       await readWorkspaceFileForBot(
         decodeRouteParam(botWorkspaceFileMatch),
         pickRequestSearchParams(request, ["path"]).path,
@@ -617,35 +610,34 @@ async function handleApi(request, response, pathname) {
   }
   if (request.method === "POST" && botWorkspaceFileMatch) {
     const body = await readJsonBody(request);
-    return json(
+    return okJson(
       response,
-      200,
       await writeWorkspaceFileForBot(decodeRouteParam(botWorkspaceFileMatch), body.path, body.content),
     );
   }
 
   const botSkillsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/skills$/);
   if (request.method === "GET" && botSkillsMatch) {
-    return json(response, 200, await listBotSkills(decodeRouteParam(botSkillsMatch)));
+    return okJson(response, await listBotSkills(decodeRouteParam(botSkillsMatch)));
   }
   if (request.method === "POST" && botSkillsMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await installSkillForBot(decodeRouteParam(botSkillsMatch), body.sourcePath));
+    return okJson(response, await installSkillForBot(decodeRouteParam(botSkillsMatch), body.sourcePath));
   }
 
   if (request.method === "POST" && pathname === "/api/rollout/restart-all") {
-    return json(response, 200, await rollingRestartBots());
+    return okJson(response, await rollingRestartBots());
   }
 
   if (request.method === "POST" && pathname === "/api/rollout/canary") {
     const body = await readJsonBody(request);
-    return json(response, 200, await canaryRollout(body.botIds || [], body.desiredVersion || "v1"));
+    return okJson(response, await canaryRollout(body.botIds || [], body.desiredVersion || "v1"));
   }
 
   const rollbackMatch = pathname.match(/^\/api\/rollout\/rollback\/([^/]+)$/);
   if (request.method === "POST" && rollbackMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await rollbackBot(decodeRouteParam(rollbackMatch), body.version || "v1"));
+    return okJson(response, await rollbackBot(decodeRouteParam(rollbackMatch), body.version || "v1"));
   }
 
   return false;

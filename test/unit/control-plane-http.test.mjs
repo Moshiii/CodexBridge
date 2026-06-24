@@ -60,13 +60,19 @@ test("control plane http helpers authorize token, bearer, and basic requests", a
 });
 
 test("control plane http helpers write standard response envelopes", async () => {
-  const { html, json, text, unauthorized } = await importFresh("../../src/control-plane-http.mjs");
+  const { html, json, okJson, text, unauthorized } = await importFresh("../../src/control-plane-http.mjs");
 
   const jsonResponse = createResponseRecorder();
   json(jsonResponse, 201, { ok: true });
   assert.equal(jsonResponse.statusCode, 201);
   assert.equal(jsonResponse.headers["content-type"], "application/json; charset=utf-8");
   assert.match(jsonResponse.body, /"ok": true/);
+
+  const okJsonResponse = createResponseRecorder();
+  okJson(okJsonResponse, { ok: true });
+  assert.equal(okJsonResponse.statusCode, 200);
+  assert.equal(okJsonResponse.headers["content-type"], "application/json; charset=utf-8");
+  assert.match(okJsonResponse.body, /"ok": true/);
 
   const htmlResponse = createResponseRecorder();
   html(htmlResponse, 200, "<main></main>");

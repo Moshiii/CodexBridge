@@ -7,6 +7,10 @@ export function json(response, statusCode, payload) {
   response.end(`${JSON.stringify(payload, null, 2)}\n`);
 }
 
+export function okJson(response, payload) {
+  json(response, 200, payload);
+}
+
 export function text(response, statusCode, payload) {
   response.writeHead(statusCode, { "content-type": "text/plain; charset=utf-8" });
   response.end(payload);
