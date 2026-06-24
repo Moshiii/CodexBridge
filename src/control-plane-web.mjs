@@ -28,7 +28,6 @@ import {
 } from "./config.mjs";
 import { installSkillFromPath } from "./skills.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
-import { pairTelegramChannel } from "./telegram-pairing.mjs";
 import { UserInputError, toPublicError } from "./errors.mjs";
 import {
   adjustCredits,
@@ -80,6 +79,10 @@ import {
   listControlPlaneGoals,
   startControlPlaneGoal,
 } from "./control-plane-goal-service.mjs";
+import {
+  allowTelegramAccessForControlPlane,
+  pairTelegramForControlPlane,
+} from "./control-plane-telegram-service.mjs";
 
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
 const activeGoalRuns = new Map();
@@ -300,104 +303,17 @@ async function installSkillForBot(botId, sourcePath) {
 }
 
 async function pairTelegramForBot(botId, token) {
-  const nextToken = String(token || "").trim();
-  if (!nextToken) {
-    throw new UserInputError("Telegram token is required.", { code: "telegram_token_required" });
-  }
-  assertSafeTelegramToken(nextToken);
-  const botHome = await getBotHome(botId);
-  const paired = await pairTelegramChannel(nextToken);
-  await updateBotConfig(botId, (currentConfig) => {
-    const existingGroupUserIds = currentConfig.channels?.telegram?.groups?.allowedUserIds ?? [];
-    return {
-      ...currentConfig,
-      enabled: true,
-      channels: {
-        ...currentConfig.channels,
-        telegram: {
-          ...(currentConfig.channels?.telegram ?? {}),
-          enabled: true,
-          botToken: nextToken,
-          botUsername: paired.botUsername || currentConfig.channels?.telegram?.botUsername || "",
-          metadata: {
-            chats: {
-              ...(currentConfig.channels?.telegram?.metadata?.chats ?? {}),
-              [paired.chatId]: {
-                type: "private",
-                username: paired.userUsername ?? null,
-                label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
-              },
-            },
-            users: {
-              ...(currentConfig.channels?.telegram?.metadata?.users ?? {}),
-              [paired.userId]: {
-                username: paired.userUsername ?? null,
-                label: paired.userUsername ? `@${paired.userUsername.replace(/^@+/, "")}` : null,
-              },
-            },
-          },
-          private: {
-            allowedChatIds: [paired.chatId],
-          },
-          groups: {
-            allowedChatIds: currentConfig.channels?.telegram?.groups?.allowedChatIds ?? [],
-            allowedUserIds: Array.from(new Set([...existingGroupUserIds, paired.userId])),
-            requireExplicitMention: currentConfig.channels?.telegram?.groups?.requireExplicitMention ?? true,
-          },
-        },
-      },
-    };
+  return await pairTelegramForControlPlane(botId, token, {
+    updateBotConfigFn: updateBotConfig,
+    getDetailFn: getBotControlPlaneDetail,
   });
-  const detail = await getBotControlPlaneDetail(botId);
-  return {
-    chatId: paired.chatId,
-    userId: paired.userId,
-    botUsername: paired.botUsername,
-    detail,
-  };
 }
 
 async function allowTelegramAccessForBot(botId, { accessType, id } = {}) {
-  const normalizedType = String(accessType || "").trim();
-  const normalizedId = String(id || "").trim();
-  if (!normalizedId) {
-    throw new UserInputError("Telegram access id is required.", { code: "telegram_access_id_required" });
-  }
-  if (!["private_chat", "group_chat", "group_user"].includes(normalizedType)) {
-    throw new UserInputError("Telegram access type is required.", { code: "telegram_access_type_required" });
-  }
-  await updateBotConfig(botId, (currentConfig) => {
-    const telegram = currentConfig.channels?.telegram ?? {};
-    const privateChatIds = telegram.private?.allowedChatIds ?? [];
-    const groupChatIds = telegram.groups?.allowedChatIds ?? [];
-    const groupUserIds = telegram.groups?.allowedUserIds ?? [];
-    return {
-      ...currentConfig,
-      channels: {
-        ...currentConfig.channels,
-        telegram: {
-          ...telegram,
-          private: {
-            ...(telegram.private ?? {}),
-            allowedChatIds: normalizedType === "private_chat"
-              ? Array.from(new Set([...privateChatIds, normalizedId]))
-              : privateChatIds,
-          },
-          groups: {
-            ...(telegram.groups ?? {}),
-            allowedChatIds: normalizedType === "group_chat"
-              ? Array.from(new Set([...groupChatIds, normalizedId]))
-              : groupChatIds,
-            allowedUserIds: normalizedType === "group_user"
-              ? Array.from(new Set([...groupUserIds, normalizedId]))
-              : groupUserIds,
-            requireExplicitMention: telegram.groups?.requireExplicitMention ?? true,
-          },
-        },
-      },
-    };
+  return await allowTelegramAccessForControlPlane(botId, { accessType, id }, {
+    updateBotConfigFn: updateBotConfig,
+    getDetailFn: getBotControlPlaneDetail,
   });
-  return await getBotControlPlaneDetail(botId);
 }
 
 async function listBotGoals(botId) {

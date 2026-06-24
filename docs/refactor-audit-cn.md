@@ -157,6 +157,21 @@
 - `activeGoalRuns` 仍由 Web 注入，停止逻辑保持不变，但 runner 生命周期已经集中到服务层。
 - 新增测试用 fake `launchGoalFn` 覆盖成功启动、activeGoalRuns 注册、objective 校验和失败持久化。
 
+### 9. Control Plane Telegram 服务抽离
+
+已把 Web 控制台里的 Telegram pair 和 access allow 配置 patch 抽到 `src/control-plane-telegram-service.mjs`：
+
+- `buildPairedTelegramConfig(currentConfig, token, paired)`
+- `buildTelegramAccessConfig(currentConfig, payload)`
+- `pairTelegramForControlPlane(botId, token, dependencies)`
+- `allowTelegramAccessForControlPlane(botId, payload, dependencies)`
+
+收益：
+
+- Web handler 不再直接依赖 Telegram pairing SDK 或手写 Telegram 配置 patch。
+- 修复并覆盖了 pair 路径里的 token 安全校验：placeholder Telegram token 现在会在 pair 前被拒绝。
+- access allow 的去重和类型校验有独立单测，后续做微信或飞书 access 管理时可以复用类似模式。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

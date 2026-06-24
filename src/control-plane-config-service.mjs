@@ -36,7 +36,7 @@ function isPlaceholderToken(value) {
   return PLACEHOLDER_TOKEN_PATTERNS.some((pattern) => pattern.test(token));
 }
 
-function assertSafeTelegramToken(token) {
+export function assertSafeTelegramToken(token) {
   if (isPlaceholderToken(token)) {
     throw new UserInputError("Refusing to save placeholder Telegram token.", {
       code: "placeholder_telegram_token",
