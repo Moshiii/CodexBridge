@@ -144,6 +144,19 @@
 - 未来 CLI、微信 concierge 面板或其它本地控制入口可以复用同一套 session/schedule 能力。
 - goal runner 仍保留在 Web 层，后续需要单独拆，因为它涉及 active child process、持久化回调和停止逻辑。
 
+### 8. Control Plane goal 服务抽离
+
+已把 Web 控制台里的 goal 列表、创建、Codex command config 组装和 runner 回调持久化抽到 `src/control-plane-goal-service.mjs`：
+
+- `listControlPlaneGoals(botHome, options)`
+- `startControlPlaneGoal(botHome, botId, payload, dependencies)`
+
+收益：
+
+- Web handler 不再直接创建 goal record、拼 command config 或绑定 launchGoal 回调。
+- `activeGoalRuns` 仍由 Web 注入，停止逻辑保持不变，但 runner 生命周期已经集中到服务层。
+- 新增测试用 fake `launchGoalFn` 覆盖成功启动、activeGoalRuns 注册、objective 校验和失败持久化。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
