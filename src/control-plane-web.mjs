@@ -1,15 +1,12 @@
 import http from "node:http";
 import crypto from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
 
 import {
   canaryRollout,
   createBot,
   deleteBot,
-  healthCheckBot,
   inspectBot,
-  listBots,
   readBotLogs,
   restartBot,
   rollbackBot,
@@ -20,10 +17,7 @@ import {
   stopBot,
   updateBotConfig,
 } from "./bots.mjs";
-import {
-  getChannelBridgeLogPath,
-  readActiveBotId,
-} from "./config.mjs";
+import { readActiveBotId } from "./config.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { UserInputError, toPublicError } from "./errors.mjs";
 import {
@@ -42,7 +36,6 @@ import {
   updatePrivateEnabled,
   updateUserStatus,
 } from "./control-plane-operations-service.mjs";
-import { getStateMigrationStatus } from "./state-migrations.mjs";
 import {
   listWorkspaceFiles,
   readWorkspaceFile,
@@ -54,11 +47,6 @@ import {
   redactConfigSecrets,
   redactControlPlaneDetail,
 } from "./control-plane-config-service.mjs";
-import {
-  buildQuickTestPreflight,
-  buildSetupGuide,
-  buildStorageReadiness,
-} from "./control-plane-readiness-service.mjs";
 import {
   QUICK_TEST_PROMPT,
   WORKSPACE_DEMO_PROMPTS,
@@ -84,6 +72,11 @@ import {
   installControlPlaneSkill,
   listControlPlaneSkills,
 } from "./control-plane-skills-service.mjs";
+import {
+  getBotControlPlaneDetail as getBotControlPlaneDetailFromService,
+  getControlPlaneSnapshot as getControlPlaneSnapshotFromService,
+  readBridgeLogs,
+} from "./control-plane-detail-service.mjs";
 
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
 const activeGoalRuns = new Map();
@@ -187,17 +180,6 @@ export function isWebRequestAuthorized(request, operatorToken = getWebOperatorTo
 async function getBotHome(botId) {
   const detail = await inspectBot(botId);
   return detail.bot.homePath;
-}
-
-async function readBridgeLogs(botId, lines = 200) {
-  const detail = await inspectBot(botId);
-  const logPath = getChannelBridgeLogPath(detail.bot.channel, detail.bot.homePath);
-  const raw = await readFile(logPath, "utf8").catch(() => "");
-  const chunks = raw.trimEnd().split(/\r?\n/).filter(Boolean);
-  return {
-    logPath,
-    content: chunks.slice(-lines).join("\n"),
-  };
 }
 
 async function readBotSessions(botId) {
@@ -374,57 +356,11 @@ async function reviewConversationLogForBot(botId, eventId, body = {}) {
 }
 
 export async function getControlPlaneSnapshot() {
-  const bots = await listBots();
-  const health = await Promise.all(
-    bots.map(async (bot) => ({
-      id: bot.id,
-      health: await healthCheckBot(bot.id),
-    })),
-  );
-  return {
-    generatedAt: new Date().toISOString(),
-    currentBotId: await readActiveBotId(),
-    bots,
-    health,
-  };
+  return await getControlPlaneSnapshotFromService();
 }
 
 export async function getBotControlPlaneDetail(botId) {
-  const detail = await inspectBot(botId);
-  detail.config = await hydrateTelegramMetadata(detail.bot.homePath).catch(() => detail.config);
-  const health = await healthCheckBot(botId);
-  const telegram = detail.config.channels?.telegram ?? {};
-  const metadata = telegram.metadata ?? { chats: {}, users: {} };
-  const formatEntry = (id, source) => {
-    const entry = source?.[id];
-    if (entry?.label) {
-      return `${entry.label} (${id})`;
-    }
-    if (entry?.username) {
-      return `@${String(entry.username).replace(/^@+/, "")} (${id})`;
-    }
-    if (entry?.title) {
-      return `${entry.title} (${id})`;
-    }
-    return String(id);
-  };
-  const access = {
-    privateChats: (telegram.private?.allowedChatIds ?? []).map((id) => formatEntry(id, metadata.chats)),
-    groupChats: (telegram.groups?.allowedChatIds ?? []).map((id) => formatEntry(id, metadata.chats)),
-    groupUsers: (telegram.groups?.allowedUserIds ?? []).map((id) => formatEntry(id, metadata.users)),
-  };
-  const setupGuide = await buildSetupGuide(detail, health, access);
-  const migrationStatus = await getStateMigrationStatus({ botHome: detail.bot.homePath });
-  return {
-    detail,
-    health,
-    logs: await readBotLogs(botId, 50),
-    access,
-    setupGuide,
-    migrationStatus,
-    storageReadiness: buildStorageReadiness(detail.config, migrationStatus),
-    quickTestPreflight: buildQuickTestPreflight(setupGuide),
-  };
+  return await getBotControlPlaneDetailFromService(botId);
 }
 
 function renderHtmlPage() {

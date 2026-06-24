@@ -185,6 +185,21 @@
 - skills 管理能力可以被 CLI、未来的微信 concierge 面板或其它本地控制入口复用。
 - 新增测试覆盖缺失目录、frontmatter fallback、排序和安装到指定 bot home。
 
+### 11. Control Plane Detail 服务抽离
+
+已把 Web 控制台里的 snapshot、bot detail、Telegram access 展示和 bridge log 读取抽到 `src/control-plane-detail-service.mjs`：
+
+- `getControlPlaneSnapshot()`
+- `getBotControlPlaneDetail(botId)`
+- `buildTelegramAccessSummary(config)`
+- `readBridgeLogs(botId, lines)`
+
+收益：
+
+- Web handler 不再直接组装 readiness/detail/access/logs，只负责 HTTP 路由和响应。
+- Telegram access 展示规则有独立测试，不再埋在 Web 页面集成测试里。
+- detail 组合逻辑可供未来 CLI 或其它本地控制入口复用。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
