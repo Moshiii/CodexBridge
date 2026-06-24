@@ -33,24 +33,29 @@ import {
 import { buildCommandConfig } from "./codex-runner.mjs";
 import { launchGoal } from "./goal-controller.mjs";
 import { createGoalRecord, listGoals, readGoal, writeGoal } from "./goals-state.mjs";
+import { listRunRecords } from "./runs-state.mjs";
 import { createScheduleRecord, getScheduleById, listSchedules, upsertSchedule } from "./schedules-state.mjs";
 import { installSkillFromPath } from "./skills.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { pairTelegramChannel } from "./telegram-pairing.mjs";
-import { adjustPaidCredits, getUserCredits, grantPaidCredits } from "./user-credits.mjs";
-import { listUsageEvents } from "./usage-ledger.mjs";
-import { listRunRecords } from "./runs-state.mjs";
-import { readUsersState, setPrivateEnabled, setUserStatus } from "./users-state.mjs";
-import { appendAdminAuditEvent, listAdminAuditEvents } from "./admin-audit-log.mjs";
-import { getBotMetrics } from "./analytics-service.mjs";
 import { NotFoundError, UserInputError, toPublicError } from "./errors.mjs";
-import { cleanupConversationLogEvents, listConversationLogEvents } from "./conversation-log.mjs";
 import {
-  appendConversationReviewEvent,
-  getLatestConversationReviews,
-  listConversationReviewEvents,
-} from "./conversation-review.mjs";
-import { getStateMigrationStatus, runStateMigrations } from "./state-migrations.mjs";
+  adjustCredits,
+  cleanupConversationLogs,
+  getMetrics,
+  grantCredits,
+  listAdminAudit,
+  listConversationLogs,
+  listConversationReviews,
+  listOperationsUsers,
+  listRuns,
+  listUsage,
+  reviewConversationLog,
+  runMigrations,
+  updatePrivateEnabled,
+  updateUserStatus,
+} from "./control-plane-operations-service.mjs";
+import { getStateMigrationStatus } from "./state-migrations.mjs";
 import {
   listWorkspaceFiles,
   readWorkspaceFile,
@@ -715,250 +720,72 @@ async function toggleScheduleForBot(botId, scheduleId, enabled) {
 
 async function listBotUsers(botId) {
   const botHome = await getBotHome(botId);
-  const state = await readUsersState(botHome);
-  const users = await Promise.all(
-    Object.values(state.users).map(async (user) => {
-      const credits = await getUserCredits(user.id, botHome);
-      return {
-        ...user,
-        credits: {
-          paidCredits: credits.account.paidCredits,
-          dailyFreeUsed: credits.account.dailyFreeUsed,
-          dailyFreeLimit: credits.account.dailyFreeLimit,
-          totalConsumed: credits.account.totalConsumed,
-        },
-      };
-    }),
-  );
-  return users.sort((a, b) => String(b.lastSeenAt || "").localeCompare(String(a.lastSeenAt || "")));
-}
-
-function normalizeOperationsUserId(userId) {
-  return String(userId || "").trim();
-}
-
-function normalizePositiveIntegerAmount(amount, path = "amount") {
-  const value = Number(amount);
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) {
-    throw new UserInputError("Amount must be a positive whole number.", {
-      code: "invalid_credit_amount",
-      details: { path },
-    });
-  }
-  return value;
-}
-
-function normalizeIntegerAdjustment(amount, path = "amount") {
-  const value = Number(amount);
-  if (!Number.isFinite(value) || !Number.isInteger(value) || value === 0) {
-    throw new UserInputError("Adjustment amount must be a non-zero whole number.", {
-      code: "invalid_credit_adjustment",
-      details: { path },
-    });
-  }
-  return value;
-}
-
-async function assertKnownOperationsUser(botHome, userId) {
-  const normalizedUserId = normalizeOperationsUserId(userId);
-  if (!normalizedUserId) {
-    throw new UserInputError("Select a user before changing credits, private access, or status.", {
-      code: "operations_user_required",
-      details: { path: "userId" },
-    });
-  }
-  const user = (await readUsersState(botHome)).users[normalizedUserId];
-  if (!user) {
-    throw new UserInputError(`Unknown user: ${normalizedUserId}`, {
-      code: "operations_user_not_found",
-      details: { userId: normalizedUserId },
-    });
-  }
-  return user;
+  return await listOperationsUsers(botHome);
 }
 
 async function grantCreditsForBot(botId, userId, amount) {
   const botHome = await getBotHome(botId);
-  const user = await assertKnownOperationsUser(botHome, userId);
-  const normalizedAmount = normalizePositiveIntegerAmount(amount);
-  const result = await grantPaidCredits({ userId: user.id, amount: normalizedAmount, botHome });
-  await appendAdminAuditEvent({
-    action: "grant_credits",
-    userId: user.id,
-    amount: result.granted,
-    reason: "manual_grant",
-  }, botHome);
-  return {
-    user,
-    credits: result,
-  };
+  return await grantCredits(botHome, userId, amount);
 }
 
 async function adjustCreditsForBot(botId, userId, amount, reason) {
   const botHome = await getBotHome(botId);
-  const user = await assertKnownOperationsUser(botHome, userId);
-  const normalizedAmount = normalizeIntegerAdjustment(amount);
-  const result = await adjustPaidCredits({ userId: user.id, amount: normalizedAmount, reason, botHome });
-  await appendAdminAuditEvent({
-    action: "adjust_credits",
-    userId: user.id,
-    amount: result.adjusted,
-    reason,
-  }, botHome);
-  return {
-    user,
-    credits: result,
-  };
+  return await adjustCredits(botHome, userId, amount, reason);
 }
 
 async function updateUserStatusForBot(botId, userId, status) {
   const botHome = await getBotHome(botId);
-  const existing = await assertKnownOperationsUser(botHome, userId);
-  const user = await setUserStatus(existing.id, status, botHome);
-  await appendAdminAuditEvent({
-    action: "set_user_status",
-    userId: existing.id,
-    status: user.status,
-    reason: "manual_status_update",
-  }, botHome);
-  return user;
+  return await updateUserStatus(botHome, userId, status);
 }
 
 async function updatePrivateEnabledForBot(botId, userId, privateEnabled) {
   const botHome = await getBotHome(botId);
-  const existing = await assertKnownOperationsUser(botHome, userId);
-  const user = await setPrivateEnabled(existing.id, privateEnabled, botHome);
-  await appendAdminAuditEvent({
-    action: "set_private_enabled",
-    userId: existing.id,
-    privateEnabled: user.privateEnabled,
-    reason: "manual_private_update",
-  }, botHome);
-  return user;
+  return await updatePrivateEnabled(botHome, userId, privateEnabled);
 }
 
 async function listUsageForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
-  return await listUsageEvents({
-    botHome,
-    userId: options.userId || null,
-    limit: options.limit || 100,
-  });
+  return await listUsage(botHome, options);
 }
 
 async function listRunsForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
-  return await listRunRecords({
-    botHome,
-    userId: options.userId || null,
-    limit: options.limit || 100,
-  });
+  return await listRuns(botHome, options);
 }
 
 async function listAdminAuditForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
-  return await listAdminAuditEvents({
-    botHome,
-    userId: options.userId || null,
-    limit: options.limit || 100,
-  });
+  return await listAdminAudit(botHome, options);
 }
 
 async function getMetricsForBot(botId) {
   const botHome = await getBotHome(botId);
-  return await getBotMetrics({ botHome });
+  return await getMetrics(botHome);
 }
 
 async function runMigrationsForBot(botId) {
   const botHome = await getBotHome(botId);
-  const result = await runStateMigrations({ botHome });
-  await appendAdminAuditEvent({
-    action: "run_state_migrations",
-    userId: "operator",
-    amount: result.executed.length,
-    reason: result.executed.length > 0
-      ? `executed: ${result.executed.map((migration) => migration.id).join(", ")}`
-      : "no_migrations_pending",
-  }, botHome);
-  return {
-    ...result,
-    migrationStatus: await getStateMigrationStatus({ botHome }),
-  };
+  return await runMigrations(botHome);
 }
 
 async function listConversationLogsForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
-  const [events, latestReviews] = await Promise.all([
-    listConversationLogEvents({
-      botHome,
-      userId: options.userId || null,
-      runId: options.runId || null,
-      direction: options.direction || null,
-      riskLabel: options.riskLabel || null,
-      riskOnly: options.riskOnly === true || options.riskOnly === "true",
-      createdAfter: options.createdAfter || null,
-      createdBefore: options.createdBefore || null,
-      redactContent: true,
-      limit: options.limit || 100,
-    }),
-    getLatestConversationReviews({ botHome }),
-  ]);
-  const reviewStatus = String(options.reviewStatus || "").trim();
-  return events
-    .map((event) => ({
-      ...event,
-      review: latestReviews.get(event.eventId) || null,
-    }))
-    .filter((event) => !reviewStatus || event.review?.status === reviewStatus);
+  return await listConversationLogs(botHome, options);
 }
 
 async function listConversationReviewsForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
-  return await listConversationReviewEvents({
-    botHome,
-    eventId: options.eventId || null,
-    status: options.status || null,
-    limit: options.limit || 100,
-  });
+  return await listConversationReviews(botHome, options);
 }
 
 async function cleanupConversationLogsForBot(botId, options = {}) {
   const botHome = await getBotHome(botId);
-  const olderThan = String(options.olderThan || "").trim();
-  if (!olderThan || !Number.isFinite(Date.parse(olderThan))) {
-    throw new UserInputError("Conversation log cleanup requires a valid olderThan timestamp.", {
-      code: "conversation_cleanup_older_than_required",
-      details: { path: "olderThan" },
-    });
-  }
-  const result = await cleanupConversationLogEvents({
-    botHome,
-    olderThan,
-    dryRun: options.dryRun === true || options.dryRun === "true",
-  });
-  await appendAdminAuditEvent({
-    action: "cleanup_conversation_logs",
-    userId: "operator",
-    amount: result.removed,
-    reason: result.dryRun
-      ? `dry_run older_than ${result.cutoff}`
-      : `removed older_than ${result.cutoff}`,
-  }, botHome);
-  return result;
+  return await cleanupConversationLogs(botHome, options);
 }
 
 async function reviewConversationLogForBot(botId, eventId, body = {}) {
   const botHome = await getBotHome(botId);
-  const normalizedEventId = String(eventId || "").trim();
-  if (!normalizedEventId) {
-    throw new UserInputError("Conversation event id is required.", { code: "conversation_event_id_required" });
-  }
-  return await appendConversationReviewEvent({
-    eventId: normalizedEventId,
-    status: body.status,
-    reviewer: body.reviewer || "local-web",
-    note: body.note || "",
-  }, botHome);
+  return await reviewConversationLog(botHome, eventId, body);
 }
 
 export async function getControlPlaneSnapshot() {

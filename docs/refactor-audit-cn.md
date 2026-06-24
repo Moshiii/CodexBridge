@@ -71,6 +71,32 @@
 - raw config 保存和 Quick Settings 保存可以复用同一套安全规则。
 - placeholder token 拒绝、redacted secret 保留有独立单测。
 
+### 4. Control Plane 运营服务抽离
+
+已把 Web 控制台里的用户、额度、审计、用量、运行记录、指标、迁移和 conversation log review/cleanup 管理逻辑抽到 `src/control-plane-operations-service.mjs`：
+
+- `listOperationsUsers(botHome)`
+- `grantCredits(botHome, userId, amount)`
+- `adjustCredits(botHome, userId, amount, reason)`
+- `updateUserStatus(botHome, userId, status)`
+- `updatePrivateEnabled(botHome, userId, privateEnabled)`
+- `listUsage(botHome, options)`
+- `listRuns(botHome, options)`
+- `listAdminAudit(botHome, options)`
+- `getMetrics(botHome)`
+- `runMigrations(botHome)`
+- `listConversationLogs(botHome, options)`
+- `listConversationReviews(botHome, options)`
+- `cleanupConversationLogs(botHome, options)`
+- `reviewConversationLog(botHome, eventId, body)`
+
+收益：
+
+- `control-plane-web.mjs` 不再直接写用户状态、credits、admin audit 和 conversation review。
+- HTTP 路由只负责解析 URL/body、解析 botId、调用服务函数。
+- 运营能力可以被未来 CLI、微信入口或飞书后台复用，不需要绕过 Web 控制台。
+- 新增独立单测覆盖额度变更、用户状态、私聊权限、conversation log review 和 cleanup 校验。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
