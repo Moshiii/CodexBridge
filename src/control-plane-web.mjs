@@ -57,16 +57,12 @@ import {
   writeWorkspaceFile,
 } from "./workspace-files.mjs";
 import { createWebChatService } from "./web-chat-service.mjs";
+import {
+  applySafeConfigPatch,
+  redactConfigSecrets,
+  redactControlPlaneDetail,
+} from "./control-plane-config-service.mjs";
 
-const PLACEHOLDER_TOKEN_PATTERNS = [
-  /^token-\d+$/i,
-  /^your[-_\s]?telegram[-_\s]?token$/i,
-  /^your[-_\s]?token[-_\s]?here$/i,
-  /^placeholder$/i,
-  /^changeme$/i,
-  /^example/i,
-  /^test[-_\s]?token/i,
-];
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
 const QUICK_TEST_PROMPT = "Reply with one short sentence confirming CodexBridge is ready.";
 const WORKSPACE_DEMO_PROMPTS = [
@@ -102,25 +98,8 @@ const WORKSPACE_DEMO_PROMPTS = [
   },
 ];
 const WORKSPACE_FILE_DEMO_PROMPT = WORKSPACE_DEMO_PROMPTS.find((item) => item.id === "create-file")?.prompt || QUICK_TEST_PROMPT;
-const REDACTED_SECRET = "[redacted]";
 const activeGoalRuns = new Map();
 const webChatService = createWebChatService({ resolveBotHome: getBotHome });
-
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-function deepMergeConfig(base, patch) {
-  if (!isPlainObject(base) || !isPlainObject(patch)) {
-    return patch;
-  }
-
-  const merged = { ...base };
-  for (const [key, value] of Object.entries(patch)) {
-    merged[key] = isPlainObject(value) ? deepMergeConfig(base[key] ?? {}, value) : value;
-  }
-  return merged;
-}
 
 function json(response, statusCode, payload) {
   response.writeHead(statusCode, { "content-type": "application/json; charset=utf-8" });
@@ -165,59 +144,6 @@ async function readJsonBody(request) {
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function isPlaceholderToken(value) {
-  const token = String(value || "").trim();
-  if (!token) {
-    return false;
-  }
-  return PLACEHOLDER_TOKEN_PATTERNS.some((pattern) => pattern.test(token));
-}
-
-function assertSafeTelegramToken(token) {
-  if (isPlaceholderToken(token)) {
-    throw new UserInputError("Refusing to save placeholder Telegram token.", {
-      code: "placeholder_telegram_token",
-    });
-  }
-}
-
-function isRedactedSecret(value) {
-  return String(value || "").trim() === REDACTED_SECRET;
-}
-
-function redactSecret(value) {
-  return String(value || "").trim() ? REDACTED_SECRET : "";
-}
-
-function redactConfigSecrets(config) {
-  return {
-    ...config,
-    channels: {
-      ...(config.channels || {}),
-      telegram: {
-        ...(config.channels?.telegram || {}),
-        botToken: redactSecret(config.channels?.telegram?.botToken),
-      },
-      feishu: {
-        ...(config.channels?.feishu || {}),
-        appSecret: redactSecret(config.channels?.feishu?.appSecret),
-        verificationToken: redactSecret(config.channels?.feishu?.verificationToken),
-        encryptKey: redactSecret(config.channels?.feishu?.encryptKey),
-      },
-    },
-  };
-}
-
-function redactControlPlaneDetail(detail) {
-  return {
-    ...detail,
-    detail: {
-      ...detail.detail,
-      config: redactConfigSecrets(detail.detail.config),
-    },
-  };
 }
 
 function buildStorageReadiness(config = {}, migrationStatus = {}) {
@@ -690,40 +616,6 @@ async function allowTelegramAccessForBot(botId, { accessType, id } = {}) {
     };
   });
   return await getBotControlPlaneDetail(botId);
-}
-
-function applySafeConfigPatch(currentConfig, patch) {
-  const nextConfig = deepMergeConfig(currentConfig, patch);
-  const nextToken = nextConfig.channels?.telegram?.botToken;
-  const currentToken = currentConfig.channels?.telegram?.botToken || "";
-  if (isRedactedSecret(nextToken)) {
-    nextConfig.channels.telegram.botToken = currentToken;
-  }
-  if (typeof nextToken === "string" && nextToken.trim() !== currentToken.trim()) {
-    if (!nextToken.trim()) {
-      return nextConfig;
-    }
-    if (!isRedactedSecret(nextToken)) {
-      assertSafeTelegramToken(nextToken);
-    }
-  }
-
-  const nextFeishuSecret = nextConfig.channels?.feishu?.appSecret;
-  const currentFeishuSecret = currentConfig.channels?.feishu?.appSecret || "";
-  if (isRedactedSecret(nextFeishuSecret)) {
-    nextConfig.channels.feishu.appSecret = currentFeishuSecret;
-  }
-  const nextFeishuVerificationToken = nextConfig.channels?.feishu?.verificationToken;
-  const currentFeishuVerificationToken = currentConfig.channels?.feishu?.verificationToken || "";
-  if (isRedactedSecret(nextFeishuVerificationToken)) {
-    nextConfig.channels.feishu.verificationToken = currentFeishuVerificationToken;
-  }
-  const nextFeishuEncryptKey = nextConfig.channels?.feishu?.encryptKey;
-  const currentFeishuEncryptKey = currentConfig.channels?.feishu?.encryptKey || "";
-  if (isRedactedSecret(nextFeishuEncryptKey)) {
-    nextConfig.channels.feishu.encryptKey = currentFeishuEncryptKey;
-  }
-  return nextConfig;
 }
 
 async function listBotGoals(botId) {

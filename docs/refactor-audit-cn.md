@@ -57,6 +57,20 @@
 - Web chat 的并发拒绝、完成状态、失败状态和 workspace changes 有独立测试。
 - 后续可以把 API route handler 继续拆出时，chat service 已经是清晰依赖。
 
+### 3. Control Plane 配置安全逻辑抽离
+
+已把 Web 控制台的配置脱敏、redacted secret 保留、placeholder Telegram token 拒绝逻辑抽到 `src/control-plane-config-service.mjs`：
+
+- `redactConfigSecrets(config)`
+- `redactControlPlaneDetail(detail)`
+- `applySafeConfigPatch(currentConfig, patch)`
+
+收益：
+
+- secret 处理不再散落在 Web 控制台文件里。
+- raw config 保存和 Quick Settings 保存可以复用同一套安全规则。
+- placeholder token 拒绝、redacted secret 保留有独立单测。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
