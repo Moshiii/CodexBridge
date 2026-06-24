@@ -172,6 +172,19 @@
 - 修复并覆盖了 pair 路径里的 token 安全校验：placeholder Telegram token 现在会在 pair 前被拒绝。
 - access allow 的去重和类型校验有独立单测，后续做微信或飞书 access 管理时可以复用类似模式。
 
+### 10. Control Plane Skills 服务抽离
+
+已把 Web 控制台里的 skills 列表和安装逻辑抽到 `src/control-plane-skills-service.mjs`：
+
+- `listControlPlaneSkills(botHome)`
+- `installControlPlaneSkill(botHome, sourcePath)`
+
+收益：
+
+- Web handler 不再直接遍历 skills 目录、读取 `SKILL.md` 或管理 `BOT_HOME` 环境切换。
+- skills 管理能力可以被 CLI、未来的微信 concierge 面板或其它本地控制入口复用。
+- 新增测试覆盖缺失目录、frontmatter fallback、排序和安装到指定 bot home。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

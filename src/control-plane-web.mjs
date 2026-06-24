@@ -1,7 +1,6 @@
 import http from "node:http";
-import path from "node:path";
 import crypto from "node:crypto";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { URL } from "node:url";
 
 import {
@@ -22,11 +21,9 @@ import {
   updateBotConfig,
 } from "./bots.mjs";
 import {
-  getSkillsPath,
   getChannelBridgeLogPath,
   readActiveBotId,
 } from "./config.mjs";
-import { installSkillFromPath } from "./skills.mjs";
 import { hydrateTelegramMetadata } from "./telegram-metadata.mjs";
 import { UserInputError, toPublicError } from "./errors.mjs";
 import {
@@ -83,6 +80,10 @@ import {
   allowTelegramAccessForControlPlane,
   pairTelegramForControlPlane,
 } from "./control-plane-telegram-service.mjs";
+import {
+  installControlPlaneSkill,
+  listControlPlaneSkills,
+} from "./control-plane-skills-service.mjs";
 
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
 const activeGoalRuns = new Map();
@@ -188,20 +189,6 @@ async function getBotHome(botId) {
   return detail.bot.homePath;
 }
 
-async function withBotHome(botHome, work) {
-  const previousBotHome = process.env.BOT_HOME;
-  process.env.BOT_HOME = botHome;
-  try {
-    return await work();
-  } finally {
-    if (previousBotHome == null) {
-      delete process.env.BOT_HOME;
-    } else {
-      process.env.BOT_HOME = previousBotHome;
-    }
-  }
-}
-
 async function readBridgeLogs(botId, lines = 200) {
   const detail = await inspectBot(botId);
   const logPath = getChannelBridgeLogPath(detail.bot.channel, detail.bot.homePath);
@@ -269,37 +256,12 @@ async function writeWorkspaceFileForBot(botId, relativePath, content) {
 
 async function listBotSkills(botId) {
   const botHome = await getBotHome(botId);
-  const skillsPath = getSkillsPath(botHome);
-  let entries = [];
-  try {
-    entries = await readdir(skillsPath, { withFileTypes: true });
-  } catch {
-    return [];
-  }
-  const skills = (
-    await Promise.all(
-      entries
-        .filter((entry) => entry.isDirectory())
-        .map(async (entry) => {
-          const skillPath = path.join(skillsPath, entry.name, "SKILL.md");
-          const raw = await readFile(skillPath, "utf8").catch(() => "");
-          const matchName = raw.match(/^name:\s*(.+)$/m);
-          const matchDescription = raw.match(/^description:\s*(.+)$/m);
-          return {
-            id: entry.name,
-            name: matchName?.[1]?.trim() || entry.name,
-            description: matchDescription?.[1]?.trim() || "No description.",
-            path: skillPath,
-          };
-        }),
-    )
-  ).filter(Boolean);
-  return skills.sort((a, b) => a.id.localeCompare(b.id));
+  return await listControlPlaneSkills(botHome);
 }
 
 async function installSkillForBot(botId, sourcePath) {
   const botHome = await getBotHome(botId);
-  return await withBotHome(botHome, async () => await installSkillFromPath(sourcePath, { force: true }));
+  return await installControlPlaneSkill(botHome, sourcePath);
 }
 
 async function pairTelegramForBot(botId, token) {
