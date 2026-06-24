@@ -2,7 +2,8 @@ import { QUICK_TEST_PROMPT, WORKSPACE_DEMO_PROMPTS } from "./control-plane-quick
 
 const DEFAULT_WEB_CHAT_POLL_MS = 500;
 
-export function renderHtmlPage() {
+export function renderHtmlPage({ homePath = process.env.HOME || "" } = {}) {
+  const compactPathHome = String(homePath || "").replace(/\/+$/, "");
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -1161,7 +1162,7 @@ Skills: installed capabilities</pre>
     </main>
     <script>
       function compactPath(value) {
-        const home = "/Users/moshiwei";
+        const home = ${JSON.stringify(compactPathHome)};
         return String(value || "").startsWith(home) ? "~" + String(value).slice(home.length) : String(value || "");
       }
 

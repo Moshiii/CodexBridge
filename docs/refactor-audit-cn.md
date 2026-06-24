@@ -276,6 +276,20 @@
 - 旧的全局环境依赖被收束到一个小模块，后续逐步改成显式 botHome 参数时更容易定位。
 - 新增单测覆盖正常返回、原值恢复、原本未设置时删除、callback 抛错后恢复。
 
+### 17. Web 控制台路径压缩去硬编码
+
+已修复 `src/control-plane-page.mjs` 里前端 `compactPath` 写死 `/Users/moshiwei` 的问题：
+
+- `renderHtmlPage({ homePath })` 现在支持注入 home path。
+- 默认使用 `process.env.HOME`。
+- 注入前会移除尾部 `/`，避免 `~/workspace` 这类显示结果变成 `~//workspace`。
+
+收益：
+
+- 项目换到 AWS、阿里云、Linux 服务器或其它开发机时，控制台路径显示仍正确。
+- 页面模板不再携带开发者本机路径假设。
+- 新增单测防止本机路径硬编码回归。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**

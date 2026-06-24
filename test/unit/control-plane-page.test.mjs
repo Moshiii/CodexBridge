@@ -26,3 +26,12 @@ test("control plane page escapes dynamic bot rail fields before assigning innerH
   assert.match(html, /escapeHtml\(bot\.status\)/);
   assert.doesNotMatch(html, /'<div><strong>' \+ bot\.name \+ '<\/strong><\/div>'/);
 });
+
+test("control plane page injects the compact path home instead of hardcoding a developer path", async () => {
+  const { renderHtmlPage } = await importFresh("../../src/control-plane-page.mjs");
+
+  const html = renderHtmlPage({ homePath: "/srv/codexbridge/" });
+
+  assert.match(html, /const home = "\/srv\/codexbridge";/);
+  assert.doesNotMatch(html, /const home = "\/Users\/moshiwei";/);
+});
