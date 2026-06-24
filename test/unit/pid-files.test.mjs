@@ -72,3 +72,22 @@ test("pid files terminate running pids with SIGTERM fallback flow", async () => 
     }
   }
 });
+
+test("pid files request child stop and schedule a hard kill", async () => {
+  const { requestChildStop } = await importFresh("../../src/pid-files.mjs");
+  const signals = [];
+  const child = {
+    exitCode: null,
+    killed: false,
+    kill(signal) {
+      signals.push(signal);
+      return true;
+    },
+  };
+
+  assert.equal(requestChildStop(child, { killDelayMs: 5 }), true);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+
+  assert.deepEqual(signals, ["SIGTERM", "SIGKILL"]);
+  assert.equal(requestChildStop({ ...child, killed: true }), false);
+});

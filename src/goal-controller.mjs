@@ -1,3 +1,4 @@
+import { requestChildStop } from "./pid-files.mjs";
 import { startGoalRun } from "./goal-runner.mjs";
 import { writeGoal } from "./goals-state.mjs";
 
@@ -25,27 +26,7 @@ export function requestGoalStop(runningGoal) {
 
   runningGoal.controller.stopRequested = true;
   const child = runningGoal.controller.activeChild;
-  if (!child || child.exitCode != null || child.killed) {
-    return true;
-  }
-
-  try {
-    child.kill("SIGTERM");
-  } catch {
-    return false;
-  }
-
-  setTimeout(() => {
-    if (child.exitCode == null && !child.killed) {
-      try {
-        child.kill("SIGKILL");
-      } catch {
-        // ignore hard-kill failures
-      }
-    }
-  }, 3000).unref?.();
-
-  return true;
+  return child ? requestChildStop(child) : true;
 }
 
 export async function launchGoal(goal, options) {

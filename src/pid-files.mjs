@@ -86,3 +86,51 @@ export async function terminatePid(pid, { timeoutMs = 4000, pollMs = 150 } = {})
   }
   return true;
 }
+
+export function requestChildStop(child, { signal = "SIGTERM", killDelayMs = 3000 } = {}) {
+  if (!child || child.exitCode != null || child.killed) {
+    return false;
+  }
+  try {
+    child.kill(signal);
+  } catch {
+    return false;
+  }
+  setTimeout(() => {
+    if (child.exitCode == null && !child.killed) {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // ignore hard-kill failures
+      }
+    }
+  }, killDelayMs).unref?.();
+  return true;
+}
+
+export async function terminateChildProcess(child, { signal = "SIGTERM", timeoutMs = 4000 } = {}) {
+  if (!child || child.exitCode != null || child.killed) {
+    return false;
+  }
+
+  const waitForExit = new Promise((resolve) => {
+    child.once("exit", resolve);
+  });
+
+  try {
+    child.kill(signal);
+  } catch {
+    return false;
+  }
+
+  await Promise.race([
+    waitForExit,
+    new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
+
+  if (child.exitCode == null) {
+    child.kill("SIGKILL");
+    await waitForExit;
+  }
+  return true;
+}

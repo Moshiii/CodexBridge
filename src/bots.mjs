@@ -31,6 +31,7 @@ import {
   clearPidFile,
   isPidRunning,
   readPidFile,
+  terminateChildProcess,
   terminatePid,
   writeCurrentPidFile,
 } from "./pid-files.mjs";
@@ -71,27 +72,6 @@ async function listProcesses() {
       };
     })
     .filter(Boolean);
-}
-
-async function terminateChildProcess(child, signal = "SIGTERM", timeoutMs = 4000) {
-  if (!child || child.exitCode != null || child.killed) {
-    return;
-  }
-
-  const waitForExit = new Promise((resolve) => {
-    child.once("exit", resolve);
-  });
-
-  child.kill(signal);
-  await Promise.race([
-    waitForExit,
-    new Promise((resolve) => setTimeout(resolve, timeoutMs)),
-  ]);
-
-  if (child.exitCode == null) {
-    child.kill("SIGKILL");
-    await waitForExit;
-  }
 }
 
 export function normalizeBotId(raw) {
@@ -557,7 +537,7 @@ export async function runBotRuntime(botId) {
       return;
     }
     exiting = true;
-    await terminateChildProcess(bridgeChild, signal === "SIGINT" ? "SIGINT" : "SIGTERM");
+    await terminateChildProcess(bridgeChild, { signal: signal === "SIGINT" ? "SIGINT" : "SIGTERM" });
     const latest = await readConfig(botHome);
     latest.status = "stopped";
     latest.observability = {

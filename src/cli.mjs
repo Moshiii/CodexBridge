@@ -40,6 +40,7 @@ import {
   renderCliResult,
   slugifySessionLabel,
 } from "./cli-formatters.mjs";
+import { requestChildStop } from "./pid-files.mjs";
 
 function isReadlineAbortError(error) {
   return error?.code === "ABORT_ERR" || error?.name === "AbortError";
@@ -490,25 +491,11 @@ async function handleChannelCommand(rl, botContextRef, config, bridgeProcessRef)
 }
 
 function requestStop(turn) {
-  if (!turn || !turn.child || turn.child.exitCode != null || turn.child.killed) {
+  if (!turn) {
     return false;
   }
   turn.stopRequested = true;
-  try {
-    turn.child.kill("SIGTERM");
-  } catch {
-    return false;
-  }
-  setTimeout(() => {
-    if (turn.child.exitCode == null && !turn.child.killed) {
-      try {
-        turn.child.kill("SIGKILL");
-      } catch {
-        // ignore hard-kill failures
-      }
-    }
-  }, 3000).unref?.();
-  return true;
+  return requestChildStop(turn.child);
 }
 
 async function loadCliBotContext(botId) {
