@@ -82,7 +82,10 @@ import {
   readJsonBody,
   unauthorized,
 } from "./control-plane-http.mjs";
-import { pickRequestSearchParams } from "./control-plane-api-utils.mjs";
+import {
+  decodeRouteParam,
+  pickRequestSearchParams,
+} from "./control-plane-api-utils.mjs";
 
 export { isWebRequestAuthorized } from "./control-plane-http.mjs";
 
@@ -299,43 +302,43 @@ async function handleApi(request, response, pathname) {
 
   const botMatch = pathname.match(/^\/api\/bots\/([^/]+)$/);
   if (request.method === "GET" && botMatch) {
-    return json(response, 200, redactControlPlaneDetail(await getBotControlPlaneDetail(decodeURIComponent(botMatch[1]))));
+    return json(response, 200, redactControlPlaneDetail(await getBotControlPlaneDetail(decodeRouteParam(botMatch))));
   }
 
   const botDeleteMatch = pathname.match(/^\/api\/bots\/([^/]+)$/);
   if (request.method === "DELETE" && botDeleteMatch) {
-    const botId = decodeURIComponent(botDeleteMatch[1]);
+    const botId = decodeRouteParam(botDeleteMatch);
     await deleteBot(botId);
     return json(response, 200, { botId, deleted: true });
   }
 
   const botUseMatch = pathname.match(/^\/api\/bots\/([^/]+)\/use$/);
   if (request.method === "POST" && botUseMatch) {
-    const botId = decodeURIComponent(botUseMatch[1]);
+    const botId = decodeRouteParam(botUseMatch);
     await setActiveBot(botId);
     return json(response, 200, { currentBotId: botId });
   }
 
   const botToggleMatch = pathname.match(/^\/api\/bots\/([^/]+)\/(enable|disable)$/);
   if (request.method === "POST" && botToggleMatch) {
-    const botId = decodeURIComponent(botToggleMatch[1]);
+    const botId = decodeRouteParam(botToggleMatch);
     const enabled = botToggleMatch[2] === "enable";
     return json(response, 200, await setBotEnabled(botId, enabled));
   }
 
   const botLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/logs$/);
   if (request.method === "GET" && botLogsMatch) {
-    return json(response, 200, await readBotLogs(decodeURIComponent(botLogsMatch[1]), 200));
+    return json(response, 200, await readBotLogs(decodeRouteParam(botLogsMatch), 200));
   }
 
   const botBridgeLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/bridge-logs$/);
   if (request.method === "GET" && botBridgeLogsMatch) {
-    return json(response, 200, await readBridgeLogs(decodeURIComponent(botBridgeLogsMatch[1]), 200));
+    return json(response, 200, await readBridgeLogs(decodeRouteParam(botBridgeLogsMatch), 200));
   }
 
   const botActionMatch = pathname.match(/^\/api\/bots\/([^/]+)\/(start|stop|restart)$/);
   if (request.method === "POST" && botActionMatch) {
-    const botId = decodeURIComponent(botActionMatch[1]);
+    const botId = decodeRouteParam(botActionMatch);
     const action = botActionMatch[2];
     if (action === "start") {
       return json(response, 200, { botId, pid: await startBot(botId) });
@@ -348,7 +351,7 @@ async function handleApi(request, response, pathname) {
 
   const botConfigMatch = pathname.match(/^\/api\/bots\/([^/]+)\/config$/);
   if (request.method === "POST" && botConfigMatch) {
-    const botId = decodeURIComponent(botConfigMatch[1]);
+    const botId = decodeRouteParam(botConfigMatch);
     const body = await readJsonBody(request);
     const currentConfig = (await inspectBot(botId)).config;
     await updateBotConfig(botId, () => applySafeConfigPatch(currentConfig, body));
@@ -358,10 +361,10 @@ async function handleApi(request, response, pathname) {
 
   const botSessionsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/sessions$/);
   if (request.method === "GET" && botSessionsMatch) {
-    return json(response, 200, await readBotSessions(decodeURIComponent(botSessionsMatch[1])));
+    return json(response, 200, await readBotSessions(decodeRouteParam(botSessionsMatch)));
   }
   if (request.method === "POST" && botSessionsMatch) {
-    const botId = decodeURIComponent(botSessionsMatch[1]);
+    const botId = decodeRouteParam(botSessionsMatch);
     const body = await readJsonBody(request);
     return json(response, 200, await createBotSession(botId, body.label));
   }
@@ -371,25 +374,25 @@ async function handleApi(request, response, pathname) {
     return json(
       response,
       200,
-      await activateBotSession(decodeURIComponent(botSessionUseMatch[1]), decodeURIComponent(botSessionUseMatch[2])),
+      await activateBotSession(decodeRouteParam(botSessionUseMatch), decodeRouteParam(botSessionUseMatch, 2)),
     );
   }
 
   const botChatMatch = pathname.match(/^\/api\/bots\/([^/]+)\/chat$/);
   if (request.method === "GET" && botChatMatch) {
-    const botId = decodeURIComponent(botChatMatch[1]);
+    const botId = decodeRouteParam(botChatMatch);
     const query = pickRequestSearchParams(request, ["sessionLabel"]);
     return json(response, 200, await readChatStatus(botId, query.sessionLabel));
   }
   if (request.method === "POST" && botChatMatch) {
-    const botId = decodeURIComponent(botChatMatch[1]);
+    const botId = decodeRouteParam(botChatMatch);
     const body = await readJsonBody(request);
     return json(response, 200, await startBotChat(botId, body));
   }
 
   const botChatStopMatch = pathname.match(/^\/api\/bots\/([^/]+)\/chat\/stop$/);
   if (request.method === "POST" && botChatStopMatch) {
-    const botId = decodeURIComponent(botChatStopMatch[1]);
+    const botId = decodeRouteParam(botChatStopMatch);
     const body = await readJsonBody(request);
     return json(response, 200, await stopBotChat(botId, body.sessionLabel));
   }
@@ -397,13 +400,13 @@ async function handleApi(request, response, pathname) {
   const botQuickTestMatch = pathname.match(/^\/api\/bots\/([^/]+)\/quick-test$/);
   if (request.method === "POST" && botQuickTestMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await startQuickTestForBot(decodeURIComponent(botQuickTestMatch[1]), { mode: body.mode }));
+    return json(response, 200, await startQuickTestForBot(decodeRouteParam(botQuickTestMatch), { mode: body.mode }));
   }
 
   const botTelegramPairMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/pair$/);
   if (request.method === "POST" && botTelegramPairMatch) {
     const body = await readJsonBody(request);
-    const payload = await pairTelegramForBot(decodeURIComponent(botTelegramPairMatch[1]), body.token);
+    const payload = await pairTelegramForBot(decodeRouteParam(botTelegramPairMatch), body.token);
     return json(response, 200, {
       ...payload,
       detail: redactControlPlaneDetail(payload.detail),
@@ -414,14 +417,14 @@ async function handleApi(request, response, pathname) {
   if (request.method === "POST" && botTelegramAccessMatch) {
     const body = await readJsonBody(request);
     return json(response, 200, redactControlPlaneDetail(await allowTelegramAccessForBot(
-      decodeURIComponent(botTelegramAccessMatch[1]),
+      decodeRouteParam(botTelegramAccessMatch),
       body,
     )));
   }
 
   const botTelegramRefreshMatch = pathname.match(/^\/api\/bots\/([^/]+)\/telegram\/refresh$/);
   if (request.method === "POST" && botTelegramRefreshMatch) {
-    const botId = decodeURIComponent(botTelegramRefreshMatch[1]);
+    const botId = decodeRouteParam(botTelegramRefreshMatch);
     const detail = await inspectBot(botId);
     await hydrateTelegramMetadata(detail.bot.homePath);
     return json(response, 200, redactControlPlaneDetail(await getBotControlPlaneDetail(botId)));
@@ -429,20 +432,20 @@ async function handleApi(request, response, pathname) {
 
   const botGoalsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/goals$/);
   if (request.method === "GET" && botGoalsMatch) {
-    return json(response, 200, await listBotGoals(decodeURIComponent(botGoalsMatch[1])));
+    return json(response, 200, await listBotGoals(decodeRouteParam(botGoalsMatch)));
   }
   if (request.method === "POST" && botGoalsMatch) {
-    const botId = decodeURIComponent(botGoalsMatch[1]);
+    const botId = decodeRouteParam(botGoalsMatch);
     const body = await readJsonBody(request);
     return json(response, 200, await startGoalForBot(botId, body));
   }
 
   const botSchedulesMatch = pathname.match(/^\/api\/bots\/([^/]+)\/schedules$/);
   if (request.method === "GET" && botSchedulesMatch) {
-    return json(response, 200, await listBotSchedules(decodeURIComponent(botSchedulesMatch[1])));
+    return json(response, 200, await listBotSchedules(decodeRouteParam(botSchedulesMatch)));
   }
   if (request.method === "POST" && botSchedulesMatch) {
-    const botId = decodeURIComponent(botSchedulesMatch[1]);
+    const botId = decodeRouteParam(botSchedulesMatch);
     const body = await readJsonBody(request);
     return json(response, 200, await createScheduleForBot(botId, body));
   }
@@ -453,8 +456,8 @@ async function handleApi(request, response, pathname) {
       response,
       200,
       await toggleScheduleForBot(
-        decodeURIComponent(botScheduleToggleMatch[1]),
-        decodeURIComponent(botScheduleToggleMatch[2]),
+        decodeRouteParam(botScheduleToggleMatch),
+        decodeRouteParam(botScheduleToggleMatch, 2),
         botScheduleToggleMatch[3] === "enable",
       ),
     );
@@ -462,7 +465,7 @@ async function handleApi(request, response, pathname) {
 
   const botUsersMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users$/);
   if (request.method === "GET" && botUsersMatch) {
-    return json(response, 200, await listBotUsers(decodeURIComponent(botUsersMatch[1])));
+    return json(response, 200, await listBotUsers(decodeRouteParam(botUsersMatch)));
   }
 
   const botUserGrantMatch = pathname.match(/^\/api\/bots\/([^/]+)\/users\/([^/]+)\/grant$/);
@@ -472,8 +475,8 @@ async function handleApi(request, response, pathname) {
       response,
       200,
       await grantCreditsForBot(
-        decodeURIComponent(botUserGrantMatch[1]),
-        decodeURIComponent(botUserGrantMatch[2]),
+        decodeRouteParam(botUserGrantMatch),
+        decodeRouteParam(botUserGrantMatch, 2),
         body.amount,
       ),
     );
@@ -486,8 +489,8 @@ async function handleApi(request, response, pathname) {
       response,
       200,
       await adjustCreditsForBot(
-        decodeURIComponent(botUserAdjustMatch[1]),
-        decodeURIComponent(botUserAdjustMatch[2]),
+        decodeRouteParam(botUserAdjustMatch),
+        decodeRouteParam(botUserAdjustMatch, 2),
         body.amount,
         body.reason || "manual_adjustment",
       ),
@@ -501,8 +504,8 @@ async function handleApi(request, response, pathname) {
       response,
       200,
       await updateUserStatusForBot(
-        decodeURIComponent(botUserStatusMatch[1]),
-        decodeURIComponent(botUserStatusMatch[2]),
+        decodeRouteParam(botUserStatusMatch),
+        decodeRouteParam(botUserStatusMatch, 2),
         body.status,
       ),
     );
@@ -515,8 +518,8 @@ async function handleApi(request, response, pathname) {
       response,
       200,
       await updatePrivateEnabledForBot(
-        decodeURIComponent(botUserPrivateMatch[1]),
-        decodeURIComponent(botUserPrivateMatch[2]),
+        decodeRouteParam(botUserPrivateMatch),
+        decodeRouteParam(botUserPrivateMatch, 2),
         body.privateEnabled === true,
       ),
     );
@@ -524,38 +527,38 @@ async function handleApi(request, response, pathname) {
 
   const botUsageMatch = pathname.match(/^\/api\/bots\/([^/]+)\/usage$/);
   if (request.method === "GET" && botUsageMatch) {
-    return json(response, 200, await listUsageForBot(decodeURIComponent(botUsageMatch[1]), {
+    return json(response, 200, await listUsageForBot(decodeRouteParam(botUsageMatch), {
       ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botRunsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/runs$/);
   if (request.method === "GET" && botRunsMatch) {
-    return json(response, 200, await listRunsForBot(decodeURIComponent(botRunsMatch[1]), {
+    return json(response, 200, await listRunsForBot(decodeRouteParam(botRunsMatch), {
       ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botAdminAuditMatch = pathname.match(/^\/api\/bots\/([^/]+)\/admin-audit$/);
   if (request.method === "GET" && botAdminAuditMatch) {
-    return json(response, 200, await listAdminAuditForBot(decodeURIComponent(botAdminAuditMatch[1]), {
+    return json(response, 200, await listAdminAuditForBot(decodeRouteParam(botAdminAuditMatch), {
       ...pickRequestSearchParams(request, ["userId", "limit"]),
     }));
   }
 
   const botMetricsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/metrics$/);
   if (request.method === "GET" && botMetricsMatch) {
-    return json(response, 200, await getMetricsForBot(decodeURIComponent(botMetricsMatch[1])));
+    return json(response, 200, await getMetricsForBot(decodeRouteParam(botMetricsMatch)));
   }
 
   const botMigrationsRunMatch = pathname.match(/^\/api\/bots\/([^/]+)\/migrations\/run$/);
   if (request.method === "POST" && botMigrationsRunMatch) {
-    return json(response, 200, await runMigrationsForBot(decodeURIComponent(botMigrationsRunMatch[1])));
+    return json(response, 200, await runMigrationsForBot(decodeRouteParam(botMigrationsRunMatch)));
   }
 
   const botConversationLogsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-logs$/);
   if (request.method === "GET" && botConversationLogsMatch) {
-    return json(response, 200, await listConversationLogsForBot(decodeURIComponent(botConversationLogsMatch[1]), {
+    return json(response, 200, await listConversationLogsForBot(decodeRouteParam(botConversationLogsMatch), {
       ...pickRequestSearchParams(request, [
         "userId",
         "runId",
@@ -574,14 +577,14 @@ async function handleApi(request, response, pathname) {
   if (request.method === "POST" && botConversationLogsCleanupMatch) {
     const body = await readJsonBody(request);
     return json(response, 200, await cleanupConversationLogsForBot(
-      decodeURIComponent(botConversationLogsCleanupMatch[1]),
+      decodeRouteParam(botConversationLogsCleanupMatch),
       body,
     ));
   }
 
   const botConversationReviewsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/conversation-reviews$/);
   if (request.method === "GET" && botConversationReviewsMatch) {
-    return json(response, 200, await listConversationReviewsForBot(decodeURIComponent(botConversationReviewsMatch[1]), {
+    return json(response, 200, await listConversationReviewsForBot(decodeRouteParam(botConversationReviewsMatch), {
       ...pickRequestSearchParams(request, ["eventId", "status", "limit"]),
     }));
   }
@@ -590,15 +593,15 @@ async function handleApi(request, response, pathname) {
   if (request.method === "POST" && botConversationReviewMatch) {
     const body = await readJsonBody(request);
     return json(response, 200, await reviewConversationLogForBot(
-      decodeURIComponent(botConversationReviewMatch[1]),
-      decodeURIComponent(botConversationReviewMatch[2]),
+      decodeRouteParam(botConversationReviewMatch),
+      decodeRouteParam(botConversationReviewMatch, 2),
       body,
     ));
   }
 
   const botWorkspaceMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace$/);
   if (request.method === "GET" && botWorkspaceMatch) {
-    return json(response, 200, await listWorkspaceFiles(await getBotHome(decodeURIComponent(botWorkspaceMatch[1]))));
+    return json(response, 200, await listWorkspaceFiles(await getBotHome(decodeRouteParam(botWorkspaceMatch))));
   }
 
   const botWorkspaceFileMatch = pathname.match(/^\/api\/bots\/([^/]+)\/workspace\/file$/);
@@ -607,7 +610,7 @@ async function handleApi(request, response, pathname) {
       response,
       200,
       await readWorkspaceFileForBot(
-        decodeURIComponent(botWorkspaceFileMatch[1]),
+        decodeRouteParam(botWorkspaceFileMatch),
         pickRequestSearchParams(request, ["path"]).path,
       ),
     );
@@ -617,17 +620,17 @@ async function handleApi(request, response, pathname) {
     return json(
       response,
       200,
-      await writeWorkspaceFileForBot(decodeURIComponent(botWorkspaceFileMatch[1]), body.path, body.content),
+      await writeWorkspaceFileForBot(decodeRouteParam(botWorkspaceFileMatch), body.path, body.content),
     );
   }
 
   const botSkillsMatch = pathname.match(/^\/api\/bots\/([^/]+)\/skills$/);
   if (request.method === "GET" && botSkillsMatch) {
-    return json(response, 200, await listBotSkills(decodeURIComponent(botSkillsMatch[1])));
+    return json(response, 200, await listBotSkills(decodeRouteParam(botSkillsMatch)));
   }
   if (request.method === "POST" && botSkillsMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await installSkillForBot(decodeURIComponent(botSkillsMatch[1]), body.sourcePath));
+    return json(response, 200, await installSkillForBot(decodeRouteParam(botSkillsMatch), body.sourcePath));
   }
 
   if (request.method === "POST" && pathname === "/api/rollout/restart-all") {
@@ -642,7 +645,7 @@ async function handleApi(request, response, pathname) {
   const rollbackMatch = pathname.match(/^\/api\/rollout\/rollback\/([^/]+)$/);
   if (request.method === "POST" && rollbackMatch) {
     const body = await readJsonBody(request);
-    return json(response, 200, await rollbackBot(decodeURIComponent(rollbackMatch[1]), body.version || "v1"));
+    return json(response, 200, await rollbackBot(decodeRouteParam(rollbackMatch), body.version || "v1"));
   }
 
   return false;

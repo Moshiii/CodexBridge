@@ -3,6 +3,14 @@ import assert from "node:assert/strict";
 
 import { importFresh } from "../helpers/module.js";
 
+test("decodeRouteParam decodes route capture groups", async () => {
+  const { decodeRouteParam } = await importFresh("../../src/control-plane-api-utils.mjs");
+  const match = ["/api/bots/demo%20bot/sessions/main%2Fwork/use", "demo%20bot", "main%2Fwork"];
+
+  assert.equal(decodeRouteParam(match), "demo bot");
+  assert.equal(decodeRouteParam(match, 2), "main/work");
+});
+
 test("pickRequestSearchParams returns selected query params", async () => {
   const { pickRequestSearchParams } = await importFresh("../../src/control-plane-api-utils.mjs");
 

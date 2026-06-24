@@ -349,6 +349,28 @@
 - 查询参数缺失时统一返回 `null`，继续保持原本 `URLSearchParams.get()` 语义。
 - 新增单测覆盖参数选择、URL 解码和空 URL fallback。
 
+### 21. Control Plane route 参数解码抽离
+
+已把 `src/control-plane-web.mjs` 里重复的 route capture group 解码抽到 `src/control-plane-api-utils.mjs`：
+
+- `decodeRouteParam(match, index = 1)`
+
+已替换：
+
+- bot id 解码
+- session label 解码
+- schedule id 解码
+- user id 解码
+- conversation event id 解码
+- rollout rollback bot id 解码
+
+收益：
+
+- route handler 不再散落几十处 `decodeURIComponent(match[n])`。
+- 默认读取第一个 capture group，让大多数 bot-scoped route 更短。
+- 多 capture group route 仍显式传 `index`，可读性不受影响。
+- 新增单测覆盖默认 capture group 和指定 capture group 的 URL 解码。
+
 ## 下一步重构顺序
 
 1. **继续拆 `control-plane-web.mjs` 的 route handlers**
